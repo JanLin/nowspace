@@ -1,0 +1,12 @@
+services:
+  coach:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${VAULT_PATH:-./_vault}:/vault
+      - ./memory:/app/memory
+    env_file: .env
+    environment:
+      - VAULT_PATH=/vault
+    restart: unless-stopped
