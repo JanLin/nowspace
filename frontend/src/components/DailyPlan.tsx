@@ -310,6 +310,8 @@ export default function DailyPlan({
       priority: "C",
       pillars: [],
       subtasks: [],
+      focused: false,
+      waiting: false,
     };
     const tasks = [...plan.tasks];
     tasks.splice(afterIdx + 1, 0, newTask);

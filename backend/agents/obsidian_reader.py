@@ -419,6 +419,15 @@ def parse_tasks(content: str, source_file: str = "") -> list[Task]:
         # Remove leading bullet/star artifacts left after processing
         clean_text = clean_text.lstrip("*-").strip()
 
+        # Detect WAIT prefix
+        is_waiting = False
+        if clean_text.upper().startswith("WAIT:"):
+            is_waiting = True
+            clean_text = clean_text[5:].strip()
+        elif clean_text.upper().startswith("WAIT "):
+            is_waiting = True
+            clean_text = clean_text[5:].strip()
+
         if not clean_text or len(clean_text) < 3:
             continue
 
@@ -447,6 +456,8 @@ def parse_tasks(content: str, source_file: str = "") -> list[Task]:
             tags=tags,
             priority=inline_priority,
             subtasks=subtasks,
+            focused=has_bold,
+            waiting=is_waiting,
         ))
 
     return tasks
@@ -575,6 +586,15 @@ def parse_tasks_with_carryover(
         clean_text = clean_text.replace("~~", "").strip()
         clean_text = clean_text.lstrip("*-").strip()
 
+        # Detect WAIT prefix
+        is_waiting = False
+        if clean_text.upper().startswith("WAIT:"):
+            is_waiting = True
+            clean_text = clean_text[5:].strip()
+        elif clean_text.upper().startswith("WAIT "):
+            is_waiting = True
+            clean_text = clean_text[5:].strip()
+
         if not clean_text or len(clean_text) < 3:
             continue
 
@@ -601,6 +621,8 @@ def parse_tasks_with_carryover(
             tags=tags,
             priority=inline_priority,
             subtasks=subtasks,
+            focused=has_bold,
+            waiting=is_waiting,
         )
 
         if in_other_day_section:
@@ -822,6 +844,15 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
         clean_text = clean_text.replace("~~", "").strip()
         clean_text = clean_text.lstrip("*-").strip()
 
+        # Detect WAIT prefix
+        is_waiting = False
+        if clean_text.upper().startswith("WAIT:"):
+            is_waiting = True
+            clean_text = clean_text[5:].strip()
+        elif clean_text.upper().startswith("WAIT "):
+            is_waiting = True
+            clean_text = clean_text[5:].strip()
+
         if not clean_text or len(clean_text) < 3:
             continue
 
@@ -848,6 +879,8 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
             tags=tags,
             priority=inline_priority,
             subtasks=subtasks,
+            focused=has_bold,
+            waiting=is_waiting,
         )
         day_map[current_day].append(task)
 

@@ -26,6 +26,8 @@ export interface Task {
   priority: string;
   pillars: string[];
   subtasks: Subtask[];
+  focused: boolean;
+  waiting: boolean;
 }
 
 export interface PlanResponse {

@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useEffect } from "react";
+import React, { useState, useRef, useMemo, useEffect } from "react";
 import { api, type WeekPlanResponse, type DayTasks, type Task } from "../api";
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -26,7 +26,37 @@ const PILLAR_ICONS: Record<string, { symbol: string; title: string }> = {
   longterm: { symbol: "\u{1F3AF}", title: "Long term goals" },
 };
 
-type ViewMode = "day" | "5day" | "7day" | "weekend";
+type ViewMode = "day" | "3day" | "5day" | "7day" | "weekend";
+
+const MD_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
+
+/** Render text with markdown links as clickable <a> elements */
+function renderLinkedText(text: string) {
+  const parts: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+  const re = new RegExp(MD_LINK_RE);
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > lastIdx) parts.push(text.slice(lastIdx, match.index));
+    parts.push(
+      <a
+        key={match.index}
+        href={match[2]}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="text-blue-600 underline hover:text-blue-800"
+      >
+        {match[1]}
+      </a>
+    );
+    lastIdx = re.lastIndex;
+  }
+  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  if (parts.length === 1 && typeof parts[0] === "string") return <>{text}</>;
+  return <>{parts}</>;
+}
 
 /** Parse group prefix from task text. "Rotary: do X" => { group: "Rotary", label: "do X" } */
 function parseGroup(text: string): { group: string; label: string } {
@@ -34,7 +64,7 @@ function parseGroup(text: string): { group: string; label: string } {
   if (idx > 0 && idx < 30) {
     const group = text.slice(0, idx).trim();
     const label = text.slice(idx + 1).trim();
-    if (group && label) return { group, label };
+    if (group && label && !group.includes("[") && !group.endsWith("http") && !group.endsWith("https")) return { group, label };
   }
   return { group: "", label: text };
 }
@@ -229,6 +259,8 @@ export default function WeekPlan() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [autoSavePaused, setAutoSavePaused] = useState(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [priorityMenu, setPriorityMenu] = useState<{ day: number; task: number } | null>(null);
   const [groupView, setGroupView] = useState(true);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
@@ -296,10 +328,26 @@ export default function WeekPlan() {
     }
   };
 
+  // Auto-save: save every 30s when dirty and not paused
+  useEffect(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    if (dirty && !autoSavePaused && !saving && data) {
+      autoSaveTimerRef.current = setTimeout(() => {
+        saveWeek();
+      }, 30000);
+    }
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [dirty, autoSavePaused, saving, data]);
+
   const addTask = (dayIdx: number, afterIdx: number, text: string) => {
     if (!data) return;
     const newTask: Task = {
-      text, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "C", pillars: [], subtasks: [],
+      text, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
     };
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
@@ -318,6 +366,30 @@ export default function WeekPlan() {
       if (di !== dayIdx) return d;
       const tasks = [...d.tasks];
       tasks[taskIdx] = { ...tasks[taskIdx], done: !tasks[taskIdx].done };
+      return { ...d, tasks };
+    });
+    setData({ ...data, days });
+    setDirty(true);
+  };
+
+  const toggleFocus = (dayIdx: number, taskIdx: number) => {
+    if (!data) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      tasks[taskIdx] = { ...tasks[taskIdx], focused: !tasks[taskIdx].focused };
+      return { ...d, tasks };
+    });
+    setData({ ...data, days });
+    setDirty(true);
+  };
+
+  const toggleWaiting = (dayIdx: number, taskIdx: number) => {
+    if (!data) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      tasks[taskIdx] = { ...tasks[taskIdx], waiting: !tasks[taskIdx].waiting };
       return { ...d, tasks };
     });
     setData({ ...data, days });
@@ -595,13 +667,24 @@ export default function WeekPlan() {
   const visibleDays: number[] = (() => {
     switch (viewMode) {
       case "day": return [selectedDayIdx];
+      case "3day": {
+        // From selected day forward, but if Sat/Sun show days before
+        const idx = selectedDayIdx;
+        if (idx >= 5) {
+          // Saturday(5) or Sunday(6): show backwards to fill 3 days
+          return [Math.max(0, idx - 2), Math.max(0, idx - 1), idx].filter((v, i, a) => a.indexOf(v) === i);
+        }
+        // Weekday: show forward, clamp to end of week
+        const days = [idx, Math.min(6, idx + 1), Math.min(6, idx + 2)];
+        return [...new Set(days)];
+      }
       case "5day": return [0, 1, 2, 3, 4];
       case "weekend": return [5, 6];
       default: return [0, 1, 2, 3, 4, 5, 6];
     }
   })();
 
-  const gridCols = viewMode === "weekend" ? "grid-cols-2" : viewMode === "5day" ? "grid-cols-5" : "grid-cols-7";
+  const gridCols = viewMode === "3day" ? "grid-cols-3" : viewMode === "weekend" ? "grid-cols-2" : viewMode === "5day" ? "grid-cols-5" : "grid-cols-7";
 
   const getFilteredTasks = (tasks: Task[]): Task[] => {
     let filtered = tasks;
@@ -767,10 +850,31 @@ export default function WeekPlan() {
       ) : (
         <span
           onClick={(e) => { e.stopPropagation(); if (!task.done) setEditingTask({ dayIdx, taskIdx }); }}
-          className={`break-words flex-1 ${task.done ? "text-gray-400 line-through" : "text-gray-800 cursor-text hover:text-blue-700"}`}
+          className={`break-words flex-1 ${task.focused && !task.done ? "font-bold" : ""} ${task.done ? "text-gray-400 line-through" : "text-gray-800 cursor-text hover:text-blue-700"}`}
         >
-          {displayText}
+          {task.waiting && <span className="mr-0.5" title="Waiting">⏳</span>}
+          {renderLinkedText(displayText)}
         </span>
+      )}
+      {/* Wait hourglass toggle */}
+      {!task.done && (
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}
+          className={`shrink-0 text-[10px] transition-opacity ${task.waiting ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
+          title={task.waiting ? "Remove wait" : "Mark as waiting"}
+        >
+          ⏳
+        </button>
+      )}
+      {/* Focus horn icon */}
+      {!task.done && (
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleFocus(dayIdx, taskIdx); }}
+          className={`shrink-0 text-[10px] transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
+          title={task.focused ? "Remove focus" : "Set as focus"}
+        >
+          🎺
+        </button>
       )}
       {/* Elephant icon — breakdown indicator */}
       {task.subtasks?.length > 0 ? (
@@ -869,15 +973,36 @@ export default function WeekPlan() {
         ) : (
           <span
             onClick={(e) => { e.stopPropagation(); if (!task.done) setEditingTask({ dayIdx, taskIdx }); }}
-            className={`flex-1 ${task.done ? "text-gray-400 line-through" : "text-gray-900 cursor-text hover:text-blue-700"}`}
+            className={`flex-1 ${task.focused && !task.done ? "font-bold" : ""} ${task.done ? "text-gray-400 line-through" : "text-gray-900 cursor-text hover:text-blue-700"}`}
           >
-            {displayText}
+            {task.waiting && <span className="mr-1" title="Waiting">⏳</span>}
+            {renderLinkedText(displayText)}
           </span>
         )}
         {task.pillars?.length > 0 && (
           <span className="shrink-0" title={task.pillars.map((p) => PILLAR_ICONS[p]?.title || p).join(", ")}>
             {task.pillars.map((p) => PILLAR_ICONS[p]?.symbol || p).join("")}
           </span>
+        )}
+        {/* Wait hourglass toggle */}
+        {!task.done && (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}
+            className={`shrink-0 text-sm transition-opacity ${task.waiting ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
+            title={task.waiting ? "Remove wait" : "Mark as waiting"}
+          >
+            ⏳
+          </button>
+        )}
+        {/* Focus horn icon */}
+        {!task.done && (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleFocus(dayIdx, taskIdx); }}
+            className={`shrink-0 text-sm transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
+            title={task.focused ? "Remove focus" : "Set as focus"}
+          >
+            🎺
+          </button>
         )}
         {/* Elephant icon — breakdown indicator */}
         {task.subtasks?.length > 0 ? (
@@ -938,7 +1063,7 @@ export default function WeekPlan() {
     const groups = buildDayGroups(day.tasks);
 
     return (
-      <div className="max-w-3xl mx-auto space-y-2">
+      <div className="max-w-lg mx-auto space-y-2">
         {/* Day info bar */}
         <div className="flex items-center gap-3 text-sm text-gray-500">
           <span className="font-medium text-gray-700">
@@ -1074,20 +1199,7 @@ export default function WeekPlan() {
           </div>
         )}
 
-        {/* Save to Obsidian (in day view) */}
-        {dirty && (
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={saveWeek}
-              disabled={saving}
-              className={`flex-1 py-2 text-xs transition-colors ${
-                saved ? "text-green-600 font-medium" : saving ? "text-gray-300" : "text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              {saved ? "\u2713 Saved to Obsidian!" : saving ? "Saving..." : "Save to Obsidian"}
-            </button>
-          </div>
-        )}
+        {/* Auto-save status is shown in the header button */}
       </div>
     );
   };
@@ -1249,17 +1361,29 @@ export default function WeekPlan() {
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-900">Week Plan</h2>
         <div className="flex items-center gap-2">
-          {dirty && (
+          {data && (
             <button
-              onClick={saveWeek}
+              onClick={() => {
+                if (autoSavePaused) {
+                  // Resume: save immediately then re-enable auto-save
+                  saveWeek();
+                  setAutoSavePaused(false);
+                } else {
+                  setAutoSavePaused(true);
+                }
+              }}
               disabled={saving}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 saved
                   ? "bg-green-100 text-green-700"
-                  : "bg-blue-600 text-white hover:bg-blue-700"
+                  : autoSavePaused
+                    ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                    : dirty
+                      ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                      : "bg-gray-100 text-gray-400"
               }`}
             >
-              {saved ? "\u2713 Saved!" : saving ? "Saving..." : "Save to Obsidian"}
+              {saved ? "\u2713 Saved!" : saving ? "Saving..." : autoSavePaused ? "\u23F8 Paused — click to save" : dirty ? "Auto-saving..." : "Auto-save"}
             </button>
           )}
           <button
@@ -1329,7 +1453,7 @@ export default function WeekPlan() {
               >
                 Day
               </button>
-              {(["5day", "7day", "weekend"] as ViewMode[]).map((mode) => (
+              {(["3day", "5day", "7day", "weekend"] as ViewMode[]).map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setViewMode(mode)}
@@ -1337,7 +1461,7 @@ export default function WeekPlan() {
                     viewMode === mode ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
                   }`}
                 >
-                  {mode === "5day" ? "Mon-Fri" : mode === "7day" ? "Full week" : "Weekend"}
+                  {mode === "3day" ? "3 Day" : mode === "5day" ? "Mon-Fri" : mode === "7day" ? "Full week" : "Weekend"}
                 </button>
               ))}
             </div>
@@ -1345,7 +1469,7 @@ export default function WeekPlan() {
 
           {/* Day navigation bar — shown in Day view */}
           {viewMode === "day" && (
-            <div className="flex items-center gap-2 max-w-3xl mx-auto">
+            <div className="flex items-center gap-2 max-w-lg mx-auto">
               <button
                 onClick={() => setSelectedDayIdx(Math.max(0, selectedDayIdx - 1))}
                 disabled={selectedDayIdx === 0}

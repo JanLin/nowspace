@@ -19,6 +19,8 @@ class Task(BaseModel):
     priority: str = ""  # "A", "B", "C" — set by prioritiser
     pillars: List[str] = []  # pillar names this task serves
     subtasks: List[Subtask] = []
+    focused: bool = False  # True when task text is bold in Obsidian
+    waiting: bool = False  # True when task is blocked/waiting on someone
 
 
 class PlanResponse(BaseModel):

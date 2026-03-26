@@ -257,7 +257,8 @@ def _parse_group(text: str) -> tuple[str, str]:
     if 0 < idx < 30:
         group = text[:idx].strip()
         label = text[idx + 1:].strip()
-        if group and label:
+        # Don't treat URLs or markdown links as group prefixes
+        if group and label and "[" not in group and not group.endswith("http") and not group.endswith("https"):
             return group, label
     return "", text
 
@@ -288,19 +289,25 @@ def _format_tasks_grouped(tasks: list) -> list[str]:
         check = "x" if task.done else " "
         p = task.priority or "C"
         seq = seq_map.get(i, "")
+        focused = getattr(task, "focused", False)
+        waiting = getattr(task, "waiting", False)
+        # Wrap label in bold if focused, prefix WAIT if waiting
+        display_label = f"**{label}**" if focused else label
+        if waiting:
+            display_label = f"WAIT: {display_label}"
 
         if group:
             # Start a new group header if entering a different group
             if group != current_group:
                 lines.append(f"* {group}:")
-            lines.append(f"\t- [{check}] [{p}{seq}] {label}")
+            lines.append(f"\t- [{check}] [{p}{seq}] {display_label}")
             # Subtasks under grouped tasks: double indent
             for sub in getattr(task, "subtasks", []) or []:
                 sub_check = "x" if sub.done else " "
                 lines.append(f"\t\t- [{sub_check}] {sub.text}")
         else:
             # Ungrouped — flat line
-            lines.append(f"- [{check}] [{p}{seq}] {label}")
+            lines.append(f"- [{check}] [{p}{seq}] {display_label}")
             # Subtasks under flat tasks: single indent
             for sub in getattr(task, "subtasks", []) or []:
                 sub_check = "x" if sub.done else " "
