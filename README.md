@@ -68,24 +68,32 @@ Open `Plan Week.md` to see the example tasks. Edit them to match your actual wee
 
 Each task has icon actions that appear on hover. These help you manage focus, blockers, and complex tasks.
 
-### Focus (Trumpet)
+### 🎺 Focus (Trumpet + Pomodoro)
 
-Click the **trumpet** icon on any task to mark it as your current focus. The task text becomes **bold** — both in the UI and when saved to Obsidian (as `**task text**`).
+Click the trumpet 🎺 icon on any task to mark it as your current focus. The task text becomes **bold** — both in the UI and when saved to Obsidian (as `**task text**`).
 
 When you focus on a task, a **Pomodoro timer** prompt appears asking if you want to start a timed focus session:
 
-- **15 min** or **30 min** — starts a countdown with a rotating tomato overlay
+- **15 min** or **30 min** — starts a countdown with a rotating 🍅 tomato overlay
 - **Grace period** — within the first 5 minutes, you can pause for 5 or 10 minutes (one-time) to handle a controlled interruption
-- **When time's up** — choose to take a 5-minute break, start another round, or finish
+- **When time's up** — choose to take a 5-minute break ☕, start another round 🍅, or finish
 
-The Pomodoro timer floats on the left side of the screen so you always see it while working.
+The Pomodoro timer floats on the left side of the screen so you always see it while working:
 
-<!-- To add a screenshot: start a pomodoro, then save a screenshot as docs/pomodoro.png -->
-<!-- ![Pomodoro timer](docs/pomodoro.png) -->
+```
+┌──────────────┐
+│     🍅       │
+│   28:52      │
+│ 🎺 Task...  │
+│ [Grace 5m]   │
+│ [Grace 10m]  │
+│    Stop      │
+└──────────────┘
+```
 
-### White Elephant (Breakdown)
+### 🐘 White Elephant (Breakdown)
 
-Some tasks are hard to start — the "white elephant" in the room. Click the **elephant** icon to break a task into small, actionable steps.
+Some tasks are hard to start — the "white elephant" in the room. Click the elephant 🐘 icon to break a task into small, actionable steps.
 
 - Subtasks appear indented below the parent task
 - Each subtask has its own checkbox, edit, and delete
@@ -100,9 +108,9 @@ Some tasks are hard to start — the "white elephant" in the room. Click the **e
   - [x] Write intro section
 ```
 
-### Waiting (Hourglass)
+### ⏳ Waiting (Hourglass)
 
-Click the **hourglass** icon when a task is blocked — you've started it but are waiting on someone else. The hourglass appears inline before the task text as a visual reminder.
+Click the hourglass ⏳ icon when a task is blocked — you've started it but are waiting on someone else. The hourglass appears inline before the task text as a visual reminder.
 
 - In Obsidian, waiting tasks are saved with a `WAIT:` prefix: `- [ ] WAIT: Review PR from team`
 - Click the hourglass again to remove the waiting state
