@@ -82,6 +82,11 @@ export const api = {
 
   getGoals: () => request<GoalsResponse>("/plan/goals"),
 
+  startSession: () =>
+    request<{ session_id: string; task_count: number }>("/plan/start-session", {
+      method: "POST",
+    }),
+
   approvePlan: (session_id: string, tasks?: Task[]) =>
     request("/plan/approve", {
       method: "POST",

@@ -107,6 +107,17 @@ async def approve_plan(req: ApproveRequest):
     return {"status": "approved", "session_id": req.session_id}
 
 
+@router.post("/start-session")
+async def start_session():
+    """Create an approved coaching session from today's tasks in the vault."""
+    today_tasks, _carryover = scan_vault_with_carryover(config.vault_path)
+    if not today_tasks:
+        raise HTTPException(status_code=400, detail="No tasks found for today")
+    session = create_session(today_tasks)
+    session.approved = True
+    return {"session_id": session.session_id, "task_count": len(today_tasks)}
+
+
 @router.get("/goals")
 async def get_goals():
     """Return weekly goals from plan files."""

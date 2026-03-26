@@ -8,9 +8,14 @@ from backend.config import config
 from backend.models import Task
 
 
-COACH_INITIAL_PROMPT = """Here is Jan's approved plan for today:
+COACH_INITIAL_PROMPT = """Here is Jan's plan for today:
 
 {plan}
+
+## Task annotations
+- **Focused tasks** (marked with 🎺): These are tasks Jan has explicitly chosen to focus on today. They are bold in the plan. Prioritise coaching around these.
+- **White elephant tasks** (marked with 🐘 and subtasks): These are tasks Jan finds hard to start — he's broken them into small steps to overcome the mental block. If he has white elephants, gently check in: has he started the first step? What's blocking him?
+- **Waiting tasks** (marked with ⏳ WAIT): These are blocked on someone else. Don't coach on these unless Jan wants to follow up.
 
 ## Memory Context
 Patterns and traps:
@@ -27,7 +32,7 @@ Recent weekly log:
 
 ---
 
-Based on this plan and what you know about Jan's patterns, ask exactly ONE focused coaching question. Make it specific to today's plan and his known traps — not generic. Be direct and warm."""
+Based on this plan and what you know about Jan's patterns, ask exactly ONE focused coaching question. Prioritise focused (🎺) tasks and white elephants (🐘) — these are where Jan needs the most help. Be direct and warm."""
 
 
 COACH_SUMMARY_PROMPT = """Based on this coaching conversation, write a structured summary as JSON.
@@ -50,12 +55,26 @@ Rules:
 
 
 def build_plan_text(tasks: list[Task]) -> str:
-    """Format approved tasks into readable plan text."""
+    """Format approved tasks into readable plan text with annotations."""
     lines = []
     for t in tasks:
         prefix = f"[{t.priority}]" if t.priority else "[-]"
         done = "x" if t.done else " "
-        lines.append(f"{prefix} [{done}] {t.text}")
+        annotations = []
+        if getattr(t, "focused", False):
+            annotations.append("🎺 FOCUSED")
+        if getattr(t, "waiting", False):
+            annotations.append("⏳ WAIT")
+        if getattr(t, "subtasks", None):
+            sub_done = sum(1 for s in t.subtasks if s.done)
+            sub_total = len(t.subtasks)
+            annotations.append(f"🐘 {sub_done}/{sub_total} steps done")
+        ann_str = f" ({', '.join(annotations)})" if annotations else ""
+        lines.append(f"{prefix} [{done}] {t.text}{ann_str}")
+        # Include subtask details for white elephants
+        for s in getattr(t, "subtasks", []) or []:
+            sub_done = "x" if s.done else " "
+            lines.append(f"    [{sub_done}] {s.text}")
     return "\n".join(lines)
 
 

@@ -280,6 +280,20 @@ export default function WeekPlan() {
   const [editingSubtask, setEditingSubtask] = useState<{ dayIdx: number; taskIdx: number; subIdx: number } | null>(null);
   const [addingSubtask, setAddingSubtask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
 
+  // Pomodoro state
+  const [pomodoroPrompt, setPomodoroPrompt] = useState<{ dayIdx: number; taskIdx: number; taskText: string } | null>(null);
+  const [pomodoro, setPomodoro] = useState<{
+    taskIdx: number;
+    dayIdx: number;
+    taskText: string;
+    duration: number;
+    remaining: number;
+    graceUsed: boolean;
+    graceRemaining: number;
+    state: "running" | "grace" | "break" | "breakRunning" | "done";
+    startedAt: number;
+  } | null>(null);
+
   const allGroups = useMemo(() => (data ? collectGroups(data.days) : []), [data]);
 
   const toggleCollapsed = (groupName: string) => {
@@ -344,6 +358,87 @@ export default function WeekPlan() {
     };
   }, [dirty, autoSavePaused, saving, data]);
 
+  // Pomodoro timer tick
+  useEffect(() => {
+    if (!pomodoro) return;
+    if (pomodoro.state === "done" || pomodoro.state === "break") return;
+
+    const interval = setInterval(() => {
+      setPomodoro((prev) => {
+        if (!prev) return null;
+
+        if (prev.state === "grace") {
+          if (prev.graceRemaining <= 1) {
+            // Grace ended, resume main timer
+            return { ...prev, graceRemaining: 0, state: "running" };
+          }
+          return { ...prev, graceRemaining: prev.graceRemaining - 1 };
+        }
+
+        if (prev.state === "breakRunning") {
+          if (prev.remaining <= 1) {
+            return { ...prev, remaining: 0, state: "done" };
+          }
+          return { ...prev, remaining: prev.remaining - 1 };
+        }
+
+        // Running state
+        if (prev.remaining <= 1) {
+          return { ...prev, remaining: 0, state: "break" };
+        }
+        return { ...prev, remaining: prev.remaining - 1 };
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [pomodoro?.state]);
+
+  const startPomodoro = (dayIdx: number, taskIdx: number, taskText: string, minutes: number) => {
+    setPomodoro({
+      taskIdx, dayIdx, taskText,
+      duration: minutes * 60,
+      remaining: minutes * 60,
+      graceUsed: false,
+      graceRemaining: 0,
+      state: "running",
+      startedAt: Date.now(),
+    });
+    setPomodoroPrompt(null);
+  };
+
+  const startGrace = (minutes: number) => {
+    setPomodoro((prev) => prev ? { ...prev, state: "grace", graceUsed: true, graceRemaining: minutes * 60 } : null);
+  };
+
+  const startBreak = () => {
+    setPomodoro((prev) => prev ? { ...prev, remaining: 5 * 60, state: "breakRunning" } : null);
+  };
+
+  const stopPomodoro = () => {
+    setPomodoro(null);
+    setPomodoroPrompt(null);
+  };
+
+  const restartPomodoro = () => {
+    if (!pomodoro) return;
+    setPomodoro({
+      ...pomodoro,
+      remaining: pomodoro.duration,
+      graceUsed: false,
+      graceRemaining: 0,
+      state: "running",
+      startedAt: Date.now(),
+    });
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const canGrace = pomodoro && !pomodoro.graceUsed && pomodoro.state === "running" && (Date.now() - pomodoro.startedAt) < 5 * 60 * 1000;
+
   const addTask = (dayIdx: number, afterIdx: number, text: string) => {
     if (!data) return;
     const newTask: Task = {
@@ -365,7 +460,11 @@ export default function WeekPlan() {
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
       const tasks = [...d.tasks];
-      tasks[taskIdx] = { ...tasks[taskIdx], done: !tasks[taskIdx].done };
+      const newDone = !tasks[taskIdx].done;
+      const subtasks = newDone && tasks[taskIdx].subtasks?.length
+        ? tasks[taskIdx].subtasks.map((s) => ({ ...s, done: true }))
+        : tasks[taskIdx].subtasks;
+      tasks[taskIdx] = { ...tasks[taskIdx], done: newDone, subtasks };
       return { ...d, tasks };
     });
     setData({ ...data, days });
@@ -498,7 +597,7 @@ export default function WeekPlan() {
   const startBreakdown = (dayIdx: number, taskIdx: number) => {
     const key = `${dayIdx}-${taskIdx}`;
     setExpandedSubtasks((prev) => new Set(prev).add(key));
-    setAddingSubtask({ dayIdx, taskIdx });
+    // Don't auto-open input — just expand the area with "+ Add step" button
   };
 
   const cancelAddSubtask = (dayIdx: number, taskIdx: number) => {
@@ -692,7 +791,7 @@ export default function WeekPlan() {
       filtered = filtered.filter((t) => parseGroup(t.text).group === filterGroup);
     }
     if (!showCompleted) {
-      filtered = filtered.filter((t) => !t.done);
+      filtered = filtered.filter((t) => !t.done || (t.subtasks?.some((s) => !s.done)));
     }
     return filtered;
   };
@@ -705,7 +804,7 @@ export default function WeekPlan() {
     tasks.forEach((task, idx) => {
       const { group, label } = parseGroup(task.text);
       if (filterGroup && group !== filterGroup) return;
-      if (!showCompleted && task.done) return;
+      if (!showCompleted && task.done && !(task.subtasks?.some((s) => !s.done))) return;
       const last = sections[sections.length - 1];
       if (last && last.name === group) {
         last.items.push({ task, originalIdx: idx, label });
@@ -725,7 +824,10 @@ export default function WeekPlan() {
     const isAdding = addingSubtask?.dayIdx === dayIdx && addingSubtask?.taskIdx === taskIdx;
 
     return (
-      <div className={`${compact ? "ml-5" : "ml-8"} pl-2 border-l-2 border-amber-200 ${textSize} py-0.5`}>
+      <div
+        className={`${compact ? "ml-5" : "ml-8"} pl-2 border-l-2 border-amber-200 ${textSize} py-0.5`}
+        onDoubleClick={(e) => { e.stopPropagation(); setAddingSubtask({ dayIdx, taskIdx }); }}
+      >
         {subtasks.map((sub, si) => (
           <div key={si} className="group/sub flex items-center gap-1.5 py-0.5">
             <button
@@ -757,8 +859,8 @@ export default function WeekPlan() {
             </button>
           </div>
         ))}
-        {/* Add subtask input */}
-        {isAdding ? (
+        {/* Add subtask input — only shown on double-click */}
+        {isAdding && (
           <div className="py-0.5">
             <AutoFocusInput
               onSubmit={(text) => { addSubtask(dayIdx, taskIdx, text); }}
@@ -767,13 +869,6 @@ export default function WeekPlan() {
               className={`w-full ${textSize} px-1.5 py-0.5 border border-amber-300 rounded bg-white outline-none focus:ring-1 focus:ring-amber-400`}
             />
           </div>
-        ) : (
-          <button
-            onClick={(e) => { e.stopPropagation(); setAddingSubtask({ dayIdx, taskIdx }); }}
-            className="text-gray-300 hover:text-amber-500 py-0.5 transition-colors"
-          >
-            + Add step
-          </button>
         )}
       </div>
     );
@@ -869,7 +964,16 @@ export default function WeekPlan() {
       {/* Focus horn icon */}
       {!task.done && (
         <button
-          onClick={(e) => { e.stopPropagation(); toggleFocus(dayIdx, taskIdx); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (task.focused) {
+              toggleFocus(dayIdx, taskIdx);
+              if (pomodoro?.taskIdx === taskIdx && pomodoro?.dayIdx === dayIdx) stopPomodoro();
+            } else {
+              toggleFocus(dayIdx, taskIdx);
+              setPomodoroPrompt({ dayIdx, taskIdx, taskText: task.text });
+            }
+          }}
           className={`shrink-0 text-[10px] transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
           title={task.focused ? "Remove focus" : "Set as focus"}
         >
@@ -997,7 +1101,16 @@ export default function WeekPlan() {
         {/* Focus horn icon */}
         {!task.done && (
           <button
-            onClick={(e) => { e.stopPropagation(); toggleFocus(dayIdx, taskIdx); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (task.focused) {
+                toggleFocus(dayIdx, taskIdx);
+                if (pomodoro?.taskIdx === taskIdx && pomodoro?.dayIdx === dayIdx) stopPomodoro();
+              } else {
+                toggleFocus(dayIdx, taskIdx);
+                setPomodoroPrompt({ dayIdx, taskIdx, taskText: task.text });
+              }
+            }}
             className={`shrink-0 text-sm transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
             title={task.focused ? "Remove focus" : "Set as focus"}
           >
@@ -1528,6 +1641,161 @@ export default function WeekPlan() {
           <p className="text-sm mt-1">Click Load Week to read Plan Week.md</p>
         </div>
       )}
+
+      {/* Pomodoro start prompt */}
+      {pomodoroPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => setPomodoroPrompt(null)}>
+          <div className="bg-white rounded-xl shadow-xl p-5 space-y-3 max-w-xs" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center">
+              <span className="text-3xl">🍅</span>
+              <p className="text-sm font-semibold text-gray-800 mt-1">Start Pomodoro?</p>
+              <p className="text-xs text-gray-500 mt-0.5 truncate">{pomodoroPrompt.taskText}</p>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={() => startPomodoro(pomodoroPrompt.dayIdx, pomodoroPrompt.taskIdx, pomodoroPrompt.taskText, 15)}
+                className="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors"
+              >
+                15 min
+              </button>
+              <button
+                onClick={() => startPomodoro(pomodoroPrompt.dayIdx, pomodoroPrompt.taskIdx, pomodoroPrompt.taskText, 30)}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
+              >
+                30 min
+              </button>
+            </div>
+            <button
+              onClick={() => setPomodoroPrompt(null)}
+              className="w-full text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              Skip — just focus
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating pomodoro timer */}
+      {pomodoro && (
+        <div className="fixed left-6 top-1/2 -translate-y-1/2 z-40 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 w-56">
+          {/* Tomato with timer */}
+          <div className="flex flex-col items-center gap-1">
+            <div className={`text-5xl select-none ${pomodoro.state === "running" ? "animate-spin-slow" : pomodoro.state === "breakRunning" ? "" : ""}`}
+              style={pomodoro.state === "running" ? { animation: "spin 8s linear infinite" } : undefined}
+            >
+              {pomodoro.state === "breakRunning" ? "☕" : pomodoro.state === "break" || pomodoro.state === "done" ? "✅" : "🍅"}
+            </div>
+            <div className={`text-2xl font-mono font-bold tabular-nums ${
+              pomodoro.state === "grace" ? "text-amber-600" :
+              pomodoro.state === "breakRunning" ? "text-green-600" :
+              pomodoro.state === "break" || pomodoro.state === "done" ? "text-green-600" :
+              pomodoro.remaining < 60 ? "text-red-600" : "text-gray-800"
+            }`}>
+              {pomodoro.state === "grace"
+                ? formatTime(pomodoro.graceRemaining)
+                : formatTime(pomodoro.remaining)}
+            </div>
+            {pomodoro.state === "grace" && (
+              <span className="text-[10px] text-amber-600 font-medium">Grace pause</span>
+            )}
+          </div>
+
+          {/* Task name */}
+          <p className="text-xs text-gray-600 text-center mt-1 truncate" title={pomodoro.taskText}>
+            🎺 {pomodoro.taskText}
+          </p>
+
+          {/* Controls */}
+          <div className="flex flex-col gap-1.5 mt-3">
+            {/* Running state: grace + stop */}
+            {pomodoro.state === "running" && (
+              <>
+                {canGrace && (
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => startGrace(5)}
+                      className="flex-1 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-200 transition-colors"
+                    >
+                      Grace 5m
+                    </button>
+                    <button
+                      onClick={() => startGrace(10)}
+                      className="flex-1 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-200 transition-colors"
+                    >
+                      Grace 10m
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={stopPomodoro}
+                  className="w-full py-1.5 text-xs text-gray-400 hover:text-red-500 transition-colors"
+                >
+                  Stop
+                </button>
+              </>
+            )}
+
+            {/* Grace state: just show waiting */}
+            {pomodoro.state === "grace" && (
+              <p className="text-[10px] text-amber-500 text-center">Resuming after grace...</p>
+            )}
+
+            {/* Break suggestion */}
+            {pomodoro.state === "break" && (
+              <>
+                <p className="text-xs text-green-700 font-medium text-center">Time's up! Well done.</p>
+                <button
+                  onClick={startBreak}
+                  className="w-full py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 transition-colors"
+                >
+                  ☕ Take 5 min break
+                </button>
+                <button
+                  onClick={restartPomodoro}
+                  className="w-full py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 transition-colors"
+                >
+                  🍅 Start another
+                </button>
+                <button
+                  onClick={stopPomodoro}
+                  className="w-full py-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  Finish
+                </button>
+              </>
+            )}
+
+            {/* Break running */}
+            {pomodoro.state === "breakRunning" && (
+              <p className="text-[10px] text-green-600 text-center">Enjoy your break...</p>
+            )}
+
+            {/* Done (after break) */}
+            {pomodoro.state === "done" && (
+              <>
+                <p className="text-xs text-green-700 font-medium text-center">Break over! Ready?</p>
+                <button
+                  onClick={restartPomodoro}
+                  className="w-full py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 transition-colors"
+                >
+                  🍅 Start another
+                </button>
+                <button
+                  onClick={stopPomodoro}
+                  className="w-full py-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  Finish
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CSS for slow spin animation */}
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }

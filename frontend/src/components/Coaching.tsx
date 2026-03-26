@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { api, type CoachResponse, type Task, type PillarBalance } from "../api";
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -72,7 +72,7 @@ function FormattedText({ text }: { text: string }) {
 }
 
 export default function Coaching({
-  sessionId,
+  sessionId: externalSessionId,
   tasks,
   onTasksChanged,
 }: {
@@ -80,6 +80,8 @@ export default function Coaching({
   tasks: Task[];
   onTasksChanged: (tasks: Task[]) => void;
 }) {
+  const [localSessionId, setLocalSessionId] = useState<string | null>(null);
+  const sessionId = externalSessionId || localSessionId;
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -90,6 +92,25 @@ export default function Coaching({
   const [showLog, setShowLog] = useState(false);
   const [logContent, setLogContent] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
+  const [sessionError, setSessionError] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, loading]);
+
+  // Track whether there's content above the visible area
+  const handleScroll = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (el) {
+      setCanScrollUp(el.scrollTop > 20);
+    }
+  }, []);
 
   useEffect(() => {
     api.getMemory().then((m) => setPillars(m.pillar_balance)).catch(() => {});
@@ -255,6 +276,24 @@ export default function Coaching({
     </div>
   );
 
+  const createAndStartSession = async () => {
+    setLoading(true);
+    setSessionError("");
+    try {
+      // Step 1: Create approved session from today's tasks
+      const res = await api.startSession();
+      setLocalSessionId(res.session_id);
+      // Step 2: Immediately start coaching with the new session
+      const coach = await api.startCoach(res.session_id);
+      setMessages([{ role: "assistant", text: coach.message }]);
+      setStarted(true);
+    } catch (e) {
+      setSessionError(e instanceof Error ? e.message : "Failed to start coaching. Make sure you have tasks for today.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!sessionId) {
     return (
       <div>
@@ -287,11 +326,20 @@ export default function Coaching({
         )}
         {pillarPanel}
         {focusPanel}
-        <div className="py-8 text-center text-gray-400">
-          <p className="text-lg">No active session</p>
-          <p className="text-sm mt-1">
-            Generate and approve a plan first
+        <div className="py-8 text-center">
+          <button
+            onClick={createAndStartSession}
+            disabled={loading}
+            className="px-6 py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 disabled:opacity-50 transition-colors"
+          >
+            {loading ? "Starting..." : "Start Coaching Session"}
+          </button>
+          <p className="text-sm text-gray-400 mt-2">
+            Uses today's tasks from your Obsidian vault
           </p>
+          {sessionError && (
+            <p className="text-sm text-red-500 mt-2">{sessionError}</p>
+          )}
         </div>
       </div>
     );
@@ -345,24 +393,40 @@ export default function Coaching({
 
       {started && (
         <>
-          <div className="flex-1 space-y-3 overflow-y-auto mb-4">
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`p-3 rounded-lg text-sm ${
-                  msg.role === "assistant"
-                    ? "bg-gray-50 text-gray-800"
-                    : "bg-blue-50 text-blue-900 ml-8"
-                }`}
+          <div className="relative">
+            {/* Scroll-up indicator */}
+            {canScrollUp && (
+              <button
+                onClick={() => messagesContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+                className="absolute top-0 left-1/2 -translate-x-1/2 z-10 bg-white/90 border border-gray-200 rounded-full px-3 py-1 text-xs text-gray-500 hover:text-gray-700 shadow-sm transition-colors"
               >
-                <FormattedText text={msg.text} />
-              </div>
-            ))}
-            {loading && (
-              <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-400">
-                Thinking...
-              </div>
+                ↑ Earlier messages
+              </button>
             )}
+            <div
+              ref={messagesContainerRef}
+              onScroll={handleScroll}
+              className="space-y-3 overflow-y-auto mb-4 max-h-[60vh]"
+            >
+              {messages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`p-3 rounded-lg text-sm ${
+                    msg.role === "assistant"
+                      ? "bg-gray-50 text-gray-800"
+                      : "bg-blue-50 text-blue-900 ml-8"
+                  }`}
+                >
+                  <FormattedText text={msg.text} />
+                </div>
+              ))}
+              {loading && (
+                <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-400">
+                  Thinking...
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
           {complete ? (

@@ -86,6 +86,9 @@ def _parse_goals(content: str) -> list[str]:
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped == "---":
+            # Empty line after goals started = end of goals section
+            if in_goals and goals:
+                break
             continue
 
         # Detect "Goals" section (plain text or heading)
@@ -102,12 +105,12 @@ def _parse_goals(content: str) -> list[str]:
         if not in_goals:
             continue
 
-        # Extract goal text from bullets
+        # Only accept bullet lines as goals — non-bullet line ends the section
         bullet_match = BULLET_RE.match(line)
         if bullet_match:
             text = bullet_match.group(1).strip()
         else:
-            text = stripped
+            break
 
         # Clean strikethrough
         if text.startswith("~~") and text.endswith("~~"):
