@@ -7,3 +7,10 @@ __pycache__/
 .venv/
 *.egg-info/
 .claude/
+
+# Tauri / PyInstaller build artifacts
+frontend/src-tauri/target/
+frontend/src-tauri/binaries/
+build/
+dist/
+*.spec

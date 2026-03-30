@@ -1,4 +1,4 @@
-type View = "week" | "goals" | "coaching" | "dashboard";
+type View = "week" | "bucket" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function Nav({
   current,
@@ -7,26 +7,29 @@ export default function Nav({
   current: View;
   onChange: (v: View) => void;
 }) {
-  const tabs: { id: View; label: string }[] = [
-    { id: "week", label: "Plan" },
-    { id: "goals", label: "Goals" },
-    { id: "coaching", label: "Coaching" },
-    { id: "dashboard", label: "Dashboard" },
+  const tabs: { id: View; label: string; shortLabel: string }[] = [
+    { id: "week", label: "Plan", shortLabel: "Plan" },
+    { id: "bucket", label: "🪣 Bucket", shortLabel: "🪣" },
+    { id: "coaching", label: "Coaching", shortLabel: "Coach" },
+    { id: "dashboard", label: "Dashboard", shortLabel: "📊" },
+    { id: "settings", label: "Settings", shortLabel: "⚙️" },
   ];
 
   return (
-    <nav className="flex gap-1 bg-gray-50 p-1 rounded-lg">
+    <nav className="flex flex-1 gap-1 p-1 rounded-lg" style={{ backgroundColor: "var(--bg-secondary)" }}>
       {tabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => onChange(tab.id)}
-          className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+          className="flex-1 py-1.5 sm:py-2 px-2 sm:px-4 rounded-md text-xs sm:text-sm font-medium transition-colors"
+          style={
             current === tab.id
-              ? "bg-white text-gray-900 shadow-sm"
-              : "text-gray-500 hover:text-gray-700"
-          }`}
+              ? { backgroundColor: "var(--bg)", color: "var(--text)", boxShadow: "0 1px 2px var(--shadow)" }
+              : { color: "var(--text-secondary)" }
+          }
         >
-          {tab.label}
+          <span className="hidden sm:inline">{tab.label}</span>
+          <span className="sm:hidden">{tab.shortLabel}</span>
         </button>
       ))}
     </nav>

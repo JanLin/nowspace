@@ -15,7 +15,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from backend.models import Subtask, Task
+from backend.models import Subtask, Task, TaskLink
 
 
 # Patterns
@@ -23,8 +23,10 @@ CHECKBOX_RE = re.compile(r"^[\s]*[-*]\s*\[([ xX])\]\s*(.*)")
 BULLET_RE = re.compile(r"^[\s]*[-*]\s+(.*)")
 TAG_RE = re.compile(r"#(\w[\w/-]*)")
 STRIKETHROUGH_FULL_RE = re.compile(r"^~~(.+?)~~$")
-PRIORITY_RE = re.compile(r"^\[([ABCD])\d*\]\s*(.*)", re.IGNORECASE)
+PRIORITY_RE = re.compile(r"^(?:\[([ABCD])\d*\]|([ABCD])\d*:)\s*(.*)", re.IGNORECASE)
 BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+# Wiki link: [[Note Name]] or [[Note Name|Display Text]]
+WIKI_LINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
 
 # Day detection keywords (including abbreviations used in the files)
 DAY_KEYWORDS = {
@@ -51,6 +53,23 @@ PLAN_FILES = {"plan week", "weekend"}
 
 # Week label pattern — skip as task
 WEEK_LABEL_LINE_RE = re.compile(r"^Week\s+\S+", re.IGNORECASE)
+
+
+def _extract_wiki_links(text: str) -> tuple[str, list[dict]]:
+    """Extract [[wiki links]] from text.
+
+    Returns (clean_text, links) where:
+    - clean_text has [[...]] removed
+    - links is a list of {"name": str, "display_text": str|None}
+    """
+    links = []
+    for m in WIKI_LINK_RE.finditer(text):
+        name = m.group(1).strip()
+        display = m.group(2).strip() if m.group(2) else None
+        links.append({"name": name, "display_text": display})
+
+    clean = WIKI_LINK_RE.sub("", text).strip()
+    return clean, links
 
 
 def _is_plan_file(file_stem: str) -> bool:
@@ -91,15 +110,19 @@ def _parse_goals(content: str) -> list[str]:
                 break
             continue
 
-        # Detect "Goals" section (plain text or heading)
-        if stripped.lower().rstrip(":") == "goals":
-            in_goals = True
-            continue
-
-        # Any heading or non-indented section label ends the goals section
+        # Any heading — check if it's a Goals heading, otherwise ends the section
         if stripped.startswith("#"):
+            heading_text = stripped.lstrip("#").strip().lower().rstrip(":")
+            if heading_text == "goals":
+                in_goals = True
+                continue
             if in_goals:
                 break
+            continue
+
+        # Detect "Goals" section (plain text line)
+        if stripped.lower().rstrip(":") == "goals":
+            in_goals = True
             continue
 
         if not in_goals:
@@ -241,7 +264,7 @@ def _collect_subtasks(lines: list[str], start_idx: int, parent_indent: int = 0) 
             # Strip inline priority like [A1] from subtask text
             sub_pri = PRIORITY_RE.match(sub_text)
             if sub_pri:
-                sub_text = sub_pri.group(2).strip()
+                sub_text = sub_pri.group(3).strip()
             # Clean strikethrough
             if sub_text.startswith("~~") and sub_text.endswith("~~"):
                 sub_done = True
@@ -406,8 +429,8 @@ def parse_tasks(content: str, source_file: str = "") -> list[Task]:
         inline_priority = ""
         priority_match = PRIORITY_RE.match(text)
         if priority_match:
-            inline_priority = priority_match.group(1).upper()
-            text = priority_match.group(2).strip()
+            inline_priority = (priority_match.group(1) or priority_match.group(2)).upper()
+            text = priority_match.group(3).strip()
 
         # Extract tags
         tags = TAG_RE.findall(text)
@@ -579,8 +602,8 @@ def parse_tasks_with_carryover(
         inline_priority = ""
         priority_match = PRIORITY_RE.match(text)
         if priority_match:
-            inline_priority = priority_match.group(1).upper()
-            text = priority_match.group(2).strip()
+            inline_priority = (priority_match.group(1) or priority_match.group(2)).upper()
+            text = priority_match.group(3).strip()
 
         tags = TAG_RE.findall(text)
         clean_text = TAG_RE.sub("", text).strip()
@@ -692,9 +715,10 @@ WEEK_LABEL_RE = re.compile(r"^Week\s+(\S+)", re.IGNORECASE)
 def parse_week_plan(content: str, source_file: str = "") -> dict:
     """Parse Plan Week.md and return all days' tasks grouped by day.
 
-    Returns dict with: week_label, goals, days (list of {day, heading, tasks}).
+    Returns dict with: week_label, goals, days (list of {day, heading, tasks}),
+    notes (parsed #### Notes block), week_refs (group→wiki link header refs).
     """
-    from backend.models import DayTasks
+    from backend.models import DayTasks, TaskLink
 
     lines = content.split("\n")
     is_plan_file = True
@@ -704,6 +728,8 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
     goals: list[str] = []
     day_map: dict[str, list[Task]] = {d: [] for d in WEEK_DAYS}
     heading_map: dict[str, str] = {}
+    week_refs: dict[str, str] = {}  # group→wiki link from header
+    notes_start_idx: int | None = None  # line index where #### Notes begins
 
     # State
     current_day: str | None = None
@@ -725,6 +751,12 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
             week_label = stripped
             continue
 
+        # Capture header refs: "igrant: [[iGrant calls]]"
+        ref_match = re.match(r"^(\w+):\s*\[\[(.+?)\]\]", stripped)
+        if ref_match and current_day is None and not in_goals_section:
+            week_refs[ref_match.group(1).lower()] = ref_match.group(2)
+            continue
+
         # Skip empty, separators, frontmatter
         if not stripped or stripped == "---":
             if not stripped and in_goals_section:
@@ -743,14 +775,19 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
             heading_text = stripped.lstrip("#").strip()
             heading_lower = heading_text.lower()
 
-            # Stop at Notes
+            # Record Notes section start and stop task parsing
             if any(kw == heading_lower or kw in heading_lower for kw in STOP_SECTIONS):
+                notes_start_idx = idx
                 break
 
             # Deferred sections
             in_deferred_section = any(kw == heading_lower or kw in heading_lower for kw in DEFERRED_SECTIONS)
             in_low_priority_section = any(kw in heading_lower for kw in LOW_PRIORITY_SECTIONS)
-            in_goals_section = False
+            # Goals heading (## Goals)
+            if heading_lower.rstrip(":") == "goals":
+                in_goals_section = True
+            else:
+                in_goals_section = False
             current_category = ""
 
             # Check if heading is a day name
@@ -837,8 +874,8 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
         inline_priority = ""
         priority_match = PRIORITY_RE.match(text)
         if priority_match:
-            inline_priority = priority_match.group(1).upper()
-            text = priority_match.group(2).strip()
+            inline_priority = (priority_match.group(1) or priority_match.group(2)).upper()
+            text = priority_match.group(3).strip()
 
         tags = TAG_RE.findall(text)
         clean_text = TAG_RE.sub("", text).strip()
@@ -867,6 +904,21 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
         if in_low_priority_section:
             tags.append("low-priority")
 
+        # Extract wiki links from task text
+        text_for_links = clean_text
+        link_clean_text, wiki_links = _extract_wiki_links(text_for_links)
+        task_links = []
+        for lk in wiki_links:
+            resolved = None
+            try:
+                from backend.vault_index import resolve_name
+                resolved = resolve_name(lk["name"])
+            except Exception:
+                pass
+            task_links.append(
+                TaskLink(name=lk["name"], display_text=lk["display_text"], resolved_path=resolved)
+            )
+
         # Collect subtasks
         subtasks: list[Subtask] = []
         if checkbox_match:
@@ -884,6 +936,8 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
             subtasks=subtasks,
             focused=has_bold,
             waiting=is_waiting,
+            links=task_links,
+            clean_text=link_clean_text if wiki_links else clean_text,
         )
         day_map[current_day].append(task)
 
@@ -908,9 +962,102 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
             current_year = date.today().year
             is_future = (plan_year > current_year) or (plan_year == current_year and plan_week > current_week)
 
+    # Parse #### Notes section if found
+    notes = parse_week_notes(lines, notes_start_idx) if notes_start_idx is not None else None
+
     return {
         "week_label": week_label,
         "goals": goals,
         "days": days,
         "is_future": is_future,
+        "week_refs": week_refs,
+        "notes": notes,
+    }
+
+
+def parse_week_notes(lines: list[str], start_idx: int) -> dict:
+    """Parse the #### Notes block from Plan Week.md.
+
+    Returns dict with:
+    - days: {day_name: {content, groups, ungrouped, wiki_links}}
+    - general: legacy freeform content not tied to a day
+    """
+    all_day_keywords = set(_DAY_NORMALIZE.keys())
+
+    # Collect all content after #### Notes
+    notes_lines = lines[start_idx + 1:]
+
+    # Split into day sections and general (pre-day) content
+    day_sections: dict[str, list[str]] = {}
+    general_lines: list[str] = []
+    current_day: str | None = None
+
+    for line in notes_lines:
+        stripped = line.strip()
+
+        # Check for day sub-headings (##### Monday, ##### Tue, etc.)
+        if stripped.startswith("#"):
+            heading_text = stripped.lstrip("#").strip().lower()
+            heading_words = set(heading_text.split())
+            matched = heading_words & all_day_keywords
+            if matched:
+                day_word = next(iter(matched))
+                current_day = _DAY_NORMALIZE[day_word]
+                if current_day not in day_sections:
+                    day_sections[current_day] = []
+                continue
+            else:
+                # Non-day heading within notes — keep as content
+                pass
+
+        if current_day:
+            day_sections[current_day].append(line)
+        else:
+            general_lines.append(line)
+
+    # Parse each day's notes into groups + ungrouped
+    days_result: dict[str, dict] = {}
+    for day_name, day_lines in day_sections.items():
+        groups: dict[str, list[str]] = {}
+        ungrouped: list[str] = []
+        wiki_links: set[str] = set()
+        current_group: str | None = None
+
+        for line in day_lines:
+            stripped = line.strip()
+            if not stripped:
+                current_group = None
+                continue
+
+            # Check for group heading: **GroupName:**
+            bold_group = re.match(r"^\*\*(.+?):\*\*\s*$", stripped)
+            if bold_group:
+                current_group = bold_group.group(1).strip()
+                if current_group not in groups:
+                    groups[current_group] = []
+                continue
+
+            # Extract wiki links
+            for m in WIKI_LINK_RE.finditer(stripped):
+                wiki_links.add(m.group(1).strip())
+
+            if current_group:
+                groups[current_group].append(stripped)
+            else:
+                ungrouped.append(stripped)
+
+        content = "\n".join(day_lines).strip()
+        days_result[day_name] = {
+            "day": day_name,
+            "content": content,
+            "groups": groups,
+            "ungrouped": ungrouped,
+            "wiki_links": sorted(wiki_links),
+        }
+
+    general = "\n".join(general_lines).strip()
+
+    return {
+        "days": days_result,
+        "general": general,
     }

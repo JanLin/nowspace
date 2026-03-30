@@ -44,11 +44,11 @@ function computeSeqNumbers(entries: MergedEntry[]): Map<number, number> {
 /** Parse group prefix from task text. "Rotary: do X" => { group: "Rotary", label: "do X" } */
 function parseGroup(text: string): { group: string; label: string } {
   const idx = text.indexOf(":");
-  if (idx > 0 && idx < 30) {
+  if (idx > 1 && idx < 30) {
     // Only treat as group if prefix is short (a project/context name, not a full sentence)
     const group = text.slice(0, idx).trim();
     const label = text.slice(idx + 1).trim();
-    if (group && label) return { group, label };
+    if (group && group.length > 1 && !/^[A-Da-d]\d*$/.test(group) && label) return { group, label };
   }
   return { group: "", label: text };
 }
