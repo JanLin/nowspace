@@ -1,4 +1,4 @@
-# Personal Coaching Agent
+# Nowspace — Personal Coaching Agent
 
 A task planning and coaching tool that reads your [Obsidian](https://obsidian.md/) vault, prioritises tasks using AI, and helps you stay focused through coaching questions.
 
@@ -7,168 +7,132 @@ A task planning and coaching tool that reads your [Obsidian](https://obsidian.md
 - **Reads your Obsidian vault** — Parses `Plan Week.md` with daily task lists, groups, and subtasks
 - **Prioritises tasks** — Uses Claude AI to assign A/B/C priorities based on your goals and patterns
 - **Week planning** — Day view, Mon-Fri, full week, and weekend views with drag-and-drop reordering
+- **Bucket list** — Park tasks you want to do later and pull them into any day
 - **White elephant breakdown** — Break down hard-to-start tasks into small steps (click the elephant icon)
 - **Coaching** — AI-powered coaching questions to help you reflect and stay on track
+- **Notes & references** — Scratchpad with wiki-link support and reference file browser
+- **Settings** — Configure vault path, API key, and reference groups from the app
 - **Saves back to Obsidian** — All changes sync back to your markdown files
 
-## Quick Start
+## Download Desktop App
+
+Download the latest version for your platform:
+
+| Platform | Download |
+|---|---|
+| **macOS (Apple Silicon)** | [Nowspace_0.1.0_aarch64.dmg](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.1.0_aarch64.dmg) |
+| **macOS (Intel)** | [Nowspace_0.1.0_x64.dmg](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.1.0_x64.dmg) |
+| **Windows** | [Nowspace_0.1.0_x64-setup.exe](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.1.0_x64-setup.exe) |
+| **Linux (AppImage)** | [Nowspace_0.1.0_amd64.AppImage](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.1.0_amd64.AppImage) |
+| **Linux (deb)** | [nowspace_0.1.0_amd64.deb](https://github.com/JanLin/coaching-agent/releases/latest/download/nowspace_0.1.0_amd64.deb) |
+
+Or browse all releases: [github.com/JanLin/coaching-agent/releases](https://github.com/JanLin/coaching-agent/releases)
+
+### First Launch
+
+1. Open the app — on first launch it will open the **Settings** tab
+2. **Set your Obsidian vault path** — browse to your vault folder (the app auto-detects the PARA structure)
+3. **Enter your Claude API key** — get one at [console.anthropic.com](https://console.anthropic.com/) (keys start with `sk-ant-`)
+4. Once configured, the app switches to the **Plan** tab and loads your week
+
+Your API key is stored locally in `~/.nowspace/.env` and is never sent anywhere except the Anthropic API.
+
+## Quick Start (Development)
 
 ### Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
-- An Obsidian vault (or the setup will create one for you)
+- Python 3.9+, Node.js 18+
+- An Obsidian vault with PARA folder structure
 - A [Claude API key](https://console.anthropic.com/) (optional — planning works without it)
 
 ### Setup
 
-1. Clone this repository:
+1. Clone and install:
 
    ```bash
    git clone git@github.com:JanLin/coaching-agent.git
    cd coaching-agent
+   pip install -r requirements.txt
+   cd frontend && npm install && cd ..
    ```
 
-2. Run the setup script:
+2. Configure:
 
-   **Mac / Linux:**
    ```bash
-   ./setup.sh
+   cp .env.example .env
+   # Edit .env with your ANTHROPIC_API_KEY and vault path
    ```
 
-   **Windows:**
-   ```cmd
-   setup.bat
+3. Run:
+
+   ```bash
+   # Backend
+   uvicorn backend.main:app --reload --port 8000
+
+   # Frontend (separate terminal)
+   cd frontend && npm run dev
    ```
 
-3. The script will ask you for:
-   - Your Claude API key (press Enter to skip)
-   - The path to your Obsidian vault
+4. Open **http://localhost:5173** in your browser.
 
-4. It creates the vault folder structure and an example `Plan Week.md`, then builds and starts the app.
+### Building the Desktop App
 
-5. Open **http://localhost:8000** in your browser and click **Load Week**.
+```bash
+# Build the Python sidecar binary
+./build-backend.sh
 
-### Verify in Obsidian
+# Build the Tauri desktop app
+cd frontend && npm run tauri build
+```
 
-After setup, open Obsidian and check that your vault has:
+The built app will be in `frontend/src-tauri/target/release/bundle/`.
+
+## Vault Structure
+
+The app expects an Obsidian vault with PARA folders:
 
 ```
 YourVault/
   0-Inbox/
-    Plan Week.md    <-- Your weekly plan lives here
+    Plan Week.md          <-- Your weekly plan
+    Plan Week Configuration.md  <-- Reference links config
   1-Projects/
   2-Areas/
   3-Resources/
   4-Archive/
 ```
 
-Open `Plan Week.md` to see the example tasks. Edit them to match your actual week.
-
 ## Task Icons
 
-Each task has icon actions that appear on hover. These help you manage focus, blockers, and complex tasks.
+Each task has icon actions that appear on hover:
 
 ### 🎺 Focus (Trumpet + Pomodoro)
 
-Click the trumpet 🎺 icon on any task to mark it as your current focus. The task text becomes **bold** — both in the UI and when saved to Obsidian (as `**task text**`).
-
-When you focus on a task, a **Pomodoro timer** prompt appears asking if you want to start a timed focus session:
-
-- **15 min** or **30 min** — starts a countdown with a rotating 🍅 tomato overlay
-- **Grace period** — within the first 5 minutes, you can pause for 5 or 10 minutes (one-time) to handle a controlled interruption
-- **When time's up** — choose to take a 5-minute break ☕, start another round 🍅, or finish
-
-The Pomodoro timer floats on the left side of the screen so you always see it while working:
-
-```
-┌──────────────┐
-│     🍅       │
-│   28:52      │
-│ 🎺 Task...  │
-│ [Grace 5m]   │
-│ [Grace 10m]  │
-│    Stop      │
-└──────────────┘
-```
+Click the trumpet 🎺 to mark a task as your current focus. A **Pomodoro timer** prompt appears with 15 or 30 minute options. The timer floats on-screen with grace period and break controls.
 
 ### 🐘 White Elephant (Breakdown)
 
-Some tasks are hard to start — the "white elephant" in the room. Click the elephant 🐘 icon to break a task into small, actionable steps.
-
-- Subtasks appear indented below the parent task
-- Each subtask has its own checkbox, edit, and delete
-- Completing the parent task auto-completes all subtasks
-- Double-click the subtask area to add a new step
-- In Obsidian, subtasks are stored as indented checkboxes:
-
-```markdown
-- [ ] Write project proposal
-  - [ ] Draft outline
-  - [ ] Research examples
-  - [x] Write intro section
-```
+Click the elephant 🐘 to break a hard-to-start task into small, actionable subtasks. Each subtask gets its own checkbox.
 
 ### ⏳ Waiting (Hourglass)
 
-Click the hourglass ⏳ icon when a task is blocked — you've started it but are waiting on someone else. The hourglass appears inline before the task text as a visual reminder.
-
-- In Obsidian, waiting tasks are saved with a `WAIT:` prefix: `- [ ] WAIT: Review PR from team`
-- Click the hourglass again to remove the waiting state
-- Waiting tasks are deprioritised in coaching sessions — the coach won't nag you about them
-
-## Daily Usage
-
-```bash
-# Start the coach
-docker compose up -d
-
-# Open in browser
-open http://localhost:8000
-
-# Stop when done
-docker compose down
-```
-
-## Updating
-
-When a new version is available:
-
-```bash
-git pull
-docker compose up --build -d
-```
-
-Your tasks and coaching memory are stored outside the container (in your vault and the `memory/` folder), so updates never lose your data.
+Click the hourglass ⏳ when a task is blocked. Waiting tasks show a `WAIT:` prefix in Obsidian and are deprioritised in coaching.
 
 ## Configuration
 
-All settings are in `.env` (created by the setup script):
+Settings are managed from the **Settings** tab in the app:
 
-| Variable | Description |
-|---|---|
-| `ANTHROPIC_API_KEY` | Your Claude API key |
-| `VAULT_PATH` | Absolute path to your Obsidian vault |
-
-To change settings, edit `.env` and restart:
-
-```bash
-docker compose down && docker compose up -d
-```
-
-## Feedback and Issues
-
-Found a bug or have a suggestion? Please open an issue:
-
-1. Go to [github.com/JanLin/coaching-agent/issues](https://github.com/JanLin/coaching-agent/issues)
-2. Click **New issue**
-3. Describe what happened or what you'd like to see
-4. Include screenshots if helpful
-
-You can also comment on existing issues to add context or vote for features.
+- **Vault path** — path to your Obsidian vault (auto-detects PARA structure)
+- **Claude API key** — stored in `~/.nowspace/.env`, never bundled with the app
+- **Reference groups** — map group names to vault folders for the reference file browser
 
 ## Tech Stack
 
-- **Backend:** Python, FastAPI, Claude API (Anthropic SDK)
+- **Desktop:** [Tauri v2](https://v2.tauri.app/) (Rust + WebView)
+- **Backend:** Python, FastAPI, Claude API (Anthropic SDK), bundled via PyInstaller
 - **Frontend:** React, TypeScript, Tailwind CSS, Vite
 - **Storage:** Obsidian markdown files (no database)
-- **Deployment:** Docker
+
+## Feedback and Issues
+
+Found a bug or have a suggestion? [Open an issue](https://github.com/JanLin/coaching-agent/issues).

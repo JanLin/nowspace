@@ -17,6 +17,12 @@ export interface Subtask {
   done: boolean;
 }
 
+export interface TaskLink {
+  name: string;
+  display_text?: string;
+  resolved_path?: string;
+}
+
 export interface Task {
   text: string;
   done: boolean;
@@ -28,6 +34,8 @@ export interface Task {
   subtasks: Subtask[];
   focused: boolean;
   waiting: boolean;
+  links: TaskLink[];
+  clean_text: string;
 }
 
 export interface PlanResponse {
@@ -74,6 +82,31 @@ export interface WeekPlanResponse {
   goals: string[];
   days: DayTasks[];
   is_future: boolean;
+  offset: number;
+  is_archive: boolean;
+}
+
+export interface BucketTask {
+  text: string;
+  priority: string;
+  focused: boolean;
+  waiting: boolean;
+  subtasks: Subtask[];
+}
+
+export interface BucketResponse {
+  tasks: BucketTask[];
+  pinned_groups: string[];
+}
+
+export interface DayNotesResponse {
+  day?: string;
+  content?: string;
+  groups?: Record<string, string[]>;
+  ungrouped?: string[];
+  wiki_links?: string[];
+  days?: Record<string, { day: string; content: string; groups: Record<string, string[]>; ungrouped: string[]; wiki_links: string[] }>;
+  general?: string;
 }
 
 export const api = {
@@ -81,6 +114,15 @@ export const api = {
     request<PlanResponse>(targetDate ? `/plan?target_date=${targetDate}` : "/plan"),
 
   getGoals: () => request<GoalsResponse>("/plan/goals"),
+
+  saveGoals: (goals: string[], offset: number = 0) =>
+    request<{ status: string; count: number }>("/plan/goals", {
+      method: "PUT",
+      body: JSON.stringify({ goals, offset }),
+    }),
+
+  getPreviousWeekGoals: (currentOffset: number = 0) =>
+    request<WeekPlanResponse>(`/plan/week?offset=${currentOffset - 1}`).then(r => r.goals).catch(() => [] as string[]),
 
   startSession: () =>
     request<{ session_id: string; task_count: number }>("/plan/start-session", {
@@ -105,18 +147,68 @@ export const api = {
       body: JSON.stringify({ session_id, message }),
     }),
 
-  getWeekPlan: () => request<WeekPlanResponse>("/plan/week"),
+  getWeekPlan: (offset: number = 0) =>
+    request<WeekPlanResponse>(`/plan/week?offset=${offset}`),
 
-  saveWeekPlan: (days: DayTasks[]) =>
+  getWeekModified: (offset: number = 0) =>
+    request<{ mtime: number | null }>(`/plan/week-modified?offset=${offset}`),
+
+  saveWeekPlan: (days: DayTasks[], offset: number = 0) =>
     request<{ status: string }>("/plan/save-week", {
       method: "POST",
-      body: JSON.stringify({ days }),
+      body: JSON.stringify({ days, offset }),
+    }),
+
+  createNextWeek: () =>
+    request<{ status: string; week_label: string }>("/plan/create-next-week", {
+      method: "POST",
+    }),
+
+  transitionWeek: () =>
+    request<{ status: string; archived: string; new_week: string }>("/plan/transition-week", {
+      method: "POST",
     }),
 
   saveToVault: (content: string, grouped: boolean) =>
     request<{ status: string; day: string }>("/plan/save-vault", {
       method: "POST",
       body: JSON.stringify({ content, grouped }),
+    }),
+
+  // Bucket
+  getBucket: () => request<BucketResponse>("/plan/bucket"),
+
+  getBucketModified: () =>
+    request<{ mtime: number | null }>("/plan/bucket-modified"),
+
+  saveBucket: (tasks: BucketTask[], pinned_groups: string[]) =>
+    request<{ status: string }>("/plan/bucket/save", {
+      method: "POST",
+      body: JSON.stringify({ tasks, pinned_groups }),
+    }),
+
+  moveToBucket: (task_index: number, day_idx: number, week_offset: number = 0) =>
+    request<{ status: string; bucket_count: number }>("/plan/bucket/move", {
+      method: "POST",
+      body: JSON.stringify({ task_index, direction: "to_bucket", day_idx, week_offset }),
+    }),
+
+  moveFromBucket: (task_index: number, day_idx: number, week_offset: number = 0) =>
+    request<{ status: string; bucket_count: number }>("/plan/bucket/move", {
+      method: "POST",
+      body: JSON.stringify({ task_index, direction: "from_bucket", day_idx, week_offset }),
+    }),
+
+  // Carry forward
+  getCarryForward: (offset: number = -1) =>
+    request<{ tasks: { text: string; from_day: string; subtasks: Subtask[]; focused: boolean; waiting: boolean; priority: string }[]; week_label: string; found: boolean }>(
+      `/plan/carry-forward?offset=${offset}`
+    ),
+
+  carryForward: (tasks: { text: string; day: string; subtasks: { text: string; done: boolean }[]; focused: boolean; waiting: boolean; priority: string }[], offset: number = 0, sourceOffset?: number) =>
+    request<{ status: string; count: number }>("/plan/carry-forward", {
+      method: "POST",
+      body: JSON.stringify({ tasks, offset, source_offset: sourceOffset }),
     }),
 
   getMemory: () => request<MemoryResponse>("/memory"),
@@ -126,4 +218,153 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ session_id, summary }),
     }),
+
+  // Vault
+  vaultSearch: (q: string, limit: number = 10) =>
+    request<{ results: { name: string; path: string; folder: string; section: string }[] }>(
+      `/api/vault/search?q=${encodeURIComponent(q)}&limit=${limit}`
+    ),
+
+  referenceLinks: () =>
+    request<{ links: Record<string, string> }>("/api/vault/reference-links"),
+
+  vaultFolder: (path: string = "1-Projects") =>
+    request<{ path: string; files: { name: string; path: string; type: string; modified: string }[] }>(
+      `/api/vault/folder?path=${encodeURIComponent(path)}`
+    ),
+
+  vaultLinkedDocs: async (group: string) => {
+    const raw = await request<{
+      folder_path: string | null;
+      call_logs: { name: string; path: string }[];
+      project_files: { name: string; path: string }[];
+      subfolders: { name: string; path: string }[];
+      wiki_refs: { name: string; path: string }[];
+    }>(`/api/vault/linked-docs?group=${encodeURIComponent(group)}`);
+    const docs: { name: string; path: string; type: string }[] = [
+      ...(raw.call_logs || []).map(d => ({ ...d, type: "call_log" })),
+      ...(raw.project_files || []).map(d => ({ ...d, type: "project" })),
+      ...(raw.subfolders || []).map(d => ({ ...d, type: "subfolder" })),
+    ];
+    return { group, folder: raw.folder_path || "", docs };
+  },
+
+  // Notes
+  getNotes: (day?: string, offset: number = 0) => {
+    const params = new URLSearchParams({ offset: String(offset) });
+    if (day) params.set("day", day);
+    return request<DayNotesResponse>(`/plan/notes?${params}`);
+  },
+
+  appendNote: (day: string, entry: string, group: string = "", timestamp: boolean = true, offset: number = 0) =>
+    request<{ status: string; day: string }>("/plan/notes/append", {
+      method: "POST",
+      body: JSON.stringify({ day, entry, group, timestamp, offset }),
+    }),
+
+  putNotes: (day: string, content: string, offset: number = 0) =>
+    request<{ status: string; day: string }>("/plan/notes", {
+      method: "PUT",
+      body: JSON.stringify({ day, content, offset }),
+    }),
+
+  // Vault note read/write (for in-app editor)
+  readNote: (path: string) =>
+    request<{ content: string; modified: string; path: string }>(
+      `/api/notes/read?path=${encodeURIComponent(path)}`
+    ),
+
+  writeNote: (path: string, content: string) =>
+    request<{ success: boolean; modified: string; path: string }>("/api/notes/write", {
+      method: "POST",
+      body: JSON.stringify({ path, content }),
+    }),
+
+  createNote: (folder: string, name: string, template: string = "") =>
+    request<{ success: boolean; modified: string; path: string }>("/api/notes/create", {
+      method: "POST",
+      body: JSON.stringify({ folder, name, template }),
+    }),
+
+  // Settings
+  getSettings: () =>
+    request<{
+      vault_path: string;
+      vault_root: string;
+      reference_links: Record<string, string>;
+      vault_status: VaultStatus;
+      api_key_status: ApiKeyStatus;
+    }>("/api/settings"),
+
+  validateVault: (vault_path: string) =>
+    request<{
+      vault_path: string;
+      vault_root: string;
+      vault_status: VaultStatus;
+      reference_links: Record<string, string>;
+    }>("/api/settings/validate-vault", {
+      method: "POST",
+      body: JSON.stringify({ vault_path }),
+    }),
+
+  updateVaultPath: (vault_path: string, create_structure: boolean = false) =>
+    request<{
+      status: string;
+      vault_path: string;
+      vault_root: string;
+      created_folders: string[];
+      reference_links: Record<string, string>;
+      vault_status: VaultStatus;
+    }>("/api/settings/vault-path", {
+      method: "PUT",
+      body: JSON.stringify({ vault_path, create_structure }),
+    }),
+
+  updateReferenceLinks: (reference_links: Record<string, string>) =>
+    request<{ status: string; reference_links: Record<string, string> }>("/api/settings/reference-links", {
+      method: "PUT",
+      body: JSON.stringify({ reference_links }),
+    }),
+
+  addReferenceLink: (name: string, path: string) =>
+    request<{ status: string; reference_links: Record<string, string> }>("/api/settings/reference-links", {
+      method: "POST",
+      body: JSON.stringify({ name, path }),
+    }),
+
+  deleteReferenceLink: (name: string) =>
+    request<{ status: string; reference_links: Record<string, string> }>(
+      `/api/settings/reference-links/${encodeURIComponent(name)}`,
+      { method: "DELETE" }
+    ),
+
+  listVaultFolders: (path: string = "") =>
+    request<{ folders: { name: string; path: string }[]; current: string }>(
+      `/api/settings/vault-folders?path=${encodeURIComponent(path)}`
+    ),
+
+  browseFolders: (path: string = "") =>
+    request<{ folders: { name: string; path: string }[]; current: string; parent: string | null }>(
+      `/api/settings/browse-folders?path=${encodeURIComponent(path)}`
+    ),
+
+  setApiKey: (api_key: string) =>
+    request<{ status: string; saved_to: string; api_key_status: ApiKeyStatus }>("/api/settings/api-key", {
+      method: "PUT",
+      body: JSON.stringify({ api_key }),
+    }),
 };
+
+export interface ApiKeyStatus {
+  configured: boolean;
+  masked: string;
+  source: string;
+}
+
+export interface VaultStatus {
+  exists: boolean;
+  has_para: boolean;
+  para_folders: string[];
+  has_config: boolean;
+  file_count: number;
+}

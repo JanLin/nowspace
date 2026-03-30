@@ -1,5 +1,9 @@
 import React, { useState, useRef, useMemo, useEffect } from "react";
-import { api, type WeekPlanResponse, type DayTasks, type Task } from "../api";
+import { api, type WeekPlanResponse, type DayTasks, type Task, type TaskLink } from "../api";
+import TaskLinkPopup from "./TaskLinkPopup";
+import NotesPanel from "./NotesPanel";
+import NoteEditor from "./NoteEditor";
+import NoteFilePicker from "./NoteFilePicker";
 
 const PRIORITY_BADGE: Record<string, string> = {
   A: "bg-red-100 text-red-700",
@@ -61,12 +65,19 @@ function renderLinkedText(text: string) {
 /** Parse group prefix from task text. "Rotary: do X" => { group: "Rotary", label: "do X" } */
 function parseGroup(text: string): { group: string; label: string } {
   const idx = text.indexOf(":");
-  if (idx > 0 && idx < 30) {
+  if (idx > 1 && idx < 30) {
     const group = text.slice(0, idx).trim();
     const label = text.slice(idx + 1).trim();
-    if (group && label && !group.includes("[") && !group.endsWith("http") && !group.endsWith("https")) return { group, label };
+    if (group && group.length > 1 && label && !/^[A-Da-d]\d*$/.test(group) && !group.includes("[") && !group.endsWith("http") && !group.endsWith("https")) return { group, label };
   }
   return { group: "", label: text };
+}
+
+/** Get display text for a task, stripping [[wiki links]] if clean_text is available */
+function getDisplayText(task: Task): string {
+  // clean_text has [[...]] stripped; fall back to parsing the label from group prefix
+  const base = task.clean_text || task.text;
+  return parseGroup(base).label;
 }
 
 /** Collect all unique group names across all days */
@@ -251,6 +262,7 @@ export default function WeekPlan() {
   const [data, setData] = useState<WeekPlanResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [weekOffset, setWeekOffset] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [selectedDayIdx, setSelectedDayIdx] = useState<number>(() => {
     const jsDay = new Date().getDay();
@@ -268,7 +280,7 @@ export default function WeekPlan() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   // Inline add state
-  const [addingAt, setAddingAt] = useState<{ dayIdx: number; afterIdx: number } | null>(null);
+  const [addingAt, setAddingAt] = useState<{ dayIdx: number; afterIdx: number; group?: string | null } | null>(null);
 
   // Drag state — supports both task and group dragging
   const dragRef = useRef<{ fromDay: number; fromIdx: number; group: string | null } | null>(null);
@@ -276,9 +288,29 @@ export default function WeekPlan() {
   const [dropTarget, setDropTarget] = useState<{ day: number; idx: number } | null>(null);
   const [dropGroupTarget, setDropGroupTarget] = useState<{ day: number; groupName: string } | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
+  const [groupPicker, setGroupPicker] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set());
   const [editingSubtask, setEditingSubtask] = useState<{ dayIdx: number; taskIdx: number; subIdx: number } | null>(null);
   const [addingSubtask, setAddingSubtask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
+  const [addSubAfter, setAddSubAfter] = useState<number | null>(null); // insert after this sub-task index
+  const [subDropTarget, setSubDropTarget] = useState<{ dayIdx: number; taskIdx: number; subIdx: number } | null>(null);
+
+  // Desktop notifications
+  const notifPermission = useRef<NotificationPermission>(
+    typeof Notification !== "undefined" ? Notification.permission : "denied"
+  );
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().then((p) => { notifPermission.current = p; });
+    }
+  }, []);
+  const sendNotification = (title: string, body: string, tag?: string) => {
+    if (notifPermission.current !== "granted") return;
+    try {
+      const n = new Notification(title, { body, icon: "🍅", tag: tag ?? title, requireInteraction: true });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch { /* Safari/iOS fallback — ignore */ }
+  };
 
   // Pomodoro state
   const [pomodoroPrompt, setPomodoroPrompt] = useState<{ dayIdx: number; taskIdx: number; taskText: string } | null>(null);
@@ -293,6 +325,404 @@ export default function WeekPlan() {
     state: "running" | "grace" | "break" | "breakRunning" | "done";
     startedAt: number;
   } | null>(null);
+
+  // Bucket state
+  const [bucketCount, setBucketCount] = useState(0);
+  const [bucketHighlight, setBucketHighlight] = useState(false);
+  const [bucketOpen, setBucketOpen] = useState(false);
+  const [bucketTasks, setBucketTasks] = useState<import("../api").BucketTask[]>([]);
+  const [bucketExpandedGroups, setBucketExpandedGroups] = useState<Set<string>>(new Set());
+  const bucketDragRef = useRef<{ bucketIdx: number } | null>(null);
+
+  // Carry forward
+  const [carryForwardOpen, setCarryForwardOpen] = useState(false);
+  const [carryTasks, setCarryTasks] = useState<{ text: string; from_day: string; subtasks: { text: string; done: boolean }[]; focused: boolean; waiting: boolean; priority: string; selected: boolean; targetDay: string }[]>([]);
+  const [carryLabel, setCarryLabel] = useState("");
+  const [carryLoading, setCarryLoading] = useState(false);
+  const [carryExpandedGroups, setCarryExpandedGroups] = useState<Set<string>>(new Set());
+  const carryDragRef = useRef<{ carryIdx: number } | null>(null);
+  const carryGroupDragRef = useRef<{ groupName: string } | null>(null);
+  const [carryHighlight, setCarryHighlight] = useState(false);
+
+  // Bottom bar visibility
+  const [showBottomBar, setShowBottomBar] = useState(true);
+  const [pinFilters, setPinFilters] = useState(true);
+
+  // Goals banner
+  const [goalsExpanded, setGoalsExpanded] = useState(false);
+  const [goalsEditing, setGoalsEditing] = useState(false);
+  const [goalsDraft, setGoalsDraft] = useState("");
+  const [goalsSaving, setGoalsSaving] = useState(false);
+  const [goalsSaved, setGoalsSaved] = useState(false);
+
+  // Undo / Redo
+  type UndoEntry = {
+    type: "tasks" | "goals" | "both";
+    days: DayTasks[];
+    goals: string[];
+  };
+  const undoStack = useRef<UndoEntry[]>([]);
+  const redoStack = useRef<UndoEntry[]>([]);
+  const MAX_UNDO = 40;
+  const [undoCount, setUndoCount] = useState(0); // triggers re-render for indicator
+
+  const pushUndo = (type: UndoEntry["type"] = "tasks") => {
+    if (!data) return;
+    undoStack.current.push({
+      type,
+      days: JSON.parse(JSON.stringify(data.days)),
+      goals: [...(data.goals || [])],
+    });
+    if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
+    redoStack.current = []; // clear redo on new action
+    setUndoCount(undoStack.current.length);
+  };
+
+  const performUndo = async () => {
+    if (!data || undoStack.current.length === 0) return;
+    const entry = undoStack.current.pop()!;
+    // Save current state to redo
+    redoStack.current.push({
+      type: entry.type,
+      days: JSON.parse(JSON.stringify(data.days)),
+      goals: [...(data.goals || [])],
+    });
+    // Restore
+    const restoredData = { ...data, days: entry.days, goals: entry.goals };
+    setData(restoredData);
+    setUndoCount(undoStack.current.length);
+
+    // Persist to disk based on what changed
+    if (entry.type === "tasks" || entry.type === "both") {
+      setDirty(true);
+      // Immediate save for undo (don't wait for debounce)
+      try {
+        await api.saveWeekPlan(entry.days, weekOffset);
+      } catch { /* auto-save will retry */ }
+    }
+    if (entry.type === "goals" || entry.type === "both") {
+      try {
+        await api.saveGoals(entry.goals, weekOffset);
+      } catch { /* silent */ }
+    }
+  };
+
+  const performRedo = async () => {
+    if (!data || redoStack.current.length === 0) return;
+    const entry = redoStack.current.pop()!;
+    // Save current state to undo
+    undoStack.current.push({
+      type: entry.type,
+      days: JSON.parse(JSON.stringify(data.days)),
+      goals: [...(data.goals || [])],
+    });
+    // Restore
+    const restoredData = { ...data, days: entry.days, goals: entry.goals };
+    setData(restoredData);
+    setUndoCount(undoStack.current.length);
+
+    // Persist
+    if (entry.type === "tasks" || entry.type === "both") {
+      setDirty(true);
+      try {
+        await api.saveWeekPlan(entry.days, weekOffset);
+      } catch { /* auto-save will retry */ }
+    }
+    if (entry.type === "goals" || entry.type === "both") {
+      try {
+        await api.saveGoals(entry.goals, weekOffset);
+      } catch { /* silent */ }
+    }
+  };
+
+  // Ctrl+Z / Ctrl+Shift+Z keyboard listener
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Skip if user is typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          performRedo();
+        } else {
+          performUndo();
+        }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "y") {
+        e.preventDefault();
+        performRedo();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [data, weekOffset]);
+
+  // Clear undo/redo when switching weeks
+  useEffect(() => {
+    undoStack.current = [];
+    redoStack.current = [];
+    setUndoCount(0);
+  }, [weekOffset]);
+
+  // External file change detection
+  const lastKnownMtime = useRef<number | null>(null);
+  const [externalChange, setExternalChange] = useState(false);
+
+  // Record mtime after every save or fetch
+  const recordMtime = async () => {
+    try {
+      const r = await api.getWeekModified(weekOffset);
+      lastKnownMtime.current = r.mtime;
+    } catch { /* ignore */ }
+  };
+
+  // Check on window focus / tab visibility
+  useEffect(() => {
+    const check = async () => {
+      if (document.hidden || !data) return;
+      try {
+        const r = await api.getWeekModified(weekOffset);
+        if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
+          setExternalChange(true);
+        }
+      } catch { /* ignore */ }
+    };
+    const onVisChange = () => { if (!document.hidden) check(); };
+    const onFocus = () => check();
+    document.addEventListener("visibilitychange", onVisChange);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisChange);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [data, weekOffset]);
+
+  /** Mutate week data with undo tracking. Call instead of setData+setDirty. */
+  const applyTaskChange = (newDays: DayTasks[]) => {
+    if (!data) return;
+    pushUndo("tasks");
+    setData({ ...data, days: newDays });
+    setDirty(true);
+  };
+
+  // Link popup
+  const [linkPopup, setLinkPopup] = useState<{ dayIdx: number; taskIdx: number; links: TaskLink[]; pos: { top: number; left: number } } | null>(null);
+
+  const openLinkPopup = (dayIdx: number, taskIdx: number, links: TaskLink[], e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setLinkPopup({ dayIdx, taskIdx, links, pos: { top: rect.bottom + 4, left: rect.left } });
+  };
+
+  const addLinkToTask = (dayIdx: number, taskIdx: number, name: string) => {
+    if (!data) return;
+    const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+    const task = { ...days[dayIdx].tasks[taskIdx] };
+    // Append [[name]] to the task text
+    task.text = task.text + ` [[${name}]]`;
+    // Update links array
+    task.links = [...(task.links || []), { name, resolved_path: undefined }];
+    days[dayIdx].tasks[taskIdx] = task;
+    applyTaskChange(days);
+    // Refresh popup
+    setLinkPopup((prev) => prev ? { ...prev, links: task.links } : null);
+  };
+
+  const removeLinkFromTask = (dayIdx: number, taskIdx: number, linkName: string) => {
+    if (!data) return;
+    const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+    const task = { ...days[dayIdx].tasks[taskIdx] };
+    // Remove [[name]] or [[name|display]] from text
+    task.text = task.text
+      .replace(new RegExp(`\\s*\\[\\[${linkName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\|[^\\]]*)?\\]\\]`, 'g'), '')
+      .trim();
+    task.links = (task.links || []).filter(l => l.name !== linkName);
+    days[dayIdx].tasks[taskIdx] = task;
+    applyTaskChange(days);
+    // Update picker if open
+    setNotePicker((prev) => prev && prev.dayIdx === dayIdx && prev.taskIdx === taskIdx
+      ? { ...prev, links: task.links } : prev);
+  };
+
+  // Notes panel state
+  const [showNotesPanel, setShowNotesPanel] = useState(true);
+  const [notesPanelPct, setNotesPanelPct] = useState(50); // percentage width for notes panel
+  const splitterDragging = useRef(false);
+  const splitterContainer = useRef<HTMLDivElement | null>(null);
+
+  // Note editor state
+  const [noteEditor, setNoteEditor] = useState<{ path: string; name: string } | null>(null);
+
+  // Note file picker state
+  const [notePicker, setNotePicker] = useState<{
+    dayIdx: number; taskIdx: number; group: string; links: import("../api").TaskLink[];
+    pos: { top: number; left: number };
+  } | null>(null);
+
+  // Get current day name for notes
+  const currentDayName = data?.days[selectedDayIdx]?.day || "monday";
+
+  const openCarryForward = async () => {
+    setCarryLoading(true);
+    try {
+      // Pull from the week before the one being viewed
+      // When viewing wk14 (offset=1), pull from wk13 (offset=0 → current week)
+      const sourceOffset = weekOffset - 1;
+      const r = await api.getCarryForward(sourceOffset);
+      if (!r.found || r.tasks.length === 0) {
+        setError("No uncompleted tasks found in previous week");
+        setCarryLoading(false);
+        return;
+      }
+      setCarryTasks(r.tasks.map((t) => ({ ...t, priority: t.priority || "C", selected: true, targetDay: "monday" })));
+      setCarryLabel(r.week_label);
+      setCarryForwardOpen(true);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load carry-forward tasks");
+    }
+    setCarryLoading(false);
+  };
+
+  const pullFromCarry = async (carryIdx: number, dayIdx: number) => {
+    if (!data || isArchive) return;
+    const task = carryTasks[carryIdx];
+    if (!task) return;
+    try {
+      const dayName = data.days[dayIdx]?.day || "monday";
+      const sourceOffset = weekOffset - 1;
+      await api.carryForward(
+        [{ text: task.text, day: dayName, subtasks: task.subtasks, focused: task.focused, waiting: task.waiting, priority: task.priority }],
+        weekOffset, sourceOffset
+      );
+      setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
+      fetchWeek();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to carry task");
+    }
+  };
+
+  const pullCarryGroup = async (groupName: string, dayIdx: number) => {
+    if (!data || isArchive) return;
+    const dayName = data.days[dayIdx]?.day || "monday";
+    const groupTasks = carryTasks.filter((t) => parseGroup(t.text).group === groupName);
+    if (groupTasks.length === 0) return;
+    try {
+      const sourceOffset = weekOffset - 1;
+      await api.carryForward(
+        groupTasks.map((t) => ({ text: t.text, day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
+        weekOffset, sourceOffset
+      );
+      setCarryTasks((prev) => prev.filter((t) => parseGroup(t.text).group !== groupName));
+      fetchWeek();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to carry group");
+    }
+  };
+
+  const carryAllToDay = async (dayName: string) => {
+    if (carryTasks.length === 0) return;
+    setCarryLoading(true);
+    try {
+      const sourceOffset = weekOffset - 1;
+      await api.carryForward(
+        carryTasks.map((t) => ({ text: t.text, day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
+        weekOffset, sourceOffset
+      );
+      setCarryTasks([]);
+      setCarryForwardOpen(false);
+      fetchWeek();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to carry forward");
+    }
+    setCarryLoading(false);
+  };
+
+  const carryAllToBucket = async () => {
+    if (carryTasks.length === 0) return;
+    setCarryLoading(true);
+    try {
+      const currentBucket = await api.getBucket();
+      const newTasks = [
+        ...currentBucket.tasks,
+        ...carryTasks.map((t) => ({
+          text: t.text,
+          priority: t.priority || "C",
+          focused: t.focused,
+          waiting: t.waiting,
+          subtasks: t.subtasks,
+        })),
+      ];
+      await api.saveBucket(newTasks, currentBucket.pinned_groups);
+      refreshBucket();
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+      setCarryTasks([]);
+      setCarryForwardOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to move to bucket");
+    }
+    setCarryLoading(false);
+  };
+
+  const carrySingleToBucket = async (carryIdx: number) => {
+    const task = carryTasks[carryIdx];
+    if (!task) return;
+    try {
+      const currentBucket = await api.getBucket();
+      const newTasks = [
+        ...currentBucket.tasks,
+        { text: task.text, priority: task.priority || "C", focused: task.focused, waiting: task.waiting, subtasks: task.subtasks },
+      ];
+      await api.saveBucket(newTasks, currentBucket.pinned_groups);
+      refreshBucket();
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+      setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to move to bucket");
+    }
+  };
+
+  // Fetch bucket count on load + refresh when bucket changes from Bucket tab
+  const refreshBucket = () => {
+    api.getBucket().then((r) => {
+      setBucketCount(r.tasks.length);
+      setBucketTasks(r.tasks);
+    }).catch(() => {});
+  };
+
+  // Auto-load current week on mount
+  useEffect(() => {
+    if (!data && !loading) fetchWeek(0);
+  }, []);
+
+  useEffect(() => {
+    const refresh = refreshBucket;
+    refresh();
+    const handleWeekChanged = () => { fetchWeek(); };
+    window.addEventListener("week-changed", handleWeekChanged);
+    window.addEventListener("bucket-changed", refresh);
+    return () => {
+      window.removeEventListener("week-changed", handleWeekChanged);
+      window.removeEventListener("bucket-changed", refresh);
+    };
+  }, []);
+
+  // Auto-fetch carry forward tasks when viewing a future week
+  useEffect(() => {
+    if (weekOffset > 0 && data && carryTasks.length === 0) {
+      const sourceOffset = weekOffset - 1;
+      api.getCarryForward(sourceOffset).then((r) => {
+        if (r.found && r.tasks.length > 0) {
+          setCarryTasks(r.tasks.map((t) => ({ ...t, priority: t.priority || "C", selected: true, targetDay: "monday" })));
+          setCarryLabel(r.week_label);
+        }
+      }).catch(() => {});
+    }
+    if (weekOffset <= 0) {
+      setCarryTasks([]);
+      setCarryForwardOpen(false);
+    }
+  }, [weekOffset, data]);
 
   const allGroups = useMemo(() => (data ? collectGroups(data.days) : []), [data]);
 
@@ -312,14 +742,16 @@ export default function WeekPlan() {
     return jsDay === 0 ? 6 : jsDay - 1;
   })();
 
-  const fetchWeek = async () => {
+  const fetchWeek = async (offset?: number) => {
+    const ofs = offset ?? weekOffset;
     setLoading(true);
     setError("");
     setDirty(false);
+    setExternalChange(false);
     try {
-      const result = await api.getWeekPlan();
-      // Preserve file order as-is — group view order is the master order
+      const result = await api.getWeekPlan(ofs);
       setData(result);
+      recordMtime();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load week plan");
     } finally {
@@ -327,13 +759,122 @@ export default function WeekPlan() {
     }
   };
 
+  // Goals helpers
+  const goalsAsList = (data?.goals || []).filter(g => g && g.trim());
+  const hasGoals = goalsAsList.length > 0;
+
+  const startEditingGoals = () => {
+    setGoalsDraft(goalsAsList.join("\n"));
+    setGoalsEditing(true);
+    setGoalsExpanded(true);
+  };
+
+  const saveGoals = async (text: string) => {
+    const goals = text.split("\n").map(l => l.replace(/^\s*[-*]\s*/, "").trim()).filter(Boolean);
+    pushUndo("goals");
+    setGoalsSaving(true);
+    try {
+      await api.saveGoals(goals, weekOffset);
+      if (data) {
+        setData({ ...data, goals });
+      }
+      setGoalsEditing(false);
+      setGoalsSaved(true);
+      setTimeout(() => setGoalsSaved(false), 1500);
+    } catch {
+      // stay in editing mode on failure
+    } finally {
+      setGoalsSaving(false);
+    }
+  };
+
+  const carryOverGoals = async () => {
+    try {
+      const prevGoals = await api.getPreviousWeekGoals(weekOffset);
+      if (prevGoals.length > 0) {
+        setGoalsDraft(prevGoals.join("\n"));
+        setGoalsEditing(true);
+        setGoalsExpanded(true);
+      }
+    } catch {
+      // silently ignore
+    }
+  };
+
+  /** Flush unsaved changes to disk immediately (call before navigation). */
+  const flushIfDirty = async () => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    if (dirty && data && !isArchive) {
+      await saveWeek();
+    }
+  };
+
+  const navigateWeek = async (direction: -1 | 1) => {
+    const newOffset = weekOffset + direction;
+    // Only allow 1 week forward max
+    if (newOffset > 1) return;
+
+    // Save pending changes before leaving this week
+    await flushIfDirty();
+
+    // If navigating forward to next week, ensure the file exists
+    if (newOffset === 1) {
+      try {
+        await api.createNextWeek();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to create next week");
+        return;
+      }
+    }
+
+    setWeekOffset(newOffset);
+    await fetchWeek(newOffset);
+  };
+
+  // Navigate one day forward/backward, wrapping across weeks
+  const navigateDay = async (direction: -1 | 1) => {
+    const newIdx = selectedDayIdx + direction;
+    if (newIdx >= 0 && newIdx <= 6) {
+      setSelectedDayIdx(newIdx);
+    } else if (newIdx < 0) {
+      // Go to previous week, Sunday
+      await navigateWeek(-1);
+      setSelectedDayIdx(6);
+    } else {
+      // Go to next week, Monday
+      await navigateWeek(1);
+      setSelectedDayIdx(0);
+    }
+  };
+
+  // Navigate to today (current week + current day)
+  const goToToday = async () => {
+    if (weekOffset !== 0) {
+      await flushIfDirty();
+      setWeekOffset(0);
+      await fetchWeek(0);
+    }
+    const jsDay = new Date().getDay();
+    setSelectedDayIdx(jsDay === 0 ? 6 : jsDay - 1);
+  };
+
+  // Check if currently viewing today
+  const isOnToday = weekOffset === 0 && selectedDayIdx === todayIdx;
+
+  const isArchive = weekOffset < 0;
+
   const saveWeek = async () => {
-    if (!data) return;
+    if (!data || isArchive) return;
     setSaving(true);
     try {
-      await api.saveWeekPlan(data.days);
+      await api.saveWeekPlan(data.days, weekOffset);
       setSaved(true);
       setDirty(false);
+      setExternalChange(false);
+      recordMtime();
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
@@ -348,20 +889,45 @@ export default function WeekPlan() {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    if (dirty && !autoSavePaused && !saving && data) {
+    if (dirty && !autoSavePaused && !saving && data && !isArchive) {
       autoSaveTimerRef.current = setTimeout(() => {
         saveWeek();
-      }, 30000);
+      }, 2000);
     }
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
   }, [dirty, autoSavePaused, saving, data]);
 
+  // Splitter drag for notes panel resize
+  const onSplitterDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    splitterDragging.current = true;
+    const onMove = (ev: MouseEvent) => {
+      if (!splitterDragging.current || !splitterContainer.current) return;
+      const rect = splitterContainer.current.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const tasksPct = Math.min(75, Math.max(25, (x / rect.width) * 100));
+      setNotesPanelPct(Math.round(100 - tasksPct));
+    };
+    const onUp = () => {
+      splitterDragging.current = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
   // Pomodoro timer tick
+  const pomodoroState = pomodoro?.state ?? null;
+  const pomodoroStartedAt = pomodoro?.startedAt ?? null;
   useEffect(() => {
-    if (!pomodoro) return;
-    if (pomodoro.state === "done" || pomodoro.state === "break") return;
+    if (!pomodoroState || pomodoroState === "done" || pomodoroState === "break") return;
 
     const interval = setInterval(() => {
       setPomodoro((prev) => {
@@ -369,7 +935,11 @@ export default function WeekPlan() {
 
         if (prev.state === "grace") {
           if (prev.graceRemaining <= 1) {
-            // Grace ended, resume main timer
+            sendNotification(
+              "🍅 Grace Period Over!",
+              `"${prev.taskText}" — Pomodoro is starting now!`,
+              "pomo-grace"
+            );
             return { ...prev, graceRemaining: 0, state: "running" };
           }
           return { ...prev, graceRemaining: prev.graceRemaining - 1 };
@@ -377,6 +947,7 @@ export default function WeekPlan() {
 
         if (prev.state === "breakRunning") {
           if (prev.remaining <= 1) {
+            sendNotification("☕ Break Over!", "Ready to start another round?", "pomo-break-done");
             return { ...prev, remaining: 0, state: "done" };
           }
           return { ...prev, remaining: prev.remaining - 1 };
@@ -384,14 +955,18 @@ export default function WeekPlan() {
 
         // Running state
         if (prev.remaining <= 1) {
+          sendNotification("🍅 Pomodoro Complete!", `"${prev.taskText}" — Time for a break?`, "pomo-done");
           return { ...prev, remaining: 0, state: "break" };
+        }
+        if (prev.remaining === 61) {
+          sendNotification("🍅 1 Minute Left", `"${prev.taskText}" — wrapping up soon`, "pomo-warn");
         }
         return { ...prev, remaining: prev.remaining - 1 };
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [pomodoro?.state]);
+  }, [pomodoroState, pomodoroStartedAt]);
 
   const startPomodoro = (dayIdx: number, taskIdx: number, taskText: string, minutes: number) => {
     setPomodoro({
@@ -420,14 +995,16 @@ export default function WeekPlan() {
   };
 
   const restartPomodoro = () => {
-    if (!pomodoro) return;
-    setPomodoro({
-      ...pomodoro,
-      remaining: pomodoro.duration,
-      graceUsed: false,
-      graceRemaining: 0,
-      state: "running",
-      startedAt: Date.now(),
+    setPomodoro((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        remaining: prev.duration,
+        graceUsed: false,
+        graceRemaining: 0,
+        state: "running" as const,
+        startedAt: Date.now(),
+      };
     });
   };
 
@@ -439,10 +1016,11 @@ export default function WeekPlan() {
 
   const canGrace = pomodoro && !pomodoro.graceUsed && pomodoro.state === "running" && (Date.now() - pomodoro.startedAt) < 5 * 60 * 1000;
 
-  const addTask = (dayIdx: number, afterIdx: number, text: string) => {
+  const addTask = (dayIdx: number, afterIdx: number, text: string, group?: string | null) => {
     if (!data) return;
+    const fullText = group ? `${group}: ${text}` : text;
     const newTask: Task = {
-      text, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
+      text: fullText, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
     };
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
@@ -450,8 +1028,7 @@ export default function WeekPlan() {
       tasks.splice(afterIdx + 1, 0, newTask);
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
     setAddingAt({ dayIdx, afterIdx: afterIdx + 1 });
   };
 
@@ -467,8 +1044,7 @@ export default function WeekPlan() {
       tasks[taskIdx] = { ...tasks[taskIdx], done: newDone, subtasks };
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
   };
 
   const toggleFocus = (dayIdx: number, taskIdx: number) => {
@@ -479,8 +1055,7 @@ export default function WeekPlan() {
       tasks[taskIdx] = { ...tasks[taskIdx], focused: !tasks[taskIdx].focused };
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
   };
 
   const toggleWaiting = (dayIdx: number, taskIdx: number) => {
@@ -491,8 +1066,7 @@ export default function WeekPlan() {
       tasks[taskIdx] = { ...tasks[taskIdx], waiting: !tasks[taskIdx].waiting };
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
   };
 
   const deleteTask = (dayIdx: number, taskIdx: number) => {
@@ -503,8 +1077,97 @@ export default function WeekPlan() {
       tasks.splice(taskIdx, 1);
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
+  };
+
+  const sendToBucket = async (dayIdx: number, taskIdx: number) => {
+    if (!data || isArchive) return;
+    pushUndo("tasks");
+    try {
+      const result = await api.moveToBucket(taskIdx, dayIdx, weekOffset);
+      setBucketCount(result.bucket_count);
+      // Remove from local state
+      const days = data.days.map((d, di) => {
+        if (di !== dayIdx) return d;
+        const tasks = [...d.tasks];
+        tasks.splice(taskIdx, 1);
+        return { ...d, tasks };
+      });
+      setData({ ...data, days });
+      // Notify Bucket component to refresh
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to send to bucket");
+    }
+  };
+
+  const sendGroupToBucket = async (dayIdx: number, groupName: string) => {
+    if (!data || isArchive) return;
+    const day = data.days[dayIdx];
+    if (!day) return;
+    // Collect indices of tasks in this group (reverse order to avoid index shifting)
+    const indices: number[] = [];
+    day.tasks.forEach((t, i) => {
+      if (!t.done && parseGroup(t.text).group === groupName) indices.push(i);
+    });
+    if (indices.length === 0) return;
+    try {
+      // Send from highest index first so earlier indices stay valid
+      for (const idx of indices.reverse()) {
+        await api.moveToBucket(idx, dayIdx, weekOffset);
+      }
+      // Refresh state
+      const weekResult = await api.getWeekPlan(weekOffset);
+      setData(weekResult);
+      const bucketResult = await api.getBucket();
+      setBucketCount(bucketResult.tasks.length);
+      setBucketTasks(bucketResult.tasks);
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to send group to bucket");
+    }
+  };
+
+  const pullFromBucket = async (bucketIdx: number, dayIdx: number, targetGroup?: string | null) => {
+    if (!data || isArchive) return;
+    try {
+      await api.moveFromBucket(bucketIdx, dayIdx, weekOffset);
+      // Refresh both
+      const weekResult = await api.getWeekPlan(weekOffset);
+      // If dropped on a group, re-prefix the last task added to that day
+      if (targetGroup && weekResult.days[dayIdx]) {
+        const dayTasks = weekResult.days[dayIdx].tasks;
+        if (dayTasks.length > 0) {
+          const lastTask = dayTasks[dayTasks.length - 1];
+          const { group, label } = parseGroup(lastTask.text);
+          if (group !== targetGroup) {
+            lastTask.text = `${targetGroup}: ${label}`;
+            // Save the re-prefixed version
+            await api.saveWeekPlan(weekResult.days, weekOffset);
+          }
+        }
+      }
+      setData(weekResult);
+      refreshBucket();
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to pull from bucket");
+    }
+  };
+
+  const moveToGroup = (dayIdx: number, taskIdx: number, newGroup: string | null) => {
+    if (!data) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      const task = { ...tasks[taskIdx] };
+      const { label } = parseGroup(task.text);
+      task.text = newGroup ? `${newGroup}: ${label}` : label;
+      tasks[taskIdx] = task;
+      return { ...d, tasks };
+    });
+    applyTaskChange(days);
+    setGroupPicker(null);
   };
 
   const editTask = (dayIdx: number, taskIdx: number, newText: string) => {
@@ -518,8 +1181,7 @@ export default function WeekPlan() {
       tasks[taskIdx] = { ...tasks[taskIdx], text: trimmed };
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
     setEditingTask(null);
   };
 
@@ -544,8 +1206,7 @@ export default function WeekPlan() {
       tasks[taskIdx] = { ...tasks[taskIdx], subtasks };
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
   };
 
   const deleteSubtask = (dayIdx: number, taskIdx: number, subIdx: number) => {
@@ -558,8 +1219,7 @@ export default function WeekPlan() {
       tasks[taskIdx] = { ...tasks[taskIdx], subtasks };
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
   };
 
   const editSubtask = (dayIdx: number, taskIdx: number, subIdx: number, newText: string) => {
@@ -574,8 +1234,7 @@ export default function WeekPlan() {
       tasks[taskIdx] = { ...tasks[taskIdx], subtasks };
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
     setEditingSubtask(null);
   };
 
@@ -586,22 +1245,62 @@ export default function WeekPlan() {
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
       const tasks = [...d.tasks];
-      const subtasks = [...(tasks[taskIdx].subtasks || []), { text: trimmed, done: false }];
+      const subtasks = [...(tasks[taskIdx].subtasks || [])];
+      if (addSubAfter !== null && addSubAfter < subtasks.length) {
+        subtasks.splice(addSubAfter + 1, 0, { text: trimmed, done: false });
+        setAddSubAfter(addSubAfter + 1);
+      } else {
+        subtasks.push({ text: trimmed, done: false });
+      }
       tasks[taskIdx] = { ...tasks[taskIdx], subtasks };
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
+  };
+
+  const demoteToSubtask = (targetDayIdx: number, targetTaskIdx: number) => {
+    if (!data || !dragRef.current) return;
+    const { fromDay, fromIdx } = dragRef.current;
+    if (fromDay === targetDayIdx && fromIdx === targetTaskIdx) return; // can't drop on self
+    const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+    const [removed] = days[fromDay].tasks.splice(fromIdx, 1);
+    // Adjust target index if same day and source was before target
+    const adjustedIdx = (fromDay === targetDayIdx && fromIdx < targetTaskIdx) ? targetTaskIdx - 1 : targetTaskIdx;
+    const targetTask = days[targetDayIdx].tasks[adjustedIdx];
+    const { label } = parseGroup(removed.text);
+    const newSub = { text: label, done: removed.done };
+    days[targetDayIdx].tasks[adjustedIdx] = { ...targetTask, subtasks: [...(targetTask.subtasks || []), newSub] };
+    applyTaskChange(days);
+    dragRef.current = null;
+    setDropTarget(null);
+    // Auto-expand subtasks so the user sees the result
+    const key = `${targetDayIdx}-${adjustedIdx}`;
+    setExpandedSubtasks((prev) => new Set(prev).add(key));
   };
 
   const startBreakdown = (dayIdx: number, taskIdx: number) => {
     const key = `${dayIdx}-${taskIdx}`;
+    const task = data?.days[dayIdx]?.tasks[taskIdx];
+    const hasSubtasks = !!(task?.subtasks?.length);
+    const wasExpanded = expandedSubtasks.has(key);
+
+    if (wasExpanded && hasSubtasks) {
+      // Toggle collapse if already expanded and has subtasks
+      setExpandedSubtasks((prev) => { const next = new Set(prev); next.delete(key); return next; });
+      setAddingSubtask(null);
+      return;
+    }
+    // Expand and show input only when no subtasks yet
     setExpandedSubtasks((prev) => new Set(prev).add(key));
-    // Don't auto-open input — just expand the area with "+ Add step" button
+    if (!hasSubtasks) {
+      setAddingSubtask({ dayIdx, taskIdx });
+      setAddSubAfter(null);
+    }
   };
 
   const cancelAddSubtask = (dayIdx: number, taskIdx: number) => {
     setAddingSubtask(null);
+    setAddSubAfter(null);
     // Collapse if task still has no subtasks
     if (data) {
       const task = data.days[dayIdx]?.tasks[taskIdx];
@@ -625,28 +1324,35 @@ export default function WeekPlan() {
       // Don't re-sort — group view order is master; seq numbers will update automatically
       return { ...d, tasks };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
     setPriorityMenu(null);
   };
 
   // --- Task drag handlers ---
-  const handleDragStart = (dayIdx: number, taskIdx: number, group: string | null = null) => {
+  const handleDragStart = (dayIdx: number, taskIdx: number, group: string | null = null, e?: React.DragEvent) => {
     dragRef.current = { fromDay: dayIdx, fromIdx: taskIdx, group };
     dragGroupRef.current = null;
+    // Set dataTransfer so the drag works with external drop targets (bucket icon)
+    if (e) {
+      e.dataTransfer.setData("text/plain", JSON.stringify({ dayIdx, taskIdx }));
+      e.dataTransfer.effectAllowed = "move";
+    }
   };
 
   const handleDragOver = (e: React.DragEvent, dayIdx: number, taskIdx: number, _group: string | null = null) => {
-    // Accept both individual task drags and group drags on task positions
-    if (dragGroupRef.current) {
-      if (dragGroupRef.current.fromDay !== dayIdx) return;
-      e.preventDefault();
-      setDropTarget({ day: dayIdx, idx: taskIdx });
-      return;
-    }
-    if (!dragRef.current) return;
+    // Accept individual task drags, group drags, and subtask-to-task promotions
+    const dominated = dragGroupRef.current || dragRef.current ||
+      e.dataTransfer.types.includes("subtask") || e.dataTransfer.types.includes("bucket-task") ||
+      e.dataTransfer.types.includes("carry-task") || e.dataTransfer.types.includes("carry-group");
+    if (!dominated) return;
+    if (dragGroupRef.current && dragGroupRef.current.fromDay !== dayIdx) return;
     e.preventDefault();
-    setDropTarget({ day: dayIdx, idx: taskIdx });
+
+    // Use mouse Y position relative to the element to decide above vs below
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const insertIdx = e.clientY < midY ? taskIdx : taskIdx + 1;
+    setDropTarget({ day: dayIdx, idx: insertIdx });
   };
 
   const handleDayDragOver = (e: React.DragEvent, dayIdx: number) => {
@@ -655,8 +1361,73 @@ export default function WeekPlan() {
     setDropTarget({ day: dayIdx, idx: data.days[dayIdx].tasks.length });
   };
 
-  const handleDrop = (dayIdx: number, taskIdx: number) => {
+  const handleDrop = (dayIdx: number, taskIdx: number, e?: React.DragEvent, targetGroup?: string | null) => {
     if (!data) return;
+
+    // Handle carry forward task dropped into day
+    if (e && e.dataTransfer.types.includes("carry-task")) {
+      try {
+        const carryData = e.dataTransfer.getData("carry-task");
+        if (carryData) {
+          const { carryIdx } = JSON.parse(carryData);
+          pullFromCarry(carryIdx, dayIdx);
+          setDropTarget(null);
+          return;
+        }
+      } catch { /* not a carry drop */ }
+    }
+
+    // Handle carry forward group dropped into day
+    if (e && e.dataTransfer.types.includes("carry-group")) {
+      try {
+        const carryData = e.dataTransfer.getData("carry-group");
+        if (carryData) {
+          const { groupName } = JSON.parse(carryData);
+          pullCarryGroup(groupName, dayIdx);
+          setDropTarget(null);
+          return;
+        }
+      } catch { /* not a carry group drop */ }
+    }
+
+    // Handle bucket task dropped into day/grid view
+    if (e && e.dataTransfer.types.includes("bucket-task")) {
+      try {
+        const bucketData = e.dataTransfer.getData("bucket-task");
+        if (bucketData) {
+          const { bucketIdx } = JSON.parse(bucketData);
+          pullFromBucket(bucketIdx, dayIdx, targetGroup || null);
+          setDropTarget(null);
+          return;
+        }
+      } catch { /* not a bucket drop */ }
+    }
+
+    // Handle subtask promoted to standalone task
+    if (e && e.dataTransfer.types.includes("subtask")) {
+      try {
+        const subtaskData = e.dataTransfer.getData("subtask");
+        if (subtaskData) {
+          const from = JSON.parse(subtaskData);
+          const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+          const parentTask = days[from.dayIdx].tasks[from.taskIdx];
+          const subs = [...(parentTask.subtasks || [])];
+          const [promoted] = subs.splice(from.subIdx, 1);
+          days[from.dayIdx].tasks[from.taskIdx] = { ...parentTask, subtasks: subs };
+          // Create new standalone task from subtask text, with target group prefix if applicable
+          const newText = targetGroup ? `${targetGroup}: ${promoted.text}` : promoted.text;
+          const newTask: Task = {
+            text: newText, done: promoted.done, source_file: "Plan Week.md", context: "", tags: [],
+            priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
+          };
+          const insertIdx = Math.min(taskIdx, days[dayIdx].tasks.length);
+          days[dayIdx].tasks.splice(insertIdx, 0, newTask);
+          applyTaskChange(days);
+          setDropTarget(null);
+          return;
+        }
+      } catch { /* not a subtask drop */ }
+    }
 
     // Handle group dropped on a task position (same-day or cross-day)
     if (dragGroupRef.current) {
@@ -673,7 +1444,6 @@ export default function WeekPlan() {
         // Same-day move: find insert position in the remaining array
         const remaining = days[dayIdx].tasks;
         let insertIdx = remaining.length;
-        // taskIdx refers to original array — find the target task in remaining
         const origTasks = data.days[dayIdx].tasks;
         for (let i = taskIdx; i < origTasks.length; i++) {
           const pos = remaining.indexOf(origTasks[i]);
@@ -687,13 +1457,11 @@ export default function WeekPlan() {
         }
         remaining.splice(insertIdx, 0, ...groupTasks);
       } else {
-        // Cross-day move: insert group tasks at target position in destination day
         const insertIdx = Math.min(taskIdx, days[dayIdx].tasks.length);
         days[dayIdx].tasks.splice(insertIdx, 0, ...groupTasks);
       }
 
-      setData({ ...data, days });
-      setDirty(true);
+      applyTaskChange(days);
       dragGroupRef.current = null;
       setDropTarget(null);
       setDropGroupTarget(null);
@@ -704,11 +1472,18 @@ export default function WeekPlan() {
     const { fromDay, fromIdx } = dragRef.current;
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
     const [movedTask] = days[fromDay].tasks.splice(fromIdx, 1);
+
+    // Re-prefix task if moving between groups
+    if (targetGroup !== undefined) {
+      const { label } = parseGroup(movedTask.text);
+      const newText = targetGroup ? `${targetGroup}: ${label}` : label;
+      movedTask.text = newText;
+    }
+
     let insertIdx = taskIdx;
     if (fromDay === dayIdx && fromIdx < taskIdx) insertIdx = Math.max(0, insertIdx - 1);
     days[dayIdx].tasks.splice(insertIdx, 0, movedTask);
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
     dragRef.current = null;
     setDropTarget(null);
   };
@@ -741,8 +1516,7 @@ export default function WeekPlan() {
       if (di !== dayIdx) return d;
       return { ...d, tasks: reorderGroups(d.tasks, moveGroup, targetGroupName, true) };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
     dragGroupRef.current = null;
     setDropGroupTarget(null);
   };
@@ -756,8 +1530,7 @@ export default function WeekPlan() {
       if (di !== dayIdx) return d;
       return { ...d, tasks: moveGroupToPosition(d.tasks, groupName, position) };
     });
-    setData({ ...data, days });
-    setDirty(true);
+    applyTaskChange(days);
     dragGroupRef.current = null;
     setDropGroupTarget(null);
   };
@@ -767,15 +1540,10 @@ export default function WeekPlan() {
     switch (viewMode) {
       case "day": return [selectedDayIdx];
       case "3day": {
-        // From selected day forward, but if Sat/Sun show days before
         const idx = selectedDayIdx;
-        if (idx >= 5) {
-          // Saturday(5) or Sunday(6): show backwards to fill 3 days
-          return [Math.max(0, idx - 2), Math.max(0, idx - 1), idx].filter((v, i, a) => a.indexOf(v) === i);
-        }
-        // Weekday: show forward, clamp to end of week
-        const days = [idx, Math.min(6, idx + 1), Math.min(6, idx + 2)];
-        return [...new Set(days)];
+        // Selected day is always the first visible, clamped so we don't exceed Sunday
+        const start = Math.min(idx, 4);  // max start is Friday (4) → Fri, Sat, Sun
+        return [start, start + 1, start + 2];
       }
       case "5day": return [0, 1, 2, 3, 4];
       case "weekend": return [5, 6];
@@ -802,7 +1570,8 @@ export default function WeekPlan() {
     // individually repositioned relative to named groups.
     const sections: { name: string; items: { task: Task; originalIdx: number; label: string }[] }[] = [];
     tasks.forEach((task, idx) => {
-      const { group, label } = parseGroup(task.text);
+      const { group } = parseGroup(task.text);
+      const label = getDisplayText(task);
       if (filterGroup && group !== filterGroup) return;
       if (!showCompleted && task.done && !(task.subtasks?.some((s) => !s.done))) return;
       const last = sections[sections.length - 1];
@@ -816,51 +1585,136 @@ export default function WeekPlan() {
   };
 
   // --- Subtask list renderer ---
+  const reorderSubtask = (dayIdx: number, taskIdx: number, fromIdx: number, toIdx: number) => {
+    if (!data || fromIdx === toIdx) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      const task = { ...tasks[taskIdx] };
+      const subs = [...(task.subtasks || [])];
+      const [moved] = subs.splice(fromIdx, 1);
+      subs.splice(toIdx, 0, moved);
+      task.subtasks = subs;
+      tasks[taskIdx] = task;
+      return { ...d, tasks };
+    });
+    applyTaskChange(days);
+  };
+
   const renderSubtasks = (dayIdx: number, taskIdx: number, task: Task, compact: boolean) => {
     const key = `${dayIdx}-${taskIdx}`;
     if (!expandedSubtasks.has(key)) return null;
     const subtasks = task.subtasks || [];
     const textSize = compact ? "text-[10px]" : "text-xs";
     const isAdding = addingSubtask?.dayIdx === dayIdx && addingSubtask?.taskIdx === taskIdx;
+    // Don't render empty container — only show when there are subtasks or actively adding
+    if (!subtasks.length && !isAdding) return null;
 
     return (
       <div
         className={`${compact ? "ml-5" : "ml-8"} pl-2 border-l-2 border-amber-200 ${textSize} py-0.5`}
-        onDoubleClick={(e) => { e.stopPropagation(); setAddingSubtask({ dayIdx, taskIdx }); }}
+        onDoubleClick={(e) => { e.stopPropagation(); setAddingSubtask({ dayIdx, taskIdx }); setAddSubAfter(null); }}
+        onDragOver={(e) => {
+          // Accept main task drops to demote to subtask
+          if (dragRef.current && !(dragRef.current.fromDay === dayIdx && dragRef.current.fromIdx === taskIdx)) {
+            e.preventDefault(); e.stopPropagation();
+            e.currentTarget.classList.add("bg-amber-50", "ring-1", "ring-amber-300");
+          }
+        }}
+        onDragLeave={(e) => { e.currentTarget.classList.remove("bg-amber-50", "ring-1", "ring-amber-300"); }}
+        onDrop={(e) => {
+          e.stopPropagation();
+          e.currentTarget.classList.remove("bg-amber-50", "ring-1", "ring-amber-300");
+          if (dragRef.current) { demoteToSubtask(dayIdx, taskIdx); return; }
+        }}
       >
         {subtasks.map((sub, si) => (
-          <div key={si} className="group/sub flex items-center gap-1.5 py-0.5">
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleSubtaskDone(dayIdx, taskIdx, si); }}
-              className={`shrink-0 text-[10px] leading-none hover:opacity-70 ${sub.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
+          <React.Fragment key={si}>
+            <div
+              className={`group/sub flex items-center gap-1 py-0.5 border-t-2 border-transparent ${
+                subDropTarget?.dayIdx === dayIdx && subDropTarget?.taskIdx === taskIdx && subDropTarget?.subIdx === si ? "!border-amber-400" : ""
+              }`}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setAddSubAfter(si);
+                setAddingSubtask({ dayIdx, taskIdx });
+              }}
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes("subtask")) {
+                  e.preventDefault(); e.stopPropagation();
+                  setSubDropTarget({ dayIdx, taskIdx, subIdx: si });
+                }
+              }}
+              onDragLeave={() => setSubDropTarget(null)}
+              onDrop={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                setSubDropTarget(null);
+                try {
+                  const from = JSON.parse(e.dataTransfer.getData("subtask"));
+                  if (from.dayIdx === dayIdx && from.taskIdx === taskIdx && from.subIdx !== si) {
+                    reorderSubtask(dayIdx, taskIdx, from.subIdx, si);
+                  }
+                } catch { /* ignore */ }
+              }}
             >
-              {sub.done ? "\u2713" : "\u25CB"}
-            </button>
-            {editingSubtask?.dayIdx === dayIdx && editingSubtask?.taskIdx === taskIdx && editingSubtask?.subIdx === si ? (
-              <EditInput
-                initialValue={sub.text}
-                onSave={(text) => editSubtask(dayIdx, taskIdx, si, text)}
-                onCancel={() => setEditingSubtask(null)}
-                className={`flex-1 ${textSize} px-1 py-0.5 border border-amber-300 rounded bg-white outline-none focus:ring-1 focus:ring-amber-400`}
-              />
-            ) : (
-              <span
-                onClick={(e) => { e.stopPropagation(); if (!sub.done) setEditingSubtask({ dayIdx, taskIdx, subIdx: si }); }}
-                className={`flex-1 ${sub.done ? "text-gray-400 line-through" : "text-gray-700 cursor-text hover:text-amber-700"}`}
+              {/* Drag handle */}
+              {!sub.done && (
+                <span
+                  draggable
+                  onDragStart={(e) => {
+                    e.stopPropagation();
+                    e.dataTransfer.setData("subtask", JSON.stringify({ dayIdx, taskIdx, subIdx: si }));
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragEnd={() => setSubDropTarget(null)}
+                  className="shrink-0 text-[10px] text-gray-300 cursor-grab active:cursor-grabbing hover:text-gray-500 select-none leading-none"
+                  title="Drag to reorder"
+                >≡</span>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleSubtaskDone(dayIdx, taskIdx, si); }}
+                className={`shrink-0 text-[10px] leading-none hover:opacity-70 ${sub.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
               >
-                {sub.text}
-              </span>
+                {sub.done ? "\u2713" : "\u25CB"}
+              </button>
+              {editingSubtask?.dayIdx === dayIdx && editingSubtask?.taskIdx === taskIdx && editingSubtask?.subIdx === si ? (
+                <EditInput
+                  initialValue={sub.text}
+                  onSave={(text) => editSubtask(dayIdx, taskIdx, si, text)}
+                  onCancel={() => setEditingSubtask(null)}
+                  className={`flex-1 ${textSize} px-1 py-0.5 border border-amber-300 rounded bg-white outline-none focus:ring-1 focus:ring-amber-400`}
+                />
+              ) : (
+                <span
+                  onClick={(e) => { e.stopPropagation(); if (!sub.done) setEditingSubtask({ dayIdx, taskIdx, subIdx: si }); }}
+                  className={`flex-1 ${sub.done ? "text-gray-400 line-through" : "cursor-text hover:text-amber-700"}`}
+                  style={!sub.done ? { color: "var(--text)" } : undefined}
+                >
+                  {sub.text}
+                </span>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); deleteSubtask(dayIdx, taskIdx, si); }}
+                className="shrink-0 text-[10px] text-gray-300 hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+              >
+                &times;
+              </button>
+            </div>
+            {/* Insert-after input */}
+            {isAdding && addSubAfter === si && (
+              <div className="py-0.5">
+                <AutoFocusInput
+                  onSubmit={(text) => { addSubtask(dayIdx, taskIdx, text); }}
+                  onCancel={() => cancelAddSubtask(dayIdx, taskIdx)}
+                  placeholder="Add step..."
+                  className={`w-full ${textSize} px-1.5 py-0.5 border border-amber-300 rounded bg-white outline-none focus:ring-1 focus:ring-amber-400`}
+                />
+              </div>
             )}
-            <button
-              onClick={(e) => { e.stopPropagation(); deleteSubtask(dayIdx, taskIdx, si); }}
-              className="shrink-0 text-[10px] text-gray-300 hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
-            >
-              &times;
-            </button>
-          </div>
+          </React.Fragment>
         ))}
-        {/* Add subtask input — only shown on double-click */}
-        {isAdding && (
+        {/* Add subtask input at end — only when adding at end (not after a specific sub-task) */}
+        {isAdding && addSubAfter === null && (
           <div className="py-0.5">
             <AutoFocusInput
               onSubmit={(text) => { addSubtask(dayIdx, taskIdx, text); }}
@@ -879,15 +1733,15 @@ export default function WeekPlan() {
     <div
       key={`${task.text}-${taskIdx}`}
       draggable={!task.done}
-      onDragStart={() => handleDragStart(dayIdx, taskIdx, group)}
+      onDragStart={(e) => handleDragStart(dayIdx, taskIdx, group, e)}
       onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group)}
-      onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx); }}
+      onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx, e); }}
       onDragEnd={handleDragEnd}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        setAddingAt({ dayIdx, afterIdx: taskIdx });
+        setAddingAt({ dayIdx, afterIdx: taskIdx, group });
       }}
-      className={`group/task flex items-start gap-1 py-0.5 px-1 rounded text-[11px] leading-tight select-none ${
+      className={`group flex items-start gap-1 py-0.5 px-1 rounded text-[11px] leading-tight select-none ${
         dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx
           ? "border-t-2 border-blue-400"
           : "border-t-2 border-transparent"
@@ -920,7 +1774,7 @@ export default function WeekPlan() {
               {task.priority || "C"}{seqLabel}
             </button>
             {priorityMenu?.day === dayIdx && priorityMenu?.task === taskIdx && (
-              <div className="absolute left-0 top-full mt-0.5 flex gap-0.5 z-20 bg-white rounded shadow-md p-0.5">
+              <div className="absolute left-0 top-full mt-0.5 flex gap-0.5 z-20 rounded shadow-md p-0.5" style={{ backgroundColor: "var(--card)" }}>
                 {PRIORITIES.filter((p) => p !== task.priority).map((p) => (
                   <button
                     key={p}
@@ -937,26 +1791,30 @@ export default function WeekPlan() {
       </div>
       {editingTask?.dayIdx === dayIdx && editingTask?.taskIdx === taskIdx ? (
         <EditInput
-          initialValue={task.text}
-          onSave={(text) => editTask(dayIdx, taskIdx, text)}
+          initialValue={displayText}
+          onSave={(text) => {
+            const prefix = group ? `${group}: ` : parseGroup(task.text).group ? `${parseGroup(task.text).group}: ` : "";
+            editTask(dayIdx, taskIdx, prefix + text);
+          }}
           onCancel={() => setEditingTask(null)}
           className="flex-1 text-[11px] px-1 py-0.5 border border-blue-300 rounded bg-white outline-none focus:ring-1 focus:ring-blue-400"
         />
       ) : (
         <span
           onClick={(e) => { e.stopPropagation(); if (!task.done) setEditingTask({ dayIdx, taskIdx }); }}
-          className={`break-words flex-1 ${task.focused && !task.done ? "font-bold" : ""} ${task.done ? "text-gray-400 line-through" : "text-gray-800 cursor-text hover:text-blue-700"}`}
+          className={`break-words flex-1 ${task.focused && !task.done ? "font-bold" : ""} ${task.done ? "text-gray-400 line-through" : "cursor-text hover:text-blue-700"}`}
+          style={!task.done ? { color: "var(--text)" } : undefined}
         >
-          {task.waiting && <span className="mr-0.5" title="Waiting">⏳</span>}
+          {task.waiting && <span className="mr-0.5 cursor-pointer" title="Remove wait" onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}>⏳</span>}
           {renderLinkedText(displayText)}
         </span>
       )}
-      {/* Wait hourglass toggle */}
-      {!task.done && (
+      {/* Wait hourglass toggle — only show when not already waiting */}
+      {!task.done && !task.waiting && (
         <button
           onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}
-          className={`shrink-0 text-[10px] transition-opacity ${task.waiting ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
-          title={task.waiting ? "Remove wait" : "Mark as waiting"}
+          className="shrink-0 text-[10px] transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
+          title="Mark as waiting"
         >
           ⏳
         </button>
@@ -974,7 +1832,7 @@ export default function WeekPlan() {
               setPomodoroPrompt({ dayIdx, taskIdx, taskText: task.text });
             }
           }}
-          className={`shrink-0 text-[10px] transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
+          className={`shrink-0 text-[10px] transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
           title={task.focused ? "Remove focus" : "Set as focus"}
         >
           🎺
@@ -992,15 +1850,25 @@ export default function WeekPlan() {
       ) : !task.done ? (
         <button
           onClick={(e) => { e.stopPropagation(); startBreakdown(dayIdx, taskIdx); }}
-          className="shrink-0 text-[10px] opacity-0 group-hover/task:opacity-30 hover:!opacity-100 transition-opacity"
+          className="shrink-0 text-[10px] opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
           title="Break down into steps"
         >
           🐘
         </button>
       ) : null}
+      {/* Link icon */}
+      {task.links?.length > 0 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); openLinkPopup(dayIdx, taskIdx, task.links, e); }}
+          className="shrink-0 text-[10px] text-blue-400 hover:text-blue-600 transition-opacity opacity-70 hover:opacity-100"
+          title={`${task.links.length} linked note${task.links.length > 1 ? "s" : ""}`}
+        >
+          🔗{task.links.length > 1 && <sup className="text-[8px] font-bold">{task.links.length}</sup>}
+        </button>
+      )}
       <button
         onClick={(e) => { e.stopPropagation(); deleteTask(dayIdx, taskIdx); }}
-        className="shrink-0 text-[10px] text-gray-400 hover:text-red-500 opacity-0 group-hover/task:opacity-100 transition-opacity"
+        className="shrink-0 text-[10px] text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
         title="Delete task"
       >
         &times;
@@ -1013,12 +1881,12 @@ export default function WeekPlan() {
     <div key={`day-${taskIdx}`}>
       <div
         draggable={!task.done}
-        onDragStart={!task.done ? () => handleDragStart(dayIdx, taskIdx, group) : undefined}
+        onDragStart={!task.done ? (e) => handleDragStart(dayIdx, taskIdx, group, e) : undefined}
         onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group)}
-        onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx); }}
+        onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx, e); }}
         onDragEnd={handleDragEnd}
-        onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx }); }}
-        className={`group/task flex items-center gap-2 py-1 px-2 rounded text-sm select-none ${
+        onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx, group }); }}
+        className={`group flex items-center gap-2 py-1 px-2 rounded text-sm select-none ${
           dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx
             ? "border-t-2 border-blue-400"
             : "border-t-2 border-transparent"
@@ -1052,7 +1920,7 @@ export default function WeekPlan() {
                 {task.priority || "C"}{seqLabel}
               </button>
               {priorityMenu?.day === dayIdx && priorityMenu?.task === taskIdx && (
-                <div className="absolute left-0 top-full mt-1 flex gap-0.5 z-10 bg-white rounded shadow-md p-1">
+                <div className="absolute left-0 top-full mt-1 flex gap-0.5 z-10 rounded shadow-md p-1" style={{ backgroundColor: "var(--card)" }}>
                   {PRIORITIES.filter((p) => p !== task.priority).map((p) => (
                     <button
                       key={p}
@@ -1069,17 +1937,21 @@ export default function WeekPlan() {
         </div>
         {editingTask?.dayIdx === dayIdx && editingTask?.taskIdx === taskIdx ? (
           <EditInput
-            initialValue={task.text}
-            onSave={(text) => editTask(dayIdx, taskIdx, text)}
+            initialValue={displayText}
+            onSave={(text) => {
+              const prefix = group ? `${group}: ` : parseGroup(task.text).group ? `${parseGroup(task.text).group}: ` : "";
+              editTask(dayIdx, taskIdx, prefix + text);
+            }}
             onCancel={() => setEditingTask(null)}
             className="flex-1 text-sm px-1.5 py-0.5 border border-blue-300 rounded bg-white outline-none focus:ring-1 focus:ring-blue-400"
           />
         ) : (
           <span
             onClick={(e) => { e.stopPropagation(); if (!task.done) setEditingTask({ dayIdx, taskIdx }); }}
-            className={`flex-1 ${task.focused && !task.done ? "font-bold" : ""} ${task.done ? "text-gray-400 line-through" : "text-gray-900 cursor-text hover:text-blue-700"}`}
+            className={`flex-1 ${task.focused && !task.done ? "font-bold" : ""} ${task.done ? "line-through" : "cursor-text hover:text-blue-700"}`}
+            style={{ color: task.done ? "var(--text-tertiary)" : "var(--text)" }}
           >
-            {task.waiting && <span className="mr-1" title="Waiting">⏳</span>}
+            {task.waiting && <span className="mr-1 cursor-pointer" title="Remove wait" onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}>⏳</span>}
             {renderLinkedText(displayText)}
           </span>
         )}
@@ -1088,12 +1960,12 @@ export default function WeekPlan() {
             {task.pillars.map((p) => PILLAR_ICONS[p]?.symbol || p).join("")}
           </span>
         )}
-        {/* Wait hourglass toggle */}
-        {!task.done && (
+        {/* Wait hourglass toggle — only show when not already waiting */}
+        {!task.done && !task.waiting && (
           <button
             onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}
-            className={`shrink-0 text-sm transition-opacity ${task.waiting ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
-            title={task.waiting ? "Remove wait" : "Mark as waiting"}
+            className="shrink-0 text-sm transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
+            title="Mark as waiting"
           >
             ⏳
           </button>
@@ -1111,7 +1983,7 @@ export default function WeekPlan() {
                 setPomodoroPrompt({ dayIdx, taskIdx, taskText: task.text });
               }
             }}
-            className={`shrink-0 text-sm transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover/task:opacity-30 hover:!opacity-100"}`}
+            className={`shrink-0 text-sm transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
             title={task.focused ? "Remove focus" : "Set as focus"}
           >
             🎺
@@ -1129,15 +2001,76 @@ export default function WeekPlan() {
         ) : !task.done ? (
           <button
             onClick={(e) => { e.stopPropagation(); startBreakdown(dayIdx, taskIdx); }}
-            className="shrink-0 text-sm opacity-0 group-hover/task:opacity-30 hover:!opacity-100 transition-opacity"
+            className="shrink-0 text-sm opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
             title="Break down into steps (white elephant)"
           >
             🐘
           </button>
         ) : null}
+        {/* Link icon — opens file picker for linking vault notes */}
+        {!task.done && viewMode === "day" && (() => {
+          const taskGroup = group || parseGroup(task.text).group;
+          const hasLinks = task.links && task.links.length > 0;
+          return (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const rect = (e.target as HTMLElement).getBoundingClientRect();
+                setNotePicker({
+                  dayIdx, taskIdx, group: taskGroup,
+                  links: task.links || [],
+                  pos: { top: rect.bottom + 4, left: rect.left - 100 },
+                });
+              }}
+              className={`shrink-0 text-sm transition-opacity ${
+                hasLinks ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"
+              }`}
+              title={`${hasLinks ? "Open" : "Add"} notes${taskGroup ? ` for ${taskGroup}` : ""}`}
+            >
+              🔗{hasLinks && task.links.length > 1 && <sup className="text-[8px] font-bold">{task.links.length}</sup>}
+            </button>
+          );
+        })()}
+        {/* Move to group picker */}
+        {!task.done && (
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setGroupPicker(groupPicker?.dayIdx === dayIdx && groupPicker?.taskIdx === taskIdx ? null : { dayIdx, taskIdx });
+              }}
+              className="shrink-0 text-gray-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+              title="Move to group"
+            >
+              📂
+            </button>
+            {groupPicker?.dayIdx === dayIdx && groupPicker?.taskIdx === taskIdx && (
+              <div className="absolute bottom-6 right-0 z-30 rounded-lg shadow-xl border p-2 min-w-[140px] max-h-48 overflow-y-auto" style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}>
+                <div className="text-[10px] text-gray-400 font-medium mb-1 px-1">Move to group:</div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); moveToGroup(dayIdx, taskIdx, null); }}
+                  className="w-full text-left px-2 py-1 text-xs rounded hover:bg-gray-100 text-gray-600"
+                >
+                  — No group (ungrouped)
+                </button>
+                {allGroups.map((g) => (
+                  <button
+                    key={g}
+                    onClick={(e) => { e.stopPropagation(); moveToGroup(dayIdx, taskIdx, g); }}
+                    className={`w-full text-left px-2 py-1 text-xs rounded hover:bg-blue-50 hover:text-blue-700 ${
+                      parseGroup(task.text).group === g ? "font-bold text-blue-600" : "text-gray-700"
+                    }`}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); deleteTask(dayIdx, taskIdx); }}
-          className="shrink-0 text-gray-400 hover:text-red-500 opacity-0 group-hover/task:opacity-100 transition-opacity"
+          className="shrink-0 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
           title="Delete task"
         >
           &times;
@@ -1151,7 +2084,8 @@ export default function WeekPlan() {
     return (
       <div className="py-0.5 px-1">
         <AutoFocusInput
-          onSubmit={(text) => addTask(dayIdx, afterIdx, text)}
+          placeholder={addingAt.group ? `Add to ${addingAt.group}...` : "Add task..."}
+          onSubmit={(text) => addTask(dayIdx, afterIdx, text, addingAt.group)}
           onCancel={() => setAddingAt(null)}
         />
       </div>
@@ -1176,10 +2110,13 @@ export default function WeekPlan() {
     const groups = buildDayGroups(day.tasks);
 
     return (
-      <div className="max-w-lg mx-auto space-y-2">
+      <div className="flex flex-col md:flex-row max-w-5xl mx-auto" ref={splitterContainer}>
+      {/* Left column — Tasks */}
+      <div className={`space-y-2 ${showNotesPanel ? "min-w-0" : "w-full max-w-lg mx-auto"}`}
+        style={showNotesPanel ? { width: `${100 - notesPanelPct}%` } : undefined}>
         {/* Day info bar */}
-        <div className="flex items-center gap-3 text-sm text-gray-500">
-          <span className="font-medium text-gray-700">
+        <div className="flex items-center gap-3 text-sm" style={{ color: "var(--text-secondary)" }}>
+          <span className="font-medium" style={{ color: "var(--text)" }}>
             {(day.heading || "").replace(/^#+\s*/, "") || DAY_LABELS[day.day] || day.day}
           </span>
           <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-medium">
@@ -1188,21 +2125,33 @@ export default function WeekPlan() {
           <span className="flex-1">
             {filteredTasks.filter(t => !t.done).length} tasks for {DAY_LABELS[day.day] || day.day}
           </span>
+          {viewMode === "day" && (
+            <button
+              onClick={() => setShowNotesPanel(!showNotesPanel)}
+              className={`text-xs px-2 py-0.5 rounded transition-colors ${showNotesPanel ? "bg-blue-100 text-blue-700" : "hover:opacity-80"}`}
+              style={!showNotesPanel ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+              title={showNotesPanel ? "Hide notes panel" : "Show notes panel"}
+            >
+              Notes
+            </button>
+          )}
         </div>
 
         {/* Tasks — flat view */}
-        {!groupView && (
+        {!groupView && (() => {
+          const sortedTasks = sortTasksByPriority(filteredTasks);
+          return (
           <div
             className="space-y-0.5"
             onDragOver={(e) => { if (dragGroupRef.current) return; e.preventDefault(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length }); }}
-            onDrop={() => handleDrop(selectedDayIdx, day.tasks.length)}
+            onDrop={(e) => handleDrop(selectedDayIdx, day.tasks.length, e)}
           >
-            {filteredTasks.map((task, fi) => {
+            {sortedTasks.map((task, fi) => {
               const originalIdx = day.tasks.indexOf(task);
-              const seq = seqNumbers.get(fi) ?? "";
+              const seq = seqNumbers.get(filteredTasks.indexOf(task)) ?? "";
               return (
                 <div key={`flat-${originalIdx}`}>
-                  {renderDayTaskItem(task, selectedDayIdx, originalIdx, task.text, String(seq), null)}
+                  {renderDayTaskItem(task, selectedDayIdx, originalIdx, getDisplayText(task), String(seq), null)}
                   {renderSubtasks(selectedDayIdx, originalIdx, task, false)}
                 </div>
               );
@@ -1227,39 +2176,51 @@ export default function WeekPlan() {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* Tasks — grouped view */}
         {groupView && (
           <div
             className="space-y-1"
             onDragOver={(e) => { e.preventDefault(); }}
-            onDrop={() => handleDrop(selectedDayIdx, day.tasks.length)}
+            onDrop={(e) => handleDrop(selectedDayIdx, day.tasks.length, e)}
           >
+            {/* Top-of-list drop zone — drop here to place ungrouped above first group */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: selectedDayIdx, idx: 0 }); }}
+              onDrop={(e) => { e.stopPropagation(); handleDrop(selectedDayIdx, 0, e, null); }}
+              className={`h-1 rounded transition-colors ${
+                dropTarget?.day === selectedDayIdx && dropTarget?.idx === 0 ? "bg-blue-400" : "bg-transparent"
+              }`}
+            />
             {groups.map((section, sectionIdx) => {
               const firstOrigIdx = section.items[0]?.originalIdx ?? 0;
+              const lastOrigIdx = section.items[section.items.length - 1]?.originalIdx ?? 0;
               const sectionKey = section.name ? `${section.name}-${firstOrigIdx}` : `ungrouped-${firstOrigIdx}`;
               const isCollapsed = section.name ? collapsedGroups.has(section.name) : false;
               const doneInSection = section.items.filter((e) => e.task.done).length;
               const activeInSection = section.items.length - doneInSection;
               return (
                 <div key={sectionKey}>
-                  {/* Group header — draggable, collapsible, and accepts drops */}
+                  {/* Drop zone line before group — insert ungrouped above this group */}
+                  {section.name && (
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx }); }}
+                      onDrop={(e) => { e.stopPropagation(); handleDrop(selectedDayIdx, firstOrigIdx, e); }}
+                      className={`h-1.5 -my-0.5 rounded transition-all ${
+                        dropTarget?.day === selectedDayIdx && dropTarget?.idx === firstOrigIdx
+                          ? "bg-blue-400 h-1" : "bg-transparent"
+                      }`}
+                    />
+                  )}
+                  {/* Group header — draggable, collapsible */}
                   {section.name ? (
                     <div
                       draggable
                       onDragStart={(e) => { e.stopPropagation(); handleGroupDragStart(selectedDayIdx, section.name); }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx });
-                      }}
-                      onDrop={(e) => { e.stopPropagation(); handleDrop(selectedDayIdx, firstOrigIdx); }}
                       onDragEnd={handleDragEnd}
-                      className={`flex items-center gap-1.5 py-1.5 px-2 cursor-grab active:cursor-grabbing rounded group/hdr hover:bg-gray-50 ${
-                        dropTarget?.day === selectedDayIdx && dropTarget?.idx === firstOrigIdx
-                          ? "border-t-2 border-blue-400" : "border-t-2 border-transparent"
-                      }`}
+                      className="flex items-center gap-1.5 py-2 px-2 cursor-grab active:cursor-grabbing rounded group/hdr hover:bg-gray-50 border-2 border-transparent"
                     >
                       <span className="text-gray-300 group-hover/hdr:text-gray-400 text-xs select-none" title="Drag to move group">&#x2630;</span>
                       <button
@@ -1269,7 +2230,7 @@ export default function WeekPlan() {
                       >
                         {isCollapsed ? "▸" : "▾"}
                       </button>
-                      <span className="text-sm font-semibold text-gray-700">{section.name}</span>
+                      <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>{section.name}</span>
                       <span className="text-xs text-gray-400">
                         ({activeInSection}{doneInSection > 0 && <span className="text-green-500"> +{doneInSection}✓</span>})
                       </span>
@@ -1277,7 +2238,7 @@ export default function WeekPlan() {
                   ) : null}
                   {/* Tasks within section — hidden when collapsed */}
                   {!isCollapsed && (
-                    <div className={section.name ? "ml-4 border-l-2 border-gray-100 pl-2" : ""}>
+                    <div className={section.name ? "ml-4 border-l-2 pl-2" : ""} style={section.name ? { borderColor: "var(--border)" } : undefined}>
                       {section.items.map((entry) => {
                         const seq = seqNumbers.get(filteredTasks.indexOf(entry.task)) || "";
                         return (
@@ -1288,11 +2249,24 @@ export default function WeekPlan() {
                           </div>
                         );
                       })}
+                      {/* Bottom-of-section drop indicator */}
+                      {dropTarget?.day === selectedDayIdx && dropTarget?.idx === lastOrigIdx + 1 && (
+                        <div className="h-1 bg-blue-400 rounded -my-0.5" />
+                      )}
                     </div>
                   )}
                 </div>
               );
             })}
+            {/* Bottom drop zone — after all sections */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length }); }}
+              onDrop={(e) => { e.stopPropagation(); handleDrop(selectedDayIdx, day.tasks.length, e); }}
+              className={`h-2 rounded transition-all ${
+                dropTarget?.day === selectedDayIdx && dropTarget?.idx === day.tasks.length
+                  ? "bg-blue-400 h-1" : "bg-transparent"
+              }`}
+            />
             {/* Add task button */}
             <button
               onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: day.tasks.length - 1 })}
@@ -1313,6 +2287,32 @@ export default function WeekPlan() {
         )}
 
         {/* Auto-save status is shown in the header button */}
+      </div>
+
+      {/* Splitter handle */}
+      {showNotesPanel && (
+        <div
+          onMouseDown={onSplitterDown}
+          className="w-1.5 cursor-col-resize flex-shrink-0 group relative"
+          title="Drag to resize"
+        >
+          <div className="absolute inset-y-0 -left-1 -right-1" />
+          <div className="h-full w-px mx-auto bg-gray-200 group-hover:bg-blue-400 transition-colors" />
+        </div>
+      )}
+
+      {/* Right column — Notes Panel */}
+      {showNotesPanel && (
+        <div className="min-w-0 pl-2 max-h-[calc(100vh-220px)] overflow-y-auto"
+          style={{ width: `${notesPanelPct}%` }}>
+          <NotesPanel
+            dayName={day.day}
+            weekOffset={weekOffset}
+            isArchive={isArchive}
+            onOpenNote={(path, name) => setNoteEditor({ path, name })}
+          />
+        </div>
+      )}
       </div>
     );
   };
@@ -1336,14 +2336,15 @@ export default function WeekPlan() {
               <div
                 key={day.day}
                 className={`rounded-lg border p-2 min-h-[200px] ${
-                  isToday ? "border-blue-300 bg-blue-50/30" : "border-gray-200 bg-gray-50/50"
+                  isToday ? "border-blue-300 bg-blue-50/30" : ""
                 }`}
+                style={!isToday ? { borderColor: "var(--card-border)", backgroundColor: "var(--bg-secondary)" } : undefined}
                 onDragOver={(e) => handleDayDragOver(e, dayIdx)}
-                onDrop={() => handleDrop(dayIdx, day.tasks.length)}
+                onDrop={(e) => handleDrop(dayIdx, day.tasks.length, e)}
                 onDoubleClick={() => setAddingAt({ dayIdx, afterIdx: day.tasks.length - 1 })}
               >
                 {/* Day header */}
-                <div className="flex items-center justify-between mb-2 pb-1 border-b border-gray-100">
+                <div className="flex items-center justify-between mb-2 pb-1 border-b" style={{ borderColor: "var(--border)" }}>
                   <button
                     onClick={() => { setSelectedDayIdx(dayIdx); setViewMode("day"); }}
                     className={`text-xs font-bold hover:text-blue-600 transition-colors ${isToday ? "text-blue-700" : "text-gray-600"}`}
@@ -1365,15 +2366,17 @@ export default function WeekPlan() {
                 </div>
 
                 {/* Tasks */}
-                {!groupView ? (
+                {!groupView ? (() => {
+                  const sortedTasks = sortTasksByPriority(filteredTasks);
+                  return (
                   <div className="space-y-0.5">
-                    {filteredTasks.length > 0 ? (
-                      filteredTasks.map((task, fi) => {
+                    {sortedTasks.length > 0 ? (
+                      sortedTasks.map((task, fi) => {
                         const originalIdx = day.tasks.indexOf(task);
-                        const seq = seqNumbers.get(fi) ?? "";
+                        const seq = seqNumbers.get(filteredTasks.indexOf(task)) ?? "";
                         return (
                           <div key={`wrap-${originalIdx}`}>
-                            {renderCompactTaskItem(task, dayIdx, originalIdx, task.text, null, String(seq))}
+                            {renderCompactTaskItem(task, dayIdx, originalIdx, getDisplayText(task), null, String(seq))}
                             {renderSubtasks(dayIdx, originalIdx, task, true)}
                             {renderAddInput(dayIdx, originalIdx)}
                           </div>
@@ -1387,33 +2390,49 @@ export default function WeekPlan() {
                         Double-click to add task
                       </div>
                     )}
-                    {filteredTasks.length === 0 && renderAddInput(dayIdx, -1)}
+                    {sortedTasks.length === 0 && renderAddInput(dayIdx, -1)}
                   </div>
-                ) : (
+                  );
+                })() : (
                   <div
                     className="space-y-0.5"
                     onDragOver={(e) => { e.preventDefault(); }}
-                    onDrop={() => handleDrop(dayIdx, day.tasks.length)}
+                    onDrop={(e) => handleDrop(dayIdx, day.tasks.length, e)}
                   >
+                    {/* Top drop zone for ungrouped tasks above first group */}
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: 0 }); }}
+                      onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, 0, e, null); }}
+                      className={`h-0.5 rounded transition-colors ${
+                        dropTarget?.day === dayIdx && dropTarget?.idx === 0 ? "bg-blue-400" : "bg-transparent"
+                      }`}
+                    />
                     {buildDayGroups(day.tasks).map((section) => {
                       const firstOrigIdx = section.items[0]?.originalIdx ?? 0;
+                      const lastOrigIdx = section.items[section.items.length - 1]?.originalIdx ?? 0;
                       const sectionKey = section.name ? `${section.name}-${firstOrigIdx}` : `ungrouped-${firstOrigIdx}`;
                       const isCollapsed = section.name ? collapsedGroups.has(section.name) : false;
                       const doneInSection = section.items.filter((e) => e.task.done).length;
                       const activeInSection = section.items.length - doneInSection;
                       return (
                         <div key={sectionKey}>
+                          {/* Drop zone before group — insert ungrouped above this group */}
+                          {section.name && (
+                            <div
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: firstOrigIdx }); }}
+                              onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, firstOrigIdx, e); }}
+                              className={`h-0.5 rounded transition-colors ${
+                                dropTarget?.day === dayIdx && dropTarget?.idx === firstOrigIdx ? "bg-blue-400" : "bg-transparent"
+                              }`}
+                            />
+                          )}
+                          {/* Group header — draggable, collapsible, NO drop forcing */}
                           {section.name ? (
                             <div
                               draggable
                               onDragStart={(e) => { e.stopPropagation(); handleGroupDragStart(dayIdx, section.name); }}
-                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: firstOrigIdx }); }}
-                              onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, firstOrigIdx); }}
                               onDragEnd={handleDragEnd}
-                              className={`text-[10px] font-bold text-gray-500 px-1 mb-0.5 cursor-grab active:cursor-grabbing flex items-center gap-0.5 group/hdr hover:bg-white/60 rounded ${
-                                dropTarget?.day === dayIdx && dropTarget?.idx === firstOrigIdx
-                                  ? "border-t-2 border-blue-400" : "border-t-2 border-transparent"
-                              }`}
+                              className="text-[10px] font-bold text-gray-500 px-1 mb-0.5 cursor-grab active:cursor-grabbing flex items-center gap-0.5 group/hdr hover:bg-white/60 rounded border-t-2 border-transparent"
                             >
                               <span className="text-gray-300 group-hover/hdr:text-gray-400 text-[9px] select-none">&#x2630;</span>
                               <button
@@ -1441,6 +2460,10 @@ export default function WeekPlan() {
                                   </div>
                                 );
                               })}
+                              {/* Bottom-of-section drop indicator */}
+                              {dropTarget?.day === dayIdx && dropTarget?.idx === lastOrigIdx + 1 && (
+                                <div className="h-0.5 bg-blue-400 rounded" />
+                              )}
                             </div>
                           )}
                         </div>
@@ -1470,60 +2493,75 @@ export default function WeekPlan() {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900">Week Plan</h2>
-        <div className="flex items-center gap-2">
-          {data && (
-            <button
-              onClick={() => {
-                if (autoSavePaused) {
-                  // Resume: save immediately then re-enable auto-save
-                  saveWeek();
-                  setAutoSavePaused(false);
-                } else {
-                  setAutoSavePaused(true);
-                }
-              }}
-              disabled={saving}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                saved
-                  ? "bg-green-100 text-green-700"
-                  : autoSavePaused
-                    ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
-                    : dirty
-                      ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                      : "bg-gray-100 text-gray-400"
-              }`}
-            >
-              {saved ? "\u2713 Saved!" : saving ? "Saving..." : autoSavePaused ? "\u23F8 Paused — click to save" : dirty ? "Auto-saving..." : "Auto-save"}
-            </button>
-          )}
-          <button
-            onClick={fetchWeek}
-            disabled={loading}
-            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50 transition-colors"
-          >
-            {loading ? "Loading..." : data ? "Refresh" : "Load Week"}
-          </button>
-        </div>
-      </div>
+    <div className="flex gap-0">
 
+    <div className={`space-y-3 pb-12 ${bucketOpen || carryForwardOpen ? "flex-1 min-w-0" : "w-full"}`}>
       {error && (
         <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
       )}
 
+
       {data && (
         <>
+          <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-4 px-4 border-b" : ""}`} style={pinFilters ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
+          {isArchive && (
+            <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium text-center">
+              📁 Archive — read only
+            </div>
+          )}
           <div className="flex items-center justify-between text-sm">
-            <span className="font-medium text-gray-700">{data.week_label}</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigateWeek(-1)}
+                disabled={loading}
+                className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 disabled:opacity-30 transition-colors"
+                title="Previous week"
+              >
+                «
+              </button>
+              <span className="font-medium" style={{ color: "var(--text)" }}>
+                {(() => {
+                  const m = data.week_label.match(/wk(\d+)/i);
+                  if (m) return `Week ${m[1]}`;
+                  if (!data.week_label) {
+                    // ISO week number from current date + offset
+                    const d = new Date();
+                    d.setDate(d.getDate() + weekOffset * 7);
+                    const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+                    tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+                    const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+                    const wk = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+                    return `Week ${wk}`;
+                  }
+                  return data.week_label;
+                })()}
+              </span>
+              {!isOnToday && (
+                <button
+                  onClick={goToToday}
+                  className="px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                  title="Go to today"
+                >
+                  Today
+                </button>
+              )}
+              <button
+                onClick={() => navigateWeek(1)}
+                disabled={loading || weekOffset >= 1}
+                className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 disabled:opacity-30 transition-colors"
+                title="Next week"
+              >
+                »
+              </button>
+            </div>
             <div className="flex gap-1 items-center flex-wrap justify-end">
               {/* Group toggle */}
               <button
                 onClick={() => setGroupView(!groupView)}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                  groupView ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                  groupView ? "bg-blue-100 text-blue-700" : "hover:opacity-80"
                 }`}
+                style={!groupView ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
                 title={groupView ? "Switch to flat list" : "Group by prefix (e.g. Rotary:)"}
               >
                 {groupView ? "Grouped" : "Group"}
@@ -1548,8 +2586,9 @@ export default function WeekPlan() {
                 <button
                   onClick={() => setShowCompleted(!showCompleted)}
                   className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                    showCompleted ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                    showCompleted ? "bg-green-100 text-green-700" : "hover:opacity-80"
                   }`}
+                  style={!showCompleted ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
                 >
                   {showCompleted ? `Hide ${completedCount} done` : `Show ${completedCount} done`}
                 </button>
@@ -1561,8 +2600,9 @@ export default function WeekPlan() {
               <button
                 onClick={() => setViewMode("day")}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                  viewMode === "day" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                  viewMode === "day" ? "bg-blue-100 text-blue-700" : "hover:opacity-80"
                 }`}
+                style={viewMode !== "day" ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
               >
                 Day
               </button>
@@ -1571,8 +2611,9 @@ export default function WeekPlan() {
                   key={mode}
                   onClick={() => setViewMode(mode)}
                   className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                    viewMode === mode ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                  }`}
+                    viewMode === mode ? "bg-blue-100 text-blue-700" : "hover:opacity-80"
+                  } ${mode === "7day" || mode === "weekend" ? "hidden sm:inline-block" : ""}`}
+                  style={viewMode !== mode ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
                 >
                   {mode === "3day" ? "3 Day" : mode === "5day" ? "Mon-Fri" : mode === "7day" ? "Full week" : "Weekend"}
                 </button>
@@ -1580,12 +2621,12 @@ export default function WeekPlan() {
             </div>
           </div>
 
-          {/* Day navigation bar — shown in Day view */}
-          {viewMode === "day" && (
+          {/* Day navigation bar — shown in Day and 3-Day views */}
+          {(viewMode === "day" || viewMode === "3day") && (
             <div className="flex items-center gap-2 max-w-lg mx-auto">
               <button
-                onClick={() => setSelectedDayIdx(Math.max(0, selectedDayIdx - 1))}
-                disabled={selectedDayIdx === 0}
+                onClick={() => navigateDay(-1)}
+                disabled={loading || (viewMode === "3day" && selectedDayIdx <= 0)}
                 className="px-2 py-1 text-gray-400 hover:text-gray-700 text-lg font-medium transition-colors disabled:opacity-20"
                 title="Previous day"
               >
@@ -1594,6 +2635,7 @@ export default function WeekPlan() {
               <div className="flex gap-1 flex-1 justify-center">
                 {data.days.map((d, i) => {
                   const isSelected = i === selectedDayIdx;
+                  const isVisible = viewMode === "3day" && visibleDays.includes(i);
                   const isToday = i === todayIdx;
                   const shortName = DAY_SHORT[i];
                   return (
@@ -1603,14 +2645,18 @@ export default function WeekPlan() {
                       className={`flex flex-col items-center px-2 py-1 rounded text-xs font-medium transition-colors min-w-[40px] ${
                         isSelected
                           ? "bg-blue-600 text-white"
-                          : isToday
+                          : isVisible
                             ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                            : "text-gray-500 hover:bg-gray-100"
+                            : isToday
+                              ? "bg-blue-50 text-blue-600 hover:bg-blue-100"
+                              : "hover:opacity-80"
                       }`}
+                      style={!(isSelected || isVisible || isToday) ? { color: "var(--text-secondary)" } : undefined}
                     >
                       <span>{shortName}</span>
                       <span className={`text-[10px] ${
                         isSelected ? "text-blue-100"
+                          : isVisible ? "text-blue-400"
                           : d.tasks.filter(t => !t.done).length > 0 ? "text-gray-500" : "text-gray-300"
                       }`}>
                         {d.tasks.filter(t => !t.done).length}
@@ -1620,13 +2666,129 @@ export default function WeekPlan() {
                 })}
               </div>
               <button
-                onClick={() => setSelectedDayIdx(Math.min(6, selectedDayIdx + 1))}
-                disabled={selectedDayIdx === 6}
+                onClick={() => navigateDay(1)}
+                disabled={loading || (viewMode === "3day" && selectedDayIdx >= 6)}
                 className="px-2 py-1 text-gray-400 hover:text-gray-700 text-lg font-medium transition-colors disabled:opacity-20"
                 title="Next day"
               >
                 ›
               </button>
+            </div>
+          )}
+          {/* Pin/unpin toggle */}
+          <button
+            onClick={() => setPinFilters(!pinFilters)}
+            className={`absolute top-1 right-1 px-1 py-0.5 rounded text-[9px] transition-colors ${
+              pinFilters ? "text-gray-300 hover:text-gray-500" : "text-blue-400 hover:text-blue-600"
+            }`}
+            title={pinFilters ? "Unpin toolbar" : "Pin toolbar"}
+          >
+            {pinFilters ? "📌" : "📌"}
+          </button>
+          </div>
+
+          {/* Goals Banner */}
+          {!isArchive && (
+            <div className={`rounded-lg border transition-all ${
+              hasGoals
+                ? "border-amber-200/60"
+                : "border-amber-300/80"
+            }`} style={{ backgroundColor: "var(--amber-bg)" }}>
+              {/* Header row — always visible */}
+              <button
+                onClick={() => setGoalsExpanded(!goalsExpanded)}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left"
+              >
+                <span className="text-sm">🎯</span>
+                <span className="text-xs font-semibold text-amber-800">Goals</span>
+                {hasGoals && !goalsExpanded && (
+                  <span className="text-xs text-amber-600/70 truncate flex-1">
+                    — {goalsAsList.slice(0, 3).join(" · ")}{goalsAsList.length > 3 ? " …" : ""}
+                  </span>
+                )}
+                {!hasGoals && !goalsExpanded && (
+                  <span className="text-xs text-amber-500 italic flex-1">No goals set for this week</span>
+                )}
+                {hasGoals && (
+                  <span className="text-[10px] text-amber-500 bg-amber-100 px-1.5 rounded-full">{goalsAsList.length}</span>
+                )}
+                <span className="text-[10px] text-amber-400">{goalsExpanded ? "▾" : "▸"}</span>
+              </button>
+
+              {/* Expanded content */}
+              {goalsExpanded && (
+                <div className="px-3 pb-2 space-y-1.5">
+                  {goalsEditing ? (
+                    /* Editing mode — textarea */
+                    <div className="space-y-1.5">
+                      <textarea
+                        autoFocus
+                        value={goalsDraft}
+                        onChange={(e) => setGoalsDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") { setGoalsEditing(false); }
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { saveGoals(goalsDraft); }
+                        }}
+                        placeholder="One goal per line..."
+                        className="w-full text-xs border border-amber-200 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-amber-300 min-h-[60px]"
+                        style={{ color: "var(--text)", backgroundColor: "var(--bg-secondary)" }}
+                        rows={Math.max(3, goalsDraft.split("\n").length + 1)}
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => saveGoals(goalsDraft)}
+                          disabled={goalsSaving}
+                          className="px-2 py-0.5 rounded text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                        >
+                          {goalsSaving ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          onClick={() => setGoalsEditing(false)}
+                          className="px-2 py-0.5 rounded text-xs font-medium text-amber-600 hover:bg-amber-100 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <span className="text-[10px] text-amber-400 ml-auto">⌘+Enter to save</span>
+                      </div>
+                    </div>
+                  ) : hasGoals ? (
+                    /* Display mode — bullet list */
+                    <div className="space-y-0.5">
+                      {goalsAsList.map((g, i) => (
+                        <div key={i} className="flex items-start gap-1.5 text-xs text-amber-900/80">
+                          <span className="text-amber-400 mt-0.5 text-[8px]">●</span>
+                          <span>{g}</span>
+                        </div>
+                      ))}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startEditingGoals(); }}
+                        className="text-[10px] text-amber-500 hover:text-amber-700 mt-1 transition-colors"
+                      >
+                        Edit goals
+                      </button>
+                    </div>
+                  ) : (
+                    /* Empty state */
+                    <div className="flex items-center gap-2 py-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startEditingGoals(); }}
+                        className="px-2 py-0.5 rounded text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+                      >
+                        Set goals
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); carryOverGoals(); }}
+                        className="px-2 py-0.5 rounded text-xs font-medium text-amber-600 border border-amber-300 hover:bg-amber-100 transition-colors"
+                      >
+                        Carry over from last week
+                      </button>
+                    </div>
+                  )}
+                  {goalsSaved && (
+                    <span className="text-[10px] text-green-600 font-medium">✓ Saved</span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1637,15 +2799,14 @@ export default function WeekPlan() {
 
       {!data && !loading && (
         <div className="py-12 text-center text-gray-400">
-          <p className="text-lg">No week plan loaded</p>
-          <p className="text-sm mt-1">Click Load Week to read Plan Week.md</p>
+          <p className="text-sm">Loading week plan...</p>
         </div>
       )}
 
       {/* Pomodoro start prompt */}
       {pomodoroPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => setPomodoroPrompt(null)}>
-          <div className="bg-white rounded-xl shadow-xl p-5 space-y-3 max-w-xs" onClick={(e) => e.stopPropagation()}>
+          <div className="rounded-xl shadow-xl p-5 space-y-3 max-w-xs" style={{ backgroundColor: "var(--card)" }} onClick={(e) => e.stopPropagation()}>
             <div className="text-center">
               <span className="text-3xl">🍅</span>
               <p className="text-sm font-semibold text-gray-800 mt-1">Start Pomodoro?</p>
@@ -1675,9 +2836,11 @@ export default function WeekPlan() {
         </div>
       )}
 
+      {/* Carry Forward Dialog - removed, now a side panel */}
+
       {/* Floating pomodoro timer */}
       {pomodoro && (
-        <div className="fixed left-6 top-1/2 -translate-y-1/2 z-40 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 w-56">
+        <div className="fixed left-6 top-1/2 -translate-y-1/2 z-40 rounded-2xl shadow-2xl border p-4 w-56" style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}>
           {/* Tomato with timer */}
           <div className="flex flex-col items-center gap-1">
             <div className={`text-5xl select-none ${pomodoro.state === "running" ? "animate-spin-slow" : pomodoro.state === "breakRunning" ? "" : ""}`}
@@ -1796,6 +2959,405 @@ export default function WeekPlan() {
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
+    </div>
+
+    {/* Bucket & Carry icons — above status bar, togglable */}
+    {data && showBottomBar && (
+      <div className="fixed bottom-8 right-6 z-40 flex items-end gap-2">
+        {/* Carry forward */}
+        {weekOffset > 0 && carryTasks.length > 0 && (
+          <div
+            className={`relative cursor-pointer transition-all duration-200 ${carryHighlight ? "scale-110" : "hover:scale-105"}`}
+            title={`⏩ Carry Forward (${carryTasks.length} tasks)`}
+            onClick={() => {
+              if (carryForwardOpen) { setCarryForwardOpen(false); }
+              else { setBucketOpen(false); setCarryForwardOpen(true); }
+            }}
+          >
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg shadow-md border-2 transition-colors ${
+              carryForwardOpen ? "bg-purple-200 border-purple-500" : carryHighlight ? "bg-purple-100 border-purple-400" : "bg-white border-gray-200 hover:border-purple-300"
+            }`}>⏩</div>
+            <span className="absolute -top-1 -right-1 bg-purple-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+              {carryTasks.length > 99 ? "99+" : carryTasks.length}
+            </span>
+          </div>
+        )}
+
+        {/* Bucket */}
+        {!isArchive && (
+          <div
+            className={`relative cursor-pointer transition-all duration-200 ${bucketHighlight ? "scale-110" : "hover:scale-105"}`}
+            title={`🪣 Bucket (${bucketCount})`}
+            onClick={() => { const opening = !bucketOpen; setBucketOpen(opening); if (opening) { refreshBucket(); setCarryForwardOpen(false); } }}
+            onDragOver={(e) => {
+              if (dragRef.current || dragGroupRef.current || carryDragRef.current || carryGroupDragRef.current || e.dataTransfer.types.includes("carry-task") || e.dataTransfer.types.includes("carry-group")) {
+                e.preventDefault(); setBucketHighlight(true);
+              }
+            }}
+            onDragLeave={() => setBucketHighlight(false)}
+            onDrop={(e) => {
+              e.preventDefault(); e.stopPropagation(); setBucketHighlight(false);
+              if (e.dataTransfer.types.includes("carry-task")) {
+                try { const { carryIdx } = JSON.parse(e.dataTransfer.getData("carry-task")); carrySingleToBucket(carryIdx); } catch { /* ignore */ }
+                return;
+              }
+              if (e.dataTransfer.types.includes("carry-group")) {
+                try {
+                  const { groupName } = JSON.parse(e.dataTransfer.getData("carry-group"));
+                  const groupTasks = carryTasks.filter((t) => parseGroup(t.text).group === groupName);
+                  if (groupTasks.length > 0) {
+                    (async () => {
+                      const currentBucket = await api.getBucket();
+                      const newTasks = [...currentBucket.tasks, ...groupTasks.map((t) => ({ text: t.text, priority: t.priority || "C", focused: t.focused, waiting: t.waiting, subtasks: t.subtasks }))];
+                      await api.saveBucket(newTasks, currentBucket.pinned_groups);
+                      refreshBucket(); window.dispatchEvent(new CustomEvent("bucket-changed"));
+                      setCarryTasks((prev) => prev.filter((t) => parseGroup(t.text).group !== groupName));
+                    })().catch(() => {});
+                  }
+                } catch { /* ignore */ }
+                return;
+              }
+              if (dragGroupRef.current) {
+                sendGroupToBucket(dragGroupRef.current.fromDay, dragGroupRef.current.groupName);
+                dragGroupRef.current = null; dragRef.current = null;
+              } else if (dragRef.current) {
+                sendToBucket(dragRef.current.fromDay, dragRef.current.fromIdx);
+                dragRef.current = null; dragGroupRef.current = null;
+              } else {
+                try { const d = JSON.parse(e.dataTransfer.getData("text/plain")); if (typeof d.dayIdx === "number" && typeof d.taskIdx === "number") sendToBucket(d.dayIdx, d.taskIdx); } catch { /* ignore */ }
+              }
+            }}
+          >
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg shadow-md border-2 transition-colors ${
+              bucketOpen ? "bg-amber-200 border-amber-500" : bucketHighlight ? "bg-amber-100 border-amber-400" : "bg-white border-gray-200 hover:border-amber-300"
+            }`}>🪣</div>
+            {bucketCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                {bucketCount > 99 ? "99+" : bucketCount}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    )}
+
+    {/* Status bar — always at very bottom */}
+    {data && (
+      <div className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1" style={{ backgroundColor: "color-mix(in srgb, var(--bg) 95%, transparent)", borderColor: "var(--border)" }}>
+        <div className="max-w-6xl mx-auto flex items-center gap-2">
+          {!isArchive && (
+            <button
+              onClick={() => {
+                if (autoSavePaused) { saveWeek(); setAutoSavePaused(false); }
+                else { setAutoSavePaused(true); }
+              }}
+              disabled={saving}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                saved ? "bg-green-100 text-green-700"
+                  : autoSavePaused ? "bg-amber-100 text-amber-700"
+                  : dirty ? "bg-blue-100 text-blue-700"
+                  : ""
+              }`}
+              style={!(saved || autoSavePaused || dirty) ? { backgroundColor: "var(--bg-secondary)", color: "var(--text-tertiary)" } : undefined}
+            >
+              {saved ? "✓ Saved" : saving ? "Saving…" : autoSavePaused ? "⏸ Paused" : dirty ? "Saving…" : "Auto-save"}
+            </button>
+          )}
+          {!isArchive && (
+            <div className="flex items-center gap-0.5">
+              <button onClick={performUndo} disabled={undoStack.current.length === 0}
+                className="px-1 py-0.5 rounded text-xs text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-20 transition-colors"
+                title={`Undo (${undoStack.current.length}) — Ctrl+Z`}>↩</button>
+              <button onClick={performRedo} disabled={redoStack.current.length === 0}
+                className="px-1 py-0.5 rounded text-xs text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-20 transition-colors"
+                title="Redo — Ctrl+Shift+Z">↪</button>
+            </div>
+          )}
+          <button onClick={() => fetchWeek()} disabled={loading}
+            className="px-2 py-0.5 rounded text-[10px] font-medium hover:opacity-80 disabled:opacity-50 transition-colors"
+            style={{ backgroundColor: "var(--bg-secondary)", color: "var(--text-tertiary)" }}>
+            {loading ? "Loading…" : "Refresh"}
+          </button>
+          {externalChange && (
+            <div className="flex items-center gap-1.5 text-[10px] text-blue-600">
+              <span>📄 File changed</span>
+              <button onClick={() => fetchWeek()} className="font-semibold underline">Reload</button>
+              <button onClick={() => setExternalChange(false)} className="text-blue-400">✕</button>
+            </div>
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={() => setShowBottomBar(!showBottomBar)}
+            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+              showBottomBar ? "bg-gray-100 text-gray-400 hover:bg-gray-200" : "bg-blue-50 text-blue-500 hover:bg-blue-100"
+            }`}
+            title={showBottomBar ? "Hide toolbar" : "Show toolbar"}
+          >
+            {showBottomBar ? "🪣 ▾" : "🪣 ▴"}
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* Bucket side panel */}
+    {bucketOpen && (
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+        <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
+          <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>🪣 Bucket ({bucketTasks.length})</h3>
+          <button onClick={() => setBucketOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+        </div>
+        <div className="p-2 space-y-0.5">
+          {bucketTasks.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-4">Empty — drag tasks here to defer</p>
+          )}
+          {(() => {
+            // Build grouped sections for bucket panel
+            const sections: { name: string; items: { task: import("../api").BucketTask; idx: number; label: string }[] }[] = [];
+            bucketTasks.forEach((task, idx) => {
+              const { group, label } = parseGroup(task.text);
+              const last = sections[sections.length - 1];
+              if (last && last.name === group) {
+                last.items.push({ task, idx, label });
+              } else {
+                sections.push({ name: group, items: [{ task, idx, label }] });
+              }
+            });
+
+            const toggleBucketGroup = (name: string) => {
+              setBucketExpandedGroups((prev) => {
+                const next = new Set(prev);
+                if (next.has(name)) next.delete(name); else next.add(name);
+                return next;
+              });
+            };
+
+            const renderBucketItem = (task: import("../api").BucketTask, idx: number, label: string) => (
+              <div
+                key={idx}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("bucket-task", JSON.stringify({ bucketIdx: idx }));
+                  e.dataTransfer.effectAllowed = "move";
+                  bucketDragRef.current = { bucketIdx: idx };
+                }}
+                onDragEnd={() => { bucketDragRef.current = null; }}
+                className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs cursor-grab active:cursor-grabbing group/bt transition-colors"
+              >
+                <span className={`flex-1 truncate ${task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }} title={label}>
+                  {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
+                  {label}
+                </span>
+                <span className="text-[10px] text-gray-300 opacity-0 group-hover/bt:opacity-100 shrink-0">drag →</span>
+              </div>
+            );
+
+            return sections.map((section, si) => {
+              if (!section.name) {
+                // Ungrouped tasks — show directly
+                return section.items.map(({ task, idx, label }) => renderBucketItem(task, idx, label));
+              }
+              const isExpanded = bucketExpandedGroups.has(section.name);
+              return (
+                <div key={`bg-${si}`} className="mb-0.5">
+                  <button
+                    onClick={() => toggleBucketGroup(section.name)}
+                    className="w-full flex items-center gap-1 py-1 px-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-white rounded transition-colors"
+                  >
+                    <span className="text-[10px]">{isExpanded ? "▾" : "▸"}</span>
+                    <span>{section.name}</span>
+                    <span className="text-[10px] text-gray-400">({section.items.length})</span>
+                  </button>
+                  {isExpanded && (
+                    <div className="ml-3 border-l border-gray-200 pl-1">
+                      {section.items.map(({ task, idx, label }) => renderBucketItem(task, idx, label))}
+                    </div>
+                  )}
+                </div>
+              );
+            });
+          })()}
+        </div>
+      </div>
+    )}
+    {/* Carry Forward side panel (right, matching bucket style) */}
+    {carryForwardOpen && (
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+        <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
+          <div>
+            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({carryTasks.length})</h3>
+            <p className="text-[10px] text-gray-500">From week {carryLabel.replace(/^\d{4}-wk0?/, "")}</p>
+          </div>
+          <button onClick={() => setCarryForwardOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+        </div>
+        <div className="p-2 space-y-0.5">
+          {carryTasks.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-4">No tasks to carry forward</p>
+          )}
+          {(() => {
+            // Build grouped sections matching bucket style
+            const sections: { name: string; items: { task: typeof carryTasks[0]; idx: number; label: string }[] }[] = [];
+            carryTasks.forEach((task, idx) => {
+              const { group, label } = parseGroup(task.text);
+              const last = sections[sections.length - 1];
+              if (last && last.name === group) {
+                last.items.push({ task, idx, label });
+              } else {
+                sections.push({ name: group, items: [{ task, idx, label }] });
+              }
+            });
+
+            const toggleCarryGroup = (name: string) => {
+              setCarryExpandedGroups((prev) => {
+                const next = new Set(prev);
+                if (next.has(name)) next.delete(name); else next.add(name);
+                return next;
+              });
+            };
+
+            const prioBadge = (p: string) => (
+              <span className={`inline-block text-[9px] font-bold mr-1 px-1 rounded shrink-0 ${
+                p === "A" ? "bg-red-100 text-red-700" : p === "B" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"
+              }`}>{p}</span>
+            );
+
+            const renderCarryItem = (task: typeof carryTasks[0], idx: number, label: string) => (
+              <div
+                key={`carry-${idx}`}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("carry-task", JSON.stringify({ carryIdx: idx }));
+                  e.dataTransfer.effectAllowed = "move";
+                  carryDragRef.current = { carryIdx: idx };
+                }}
+                onDragEnd={() => { carryDragRef.current = null; }}
+                className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs cursor-grab active:cursor-grabbing group/ct transition-colors"
+              >
+                {prioBadge(task.priority || "C")}
+                <span className={`flex-1 truncate ${task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }} title={label}>
+                  {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
+                  {label}
+                </span>
+                <span className="text-[9px] text-gray-300 shrink-0">{task.from_day.slice(0, 3)}</span>
+                <span className="text-[10px] text-gray-300 opacity-0 group-hover/ct:opacity-100 shrink-0">drag →</span>
+              </div>
+            );
+
+            return sections.map((section, si) => {
+              if (!section.name) {
+                return section.items.map(({ task, idx, label }) => renderCarryItem(task, idx, label));
+              }
+              const isExpanded = carryExpandedGroups.has(section.name);
+              return (
+                <div key={`cg-${si}`} className="mb-0.5">
+                  <div
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("carry-group", JSON.stringify({ groupName: section.name }));
+                      e.dataTransfer.effectAllowed = "move";
+                      carryGroupDragRef.current = { groupName: section.name };
+                    }}
+                    onDragEnd={() => { carryGroupDragRef.current = null; }}
+                    className="cursor-grab active:cursor-grabbing"
+                  >
+                    <button
+                      onClick={() => toggleCarryGroup(section.name)}
+                      className="w-full flex items-center gap-1 py-1 px-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-white rounded transition-colors"
+                    >
+                      <span className="text-[10px]">{isExpanded ? "▾" : "▸"}</span>
+                      <span>{section.name}</span>
+                      <span className="text-[10px] text-gray-400">({section.items.length})</span>
+                      <span className="text-[10px] text-gray-300 opacity-0 group-hover:opacity-100 ml-auto shrink-0">drag group →</span>
+                    </button>
+                  </div>
+                  {isExpanded && (
+                    <div className="ml-3 border-l border-gray-200 pl-1">
+                      {section.items.map(({ task, idx, label }) => renderCarryItem(task, idx, label))}
+                    </div>
+                  )}
+                </div>
+              );
+            });
+          })()}
+        </div>
+        {/* Bottom actions */}
+        {carryTasks.length > 0 && (
+          <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5">
+            <div className="flex gap-1">
+              <select
+                id="carry-target-day"
+                defaultValue="monday"
+                className="flex-1 text-[10px] border border-gray-200 rounded px-1.5 py-1 bg-white text-gray-600"
+              >
+                <option value="monday">Monday</option>
+                <option value="tuesday">Tuesday</option>
+                <option value="wednesday">Wednesday</option>
+                <option value="thursday">Thursday</option>
+                <option value="friday">Friday</option>
+                <option value="saturday">Saturday</option>
+                <option value="sunday">Sunday</option>
+              </select>
+              <button
+                onClick={() => {
+                  const sel = (document.getElementById("carry-target-day") as HTMLSelectElement)?.value || "monday";
+                  carryAllToDay(sel);
+                }}
+                disabled={carryLoading}
+                className="px-2 py-1 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                {carryLoading ? "..." : `Carry all →`}
+              </button>
+            </div>
+            <button
+              onClick={carryAllToBucket}
+              disabled={carryLoading}
+              className="w-full px-2 py-1 bg-amber-500 text-white rounded text-[10px] font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors"
+            >
+              {carryLoading ? "Moving..." : `🪣 All to Bucket`}
+            </button>
+          </div>
+        )}
+      </div>
+    )}
+    {/* Task link popup */}
+    {linkPopup && (
+      <TaskLinkPopup
+        links={linkPopup.links}
+        position={linkPopup.pos}
+        onClose={() => setLinkPopup(null)}
+        onAddLink={(name) => {
+          addLinkToTask(linkPopup.dayIdx, linkPopup.taskIdx, name);
+        }}
+        onOpenInApp={(path, name) => { setLinkPopup(null); setNoteEditor({ path, name }); }}
+      />
+    )}
+    {/* Note file picker popup */}
+    {notePicker && (
+      <NoteFilePicker
+        existingLinks={notePicker.links}
+        group={notePicker.group}
+        position={notePicker.pos}
+        weekOffset={weekOffset}
+        onSelect={(path, name) => {
+          setNotePicker(null);
+          setNoteEditor({ path, name });
+        }}
+        onAddLink={(name, path) => {
+          addLinkToTask(notePicker.dayIdx, notePicker.taskIdx, name);
+        }}
+        onRemoveLink={(name) => {
+          removeLinkFromTask(notePicker.dayIdx, notePicker.taskIdx, name);
+        }}
+        onClose={() => setNotePicker(null)}
+      />
+    )}
+    {/* Note editor modal */}
+    {noteEditor && (
+      <NoteEditor
+        initialPath={noteEditor.path}
+        initialName={noteEditor.name}
+        onClose={() => setNoteEditor(null)}
+      />
+    )}
     </div>
   );
 }
