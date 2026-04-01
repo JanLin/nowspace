@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend and config files
 COPY backend/ ./backend/
-COPY config.yaml system_prompt.md ./
+COPY config.yaml.example ./config.yaml
+COPY system_prompt.md ./
 
 # Copy built frontend
 COPY --from=frontend-build /build/dist ./frontend/dist/

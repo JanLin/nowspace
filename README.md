@@ -2,6 +2,18 @@
 
 A task planning and coaching tool that reads your [Obsidian](https://obsidian.md/) vault, prioritises tasks using AI, and helps you stay focused through coaching questions.
 
+## Table of Contents
+
+- [What It Does](#what-it-does)
+- [Download Desktop App](#download-desktop-app)
+- [Run with Docker](#run-with-docker)
+- [Development Setup](#development-setup)
+- [Vault Structure](#vault-structure)
+- [Task Icons](#task-icons)
+- [Configuration](#configuration)
+- [Tech Stack](#tech-stack)
+- [Feedback and Issues](#feedback-and-issues)
+
 ## What It Does
 
 - **Reads your Obsidian vault** — Parses `Plan Week.md` with daily task lists, groups, and subtasks
@@ -36,7 +48,40 @@ Or browse all releases: [github.com/JanLin/coaching-agent/releases](https://gith
 
 Your API key is stored locally in `~/.nowspace/.env` and is never sent anywhere except the Anthropic API.
 
-## Quick Start (Development)
+## Run with Docker
+
+Run Nowspace as a web app using Docker, without installing Python or Node.js.
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
+- An Obsidian vault with PARA folder structure
+- A [Claude API key](https://console.anthropic.com/) (optional — planning works without it)
+
+### Quick Start
+
+1. Clone and configure:
+
+   ```bash
+   git clone git@github.com:JanLin/coaching-agent.git
+   cd coaching-agent
+   cp .env.example .env
+   # Edit .env — set ANTHROPIC_API_KEY and VAULT_PATH
+   ```
+
+2. Start the container:
+
+   ```bash
+   docker compose up -d
+   ```
+
+3. Open **http://localhost:8000** in your browser.
+
+The `VAULT_PATH` environment variable in `.env` is mounted into the container so the app can read and write your Obsidian files. Changes sync back to your vault on disk.
+
+To stop: `docker compose down`
+
+## Development Setup
 
 ### Prerequisites
 
@@ -107,17 +152,17 @@ YourVault/
 
 Each task has icon actions that appear on hover:
 
-### 🎺 Focus (Trumpet + Pomodoro)
+### Focus (Trumpet + Pomodoro)
 
-Click the trumpet 🎺 to mark a task as your current focus. A **Pomodoro timer** prompt appears with 15 or 30 minute options. The timer floats on-screen with grace period and break controls.
+Click the trumpet to mark a task as your current focus. A **Pomodoro timer** prompt appears with 15 or 30 minute options. The timer floats on-screen with grace period and break controls.
 
-### 🐘 White Elephant (Breakdown)
+### White Elephant (Breakdown)
 
-Click the elephant 🐘 to break a hard-to-start task into small, actionable subtasks. Each subtask gets its own checkbox.
+Click the elephant to break a hard-to-start task into small, actionable subtasks. Each subtask gets its own checkbox.
 
-### ⏳ Waiting (Hourglass)
+### Waiting (Hourglass)
 
-Click the hourglass ⏳ when a task is blocked. Waiting tasks show a `WAIT:` prefix in Obsidian and are deprioritised in coaching.
+Click the hourglass when a task is blocked. Waiting tasks show a `WAIT:` prefix in Obsidian and are deprioritised in coaching.
 
 ## Configuration
 
@@ -126,6 +171,8 @@ Settings are managed from the **Settings** tab in the app:
 - **Vault path** — path to your Obsidian vault (auto-detects PARA structure)
 - **Claude API key** — stored in `~/.nowspace/.env`, never bundled with the app
 - **Reference groups** — map group names to vault folders for the reference file browser
+
+For development, settings live in `config.yaml` (copy from `config.yaml.example`).
 
 ## Tech Stack
 
