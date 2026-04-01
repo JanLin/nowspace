@@ -52,7 +52,8 @@ def _find_archived_week(year: int, week: int) -> Optional[Path]:
     """Find an archived week file, handling both zero-padded and non-padded names."""
     archive = _archive_path()
     # Try zero-padded first (wk08), then non-padded (wk8)
-    for fmt in [f"Plan Week - {year}-wk{week:02d}.md", f"Plan Week - {year}-wk{week}.md"]:
+    base = config.plan_week_file.replace(".md", "")
+    for fmt in [f"{base} - {year}-wk{week:02d}.md", f"{base} - {year}-wk{week}.md"]:
         p = archive / fmt
         if p.exists():
             return p
@@ -61,7 +62,8 @@ def _find_archived_week(year: int, week: int) -> Optional[Path]:
 
 def _next_week_file(year: int, week: int) -> Path:
     """Return path for a future week file in same folder as Plan Week.md."""
-    return config.vault_path / f"Plan Week - {year}-wk{week:02d}.md"
+    base = config.plan_week_file.replace(".md", "")
+    return config.vault_path / f"{base} - {year}-wk{week:02d}.md"
 
 
 def _create_week_template(year: int, week: int) -> str:
@@ -108,7 +110,7 @@ def _auto_transition_if_needed() -> list[str]:
     import logging
     log = logging.getLogger("plan.auto_transition")
 
-    current_file = config.vault_path / "Plan Week.md"
+    current_file = config.vault_path / config.plan_week_file
     if not current_file.exists():
         return []
 
@@ -130,7 +132,7 @@ def _auto_transition_if_needed() -> list[str]:
         # Archive the stale file
         archive_dir = _archive_path()
         archive_dir.mkdir(parents=True, exist_ok=True)
-        archive_file = archive_dir / f"Plan Week - {file_year}-wk{file_week:02d}.md"
+        archive_file = archive_dir / f"{config.plan_week_file.replace('.md', '')} - {file_year}-wk{file_week:02d}.md"
         if archive_file.exists():
             # Already archived (manual copy?), just remove the stale Plan Week.md
             current_file.unlink()
@@ -280,7 +282,7 @@ async def save_goals(req: SaveGoalsRequest):
     if req.offset < 0:
         raise HTTPException(status_code=400, detail="Cannot save goals to archived weeks")
     if req.offset == 0:
-        plan_file = config.vault_path / "Plan Week.md"
+        plan_file = config.vault_path / config.plan_week_file
     else:
         year, week = _week_info_for_offset(req.offset)
         plan_file = _next_week_file(year, week)
@@ -331,14 +333,14 @@ async def get_week_modified(offset: int = 0):
     """Return the last-modified timestamp of the week plan file (lightweight check)."""
     import os
     if offset == 0:
-        plan_file = config.vault_path / "Plan Week.md"
+        plan_file = config.vault_path / config.plan_week_file
     elif offset > 0:
         year, week = _week_info_for_offset(offset)
         plan_file = _next_week_file(year, week)
     else:
         year, week = _week_info_for_offset(offset)
         found = _find_archived_week(year, week)
-        plan_file = found if found else config.vault_path / "Plan Week.md"
+        plan_file = found if found else config.vault_path / config.plan_week_file
     if not plan_file.exists():
         return {"mtime": None}
     mtime = os.path.getmtime(plan_file)
@@ -360,7 +362,7 @@ async def get_week_plan(offset: int = 0):
         # Auto-transition if Plan Week.md is from a past week
         _auto_transition_if_needed()
         # Current week — Plan Week.md in vault_path (0-Inbox)
-        plan_file = config.vault_path / "Plan Week.md"
+        plan_file = config.vault_path / config.plan_week_file
         if not plan_file.exists():
             raise HTTPException(status_code=404, detail="Plan Week.md not found in vault")
     elif offset > 0:
@@ -393,7 +395,7 @@ async def save_week_plan(req: SaveWeekRequest):
     if offset < 0:
         raise HTTPException(status_code=400, detail="Cannot save to archived weeks")
     if offset == 0:
-        plan_file = config.vault_path / "Plan Week.md"
+        plan_file = config.vault_path / config.plan_week_file
     else:
         year, week = _week_info_for_offset(offset)
         plan_file = _next_week_file(year, week)
@@ -475,7 +477,7 @@ async def transition_week():
     1. Move Plan Week.md → 4-Archive/a0-Inbox/Plan Week - {year}-wk{week}.md
     2. If next week file exists in 0-Inbox, rename to Plan Week.md
     """
-    current_file = config.vault_path / "Plan Week.md"
+    current_file = config.vault_path / config.plan_week_file
     if not current_file.exists():
         raise HTTPException(status_code=404, detail="Plan Week.md not found")
 
@@ -492,7 +494,7 @@ async def transition_week():
     # 1. Archive current week
     archive_dir = _archive_path()
     archive_dir.mkdir(parents=True, exist_ok=True)
-    archive_file = _archive_path() / f"Plan Week - {arch_year}-wk{arch_week:02d}.md"
+    archive_file = _archive_path() / f"{config.plan_week_file.replace('.md', '')} - {arch_year}-wk{arch_week:02d}.md"
     shutil.move(str(current_file), str(archive_file))
 
     # 2. Promote next week file if it exists
@@ -512,7 +514,7 @@ async def transition_week():
 
     return {
         "status": "transitioned",
-        "archived": f"Plan Week - {arch_year}-wk{arch_week:02d}.md",
+        "archived": f"{config.plan_week_file.replace('.md', '')} - {arch_year}-wk{arch_week:02d}.md",
         "promoted": promoted,
         "new_week": f"{next_year}-wk{next_week:02d}",
     }
@@ -545,7 +547,7 @@ async def get_carry_forward_tasks(offset: int = -1):
 
     if offset == 0:
         # Read from current Plan Week.md
-        plan_file = config.vault_path / "Plan Week.md"
+        plan_file = config.vault_path / config.plan_week_file
         if not plan_file.exists():
             return {"tasks": [], "week_label": f"{year}-wk{week:02d}", "found": False}
         source_file = plan_file
@@ -593,7 +595,7 @@ async def carry_forward_tasks(req: CarryForwardRequest):
     """Add carried-forward tasks to the target week's plan file."""
     offset = req.offset
     if offset == 0:
-        plan_file = config.vault_path / "Plan Week.md"
+        plan_file = config.vault_path / config.plan_week_file
     elif offset > 0:
         year, week = _week_info_for_offset(offset)
         plan_file = _next_week_file(year, week)
@@ -644,7 +646,7 @@ async def carry_forward_tasks(req: CarryForwardRequest):
 def _remove_carried_tasks_from_source(source_offset: int, carried_tasks: list[CarryForwardItem]):
     """Remove carried-forward tasks from the source week file."""
     if source_offset == 0:
-        source_file = config.vault_path / "Plan Week.md"
+        source_file = config.vault_path / config.plan_week_file
     else:
         year, week = _week_info_for_offset(source_offset)
         if source_offset > 0:
@@ -747,7 +749,7 @@ class SaveVaultRequest(BaseModel):
 @router.post("/save-vault")
 async def save_to_vault(req: SaveVaultRequest):
     """Replace today's section in Plan Week.md with the provided content."""
-    plan_file = config.vault_path / "Plan Week.md"
+    plan_file = config.vault_path / config.plan_week_file
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail="Plan Week.md not found in vault")
 
@@ -896,12 +898,11 @@ def _indent(text: str, prefix: str = "  ") -> str:
 
 # ── Bucket helpers ──────────────────────────────────────────────
 
-_BUCKET_FILE = "Plan Week Bucket.md"
 _BUCKET_PRIORITY_RE = re.compile(r"^(?:\[([A-Da-d])\]|([A-Da-d]):)\s*(.*)")
 
 
 def _bucket_path() -> Path:
-    return config.vault_path / _BUCKET_FILE
+    return config.vault_path / config.plan_week_bucket_file
 
 
 def _parse_bucket_file(content: str) -> tuple[list[BucketTask], list[str]]:
@@ -1112,7 +1113,7 @@ async def move_bucket_task(req: BucketMoveRequest):
     """Atomically move a task between bucket and week plan."""
     bucket = _bucket_path()
     if req.week_offset == 0:
-        plan_file = config.vault_path / "Plan Week.md"
+        plan_file = config.vault_path / config.plan_week_file
     else:
         year, week = _week_info_for_offset(req.week_offset)
         plan_file = _next_week_file(year, week)
@@ -1172,7 +1173,7 @@ async def move_bucket_task(req: BucketMoveRequest):
             focused=btask.focused,
             waiting=btask.waiting,
             done=False,
-            source_file="Plan Week Bucket.md",
+            source_file=config.plan_week_bucket_file,
         )
         plan_days[req.day_idx].tasks.append(new_task)
     else:
@@ -1209,7 +1210,7 @@ class PutNotesRequest(BaseModel):
 def _get_plan_file(offset: int) -> Path:
     """Get the plan file path for a given week offset."""
     if offset == 0:
-        return config.vault_path / "Plan Week.md"
+        return config.vault_path / config.plan_week_file
     elif offset > 0:
         year, week = _week_info_for_offset(offset)
         return _next_week_file(year, week)

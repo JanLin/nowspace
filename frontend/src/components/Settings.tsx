@@ -400,7 +400,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
                 </div>
                 {displayStatus.has_config && (
                   <div className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Plan Week Configuration found — reference groups will be loaded automatically.
+                    Reference links configured — groups will be loaded automatically.
                   </div>
                 )}
                 {hasUnsavedChanges && validationResult && Object.keys(validationResult.reference_links).length > 0 && (
@@ -577,7 +577,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
           )}
         </div>
         <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
-          Loaded from <span className="font-mono">0-Inbox/Plan Week Configuration.md</span>. Map group names to vault folders for project files and notes.
+          Stored in <span className="font-mono">config.yaml</span>. Map group names to vault folders for project files and notes.
         </p>
 
         {/* Existing links */}
@@ -663,7 +663,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
                 No reference groups configured.
               </p>
               <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
-                Add groups below or create a Plan Week Configuration.md in your vault.
+                Add groups below to map them to vault folders.
               </p>
             </div>
           )}

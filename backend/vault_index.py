@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import re
-import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -188,47 +187,9 @@ def search(query: str, max_results: int = 20) -> List[dict]:
     return out
 
 
-_PLAN_WEEK_CONFIG = "0-Inbox/Plan Week Configuration.md"
-
-_DEFAULT_CONFIG_CONTENT = """\
-# Plan Week Configuration
-
-## Reference Links
-
-Map group names to vault folder paths (relative to vault root).
-
-```yaml
-reference_links: {}
-```
-"""
-
-
 def _read_vault_reference_links() -> Dict[str, str]:
-    """Read reference_links from Plan Week Configuration.md in the vault.
-
-    Parses the first ```yaml code block and extracts the reference_links mapping.
-    Creates the file with empty defaults if it doesn't exist.
-    """
-    config_path = config.vault_root / _PLAN_WEEK_CONFIG
-    if not config_path.exists():
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(_DEFAULT_CONFIG_CONTENT, encoding="utf-8")
-        return {}
-
-    try:
-        content = config_path.read_text(encoding="utf-8")
-        # Extract YAML from fenced code block
-        m = re.search(r"```ya?ml\s*\n(.*?)```", content, re.DOTALL)
-        if not m:
-            return {}
-        parsed = yaml.safe_load(m.group(1))
-        if isinstance(parsed, dict) and "reference_links" in parsed:
-            links = parsed["reference_links"]
-            if isinstance(links, dict):
-                return {k.lower(): v for k, v in links.items()}
-    except Exception:
-        pass
-    return {}
+    """Read reference_links from config.yaml."""
+    return {k.lower(): v for k, v in config.reference_links.items()}
 
 
 # Public alias for API access
@@ -240,7 +201,7 @@ def resolve_group_to_folder(group_name: str, week_refs: Optional[Dict[str, str]]
 
     Resolution order:
     1. Week header references (e.g., "igrant: [[iGrant calls]]")
-    2. Vault Plan Week Configuration.md reference_links
+    2. config.yaml reference_links
     3. Vault index search
 
     Returns relative path from vault root, or None.
