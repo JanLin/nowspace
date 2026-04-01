@@ -20,10 +20,10 @@ Download the latest version for your platform:
 
 | Platform | Download |
 |---|---|
-| **macOS (Apple Silicon)** | [Nowspace_0.1.0_aarch64.dmg](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.1.0_aarch64.dmg) |
-| **Windows** | [Nowspace_0.1.0_x64-setup.exe](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.1.0_x64-setup.exe) |
-| **Linux (AppImage)** | [Nowspace_0.1.0_amd64.AppImage](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.1.0_amd64.AppImage) |
-| **Linux (deb)** | [nowspace_0.1.0_amd64.deb](https://github.com/JanLin/coaching-agent/releases/latest/download/nowspace_0.1.0_amd64.deb) |
+| **macOS (Apple Silicon)** | [Nowspace_0.2.0_aarch64.dmg](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.2.0_aarch64.dmg) |
+| **Windows** | [Nowspace_0.2.0_x64-setup.exe](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.2.0_x64-setup.exe) |
+| **Linux (AppImage)** | [Nowspace_0.2.0_amd64.AppImage](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.2.0_amd64.AppImage) |
+| **Linux (deb)** | [nowspace_0.2.0_amd64.deb](https://github.com/JanLin/coaching-agent/releases/latest/download/nowspace_0.2.0_amd64.deb) |
 
 Or browse all releases: [github.com/JanLin/coaching-agent/releases](https://github.com/JanLin/coaching-agent/releases)
 

@@ -262,11 +262,100 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
     setShowWiki(false);
   };
 
-  // Custom preview: render wiki links as clickable elements
+  // Handle bullet continuation, empty-bullet exit, and tab indent
+  // Attached via useEffect in capture phase so it fires before MDEditor's own handlers
+  const handleEditorKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  handleEditorKeyDownRef.current = (e: KeyboardEvent) => {
+    const textarea = editorRef.current?.querySelector("textarea");
+    if (!textarea || document.activeElement !== textarea) return;
+
+    const val = textarea.value;
+    const cursor = textarea.selectionStart;
+    const selEnd = textarea.selectionEnd;
+    const lineStart = val.lastIndexOf("\n", cursor - 1) + 1;
+    const line = val.slice(lineStart, val.indexOf("\n", cursor) === -1 ? undefined : val.indexOf("\n", cursor));
+
+    // Tab: indent current line with a tab character (matches Obsidian behavior)
+    if (e.key === "Tab") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        // Outdent: remove one leading tab or up to 4 leading spaces
+        const match = line.match(/^(\t| {1,4})/);
+        if (match) {
+          const remove = match[1].length;
+          const newVal = val.slice(0, lineStart) + line.slice(remove) + val.slice(lineStart + line.length);
+          handleChange(newVal);
+          setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(Math.max(lineStart, cursor - remove), Math.max(lineStart, selEnd - remove));
+          }, 0);
+        }
+      } else {
+        // Indent: add tab at line start
+        const newVal = val.slice(0, lineStart) + "\t" + val.slice(lineStart);
+        handleChange(newVal);
+        setTimeout(() => {
+          textarea.focus();
+          textarea.setSelectionRange(cursor + 1, selEnd + 1);
+        }, 0);
+      }
+      return;
+    }
+
+    // Enter: bullet continuation / exit
+    if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      const bulletMatch = line.match(/^(\s*)([-*+]|\d+\.)\s/);
+      if (bulletMatch) {
+        const [fullPrefix, indent, marker] = bulletMatch;
+        const textAfterBullet = line.slice(fullPrefix.length);
+
+        // Empty bullet line → remove bullet and exit list
+        if (textAfterBullet.trim() === "") {
+          e.preventDefault();
+          const newVal = val.slice(0, lineStart) + "\n" + val.slice(lineStart + line.length);
+          handleChange(newVal);
+          setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(lineStart + 1, lineStart + 1);
+          }, 0);
+          return;
+        }
+
+        // Non-empty bullet → continue with same marker
+        e.preventDefault();
+        const nextMarker = /^\d+\./.test(marker)
+          ? `${parseInt(marker) + 1}.`
+          : marker;
+        const insert = `\n${indent}${nextMarker} `;
+        const newVal = val.slice(0, cursor) + insert + val.slice(selEnd);
+        handleChange(newVal);
+        const newCursor = cursor + insert.length;
+        setTimeout(() => {
+          textarea.focus();
+          textarea.setSelectionRange(newCursor, newCursor);
+        }, 0);
+        return;
+      }
+    }
+  };
+
+  // Attach keydown in capture phase on the textarea so it fires before MDEditor
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const handler = (e: KeyboardEvent) => handleEditorKeyDownRef.current(e);
+    el.addEventListener("keydown", handler, true); // capture phase
+    return () => el.removeEventListener("keydown", handler, true);
+  }, [loading]); // re-attach after loading completes (textarea mounts)
+
+  // Custom preview: render wiki links in paragraphs and list items
   const previewOptions = {
     components: {
       p: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => {
         return <p {...props}>{processWikiLinks(children)}</p>;
+      },
+      li: ({ children, ...props }: React.HTMLAttributes<HTMLLIElement>) => {
+        return <li {...props}>{processWikiLinks(children)}</li>;
       },
     },
   };

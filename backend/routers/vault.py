@@ -117,7 +117,7 @@ def _parse_week_header_refs(offset: int = 0) -> dict:
     from backend.routers.plan import _find_archived_week, _next_week_file, _week_info_for_offset
 
     if offset == 0:
-        plan_file = config.vault_path / "Plan Week.md"
+        plan_file = config.vault_path / config.plan_week_file
     elif offset > 0:
         year, week = _week_info_for_offset(offset)
         plan_file = _next_week_file(year, week)

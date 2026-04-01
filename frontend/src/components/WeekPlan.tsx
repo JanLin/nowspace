@@ -325,6 +325,8 @@ export default function WeekPlan() {
     state: "running" | "grace" | "break" | "breakRunning" | "done";
     startedAt: number;
   } | null>(null);
+  const [pomodoroPos, setPomodoroPos] = useState<{ x: number; y: number } | null>(null);
+  const pomodoroDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
   // Bucket state
   const [bucketCount, setBucketCount] = useState(0);
@@ -340,6 +342,8 @@ export default function WeekPlan() {
   const [carryLabel, setCarryLabel] = useState("");
   const [carryLoading, setCarryLoading] = useState(false);
   const [carryExpandedGroups, setCarryExpandedGroups] = useState<Set<string>>(new Set());
+  const [dailyCarryOpen, setDailyCarryOpen] = useState(false);
+  const dailyCarryRef = useRef<HTMLDivElement>(null);
   const carryDragRef = useRef<{ carryIdx: number } | null>(null);
   const carryGroupDragRef = useRef<{ groupName: string } | null>(null);
   const [carryHighlight, setCarryHighlight] = useState(false);
@@ -992,6 +996,7 @@ export default function WeekPlan() {
   const stopPomodoro = () => {
     setPomodoro(null);
     setPomodoroPrompt(null);
+    setPomodoroPos(null);
   };
 
   const restartPomodoro = () => {
@@ -1020,7 +1025,7 @@ export default function WeekPlan() {
     if (!data) return;
     const fullText = group ? `${group}: ${text}` : text;
     const newTask: Task = {
-      text: fullText, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
+      text: fullText, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
     };
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
@@ -1030,6 +1035,30 @@ export default function WeekPlan() {
     });
     applyTaskChange(days);
     setAddingAt({ dayIdx, afterIdx: afterIdx + 1 });
+  };
+
+  // Move a task from a previous day to the current day (daily carry-over)
+  const moveTaskToDay = (fromDayIdx: number, fromTaskIdx: number, toDayIdx: number) => {
+    if (!data || fromDayIdx === toDayIdx) return;
+    const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+    const [moved] = days[fromDayIdx].tasks.splice(fromTaskIdx, 1);
+    days[toDayIdx].tasks.push(moved);
+    applyTaskChange(days);
+  };
+
+  // Move all open tasks from previous days to today
+  const carryAllFromPreviousDays = (toDayIdx: number) => {
+    if (!data) return;
+    const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+    const moved: Task[] = [];
+    for (let di = 0; di < toDayIdx; di++) {
+      const openTasks = days[di].tasks.filter((t) => !t.done);
+      const remaining = days[di].tasks.filter((t) => t.done);
+      moved.push(...openTasks);
+      days[di] = { ...days[di], tasks: remaining };
+    }
+    days[toDayIdx] = { ...days[toDayIdx], tasks: [...days[toDayIdx].tasks, ...moved] };
+    applyTaskChange(days);
   };
 
   const toggleDone = (dayIdx: number, taskIdx: number) => {
@@ -1418,7 +1447,7 @@ export default function WeekPlan() {
           const newText = targetGroup ? `${targetGroup}: ${promoted.text}` : promoted.text;
           const newTask: Task = {
             text: newText, done: promoted.done, source_file: "Plan Week.md", context: "", tags: [],
-            priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
+            priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
           };
           const insertIdx = Math.min(taskIdx, days[dayIdx].tasks.length);
           days[dayIdx].tasks.splice(insertIdx, 0, newTask);
@@ -1436,9 +1465,15 @@ export default function WeekPlan() {
       const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
 
       // Extract group tasks from source day
+      // Cross-day: only move incomplete tasks, completed stay for history
       const sourceTasks = days[fromDay].tasks;
-      const groupTasks = sourceTasks.filter((t) => parseGroup(t.text).group === groupName);
-      days[fromDay].tasks = sourceTasks.filter((t) => parseGroup(t.text).group !== groupName);
+      const isCrossDay = fromDay !== dayIdx;
+      const groupTasks = sourceTasks.filter((t) =>
+        parseGroup(t.text).group === groupName && (!isCrossDay || !t.done)
+      );
+      days[fromDay].tasks = sourceTasks.filter((t) =>
+        !(parseGroup(t.text).group === groupName && (!isCrossDay || !t.done))
+      );
 
       if (fromDay === dayIdx) {
         // Same-day move: find insert position in the remaining array
@@ -1482,6 +1517,8 @@ export default function WeekPlan() {
 
     let insertIdx = taskIdx;
     if (fromDay === dayIdx && fromIdx < taskIdx) insertIdx = Math.max(0, insertIdx - 1);
+    insertIdx = Math.min(insertIdx, days[dayIdx].tasks.length);
+
     days[dayIdx].tasks.splice(insertIdx, 0, movedTask);
     applyTaskChange(days);
     dragRef.current = null;
@@ -1601,6 +1638,27 @@ export default function WeekPlan() {
     applyTaskChange(days);
   };
 
+  // Promote a subtask to a standalone task (inserted right after its parent)
+  const promoteSubtask = (dayIdx: number, taskIdx: number, subIdx: number, targetGroup?: string | null) => {
+    if (!data) return;
+    const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+    const parentTask = days[dayIdx].tasks[taskIdx];
+    const subs = [...(parentTask.subtasks || [])];
+    const [promoted] = subs.splice(subIdx, 1);
+    days[dayIdx].tasks[taskIdx] = { ...parentTask, subtasks: subs };
+    // Determine group: use explicit targetGroup, or inherit from parent
+    const parentGroup = parseGroup(parentTask.text).group;
+    const group = targetGroup !== undefined ? targetGroup : parentGroup;
+    const newText = group ? `${group}: ${promoted.text}` : promoted.text;
+    const newTask: Task = {
+      text: newText, done: promoted.done, source_file: "Plan Week.md", context: "", tags: [],
+      priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
+    };
+    // Insert right after the parent task
+    days[dayIdx].tasks.splice(taskIdx + 1, 0, newTask);
+    applyTaskChange(days);
+  };
+
   const renderSubtasks = (dayIdx: number, taskIdx: number, task: Task, compact: boolean) => {
     const key = `${dayIdx}-${taskIdx}`;
     if (!expandedSubtasks.has(key)) return null;
@@ -1615,6 +1673,11 @@ export default function WeekPlan() {
         className={`${compact ? "ml-5" : "ml-8"} pl-2 border-l-2 border-amber-200 ${textSize} py-0.5`}
         onDoubleClick={(e) => { e.stopPropagation(); setAddingSubtask({ dayIdx, taskIdx }); setAddSubAfter(null); }}
         onDragOver={(e) => {
+          // Accept subtask reorder drags within this container
+          if (e.dataTransfer.types.includes("subtask")) {
+            e.preventDefault(); e.stopPropagation();
+            return;
+          }
           // Accept main task drops to demote to subtask
           if (dragRef.current && !(dragRef.current.fromDay === dayIdx && dragRef.current.fromIdx === taskIdx)) {
             e.preventDefault(); e.stopPropagation();
@@ -1631,7 +1694,7 @@ export default function WeekPlan() {
         {subtasks.map((sub, si) => (
           <React.Fragment key={si}>
             <div
-              className={`group/sub flex items-center gap-1 py-0.5 border-t-2 border-transparent ${
+              className={`group/sub flex items-center gap-1 py-1 border-t-2 border-transparent ${
                 subDropTarget?.dayIdx === dayIdx && subDropTarget?.taskIdx === taskIdx && subDropTarget?.subIdx === si ? "!border-amber-400" : ""
               }`}
               onDoubleClick={(e) => {
@@ -1692,6 +1755,15 @@ export default function WeekPlan() {
                 >
                   {sub.text}
                 </span>
+              )}
+              {!sub.done && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); promoteSubtask(dayIdx, taskIdx, si); }}
+                  className="shrink-0 text-[10px] text-gray-300 hover:text-blue-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                  title="Promote to standalone task"
+                >
+                  ↑
+                </button>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); deleteSubtask(dayIdx, taskIdx, si); }}
@@ -2097,6 +2169,11 @@ export default function WeekPlan() {
     ? visibleDays.reduce((sum, di) => sum + data.days[di].tasks.filter((t) => t.done).length, 0)
     : 0;
 
+  // Daily carry count: open tasks from days before selectedDayIdx
+  const dailyCarryCount = data && selectedDayIdx > 0
+    ? data.days.slice(0, selectedDayIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done).length, 0)
+    : 0;
+
   // --- Day view renderer ---
   const renderDayView = () => {
     if (!data) return null;
@@ -2108,6 +2185,19 @@ export default function WeekPlan() {
 
     // Build groups for grouped view
     const groups = buildDayGroups(day.tasks);
+
+    // Daily carry: open tasks from previous days in the same week
+    const dailyCarryTasks: { dayIdx: number; dayName: string; task: Task; taskIdx: number }[] = [];
+    if (weekOffset === 0 || weekOffset === 1) {
+      for (let di = 0; di < selectedDayIdx; di++) {
+        const prevDay = data.days[di];
+        if (!prevDay) continue;
+        const dayLabel = DAY_LABELS[prevDay.day] || prevDay.day;
+        prevDay.tasks.forEach((t, ti) => {
+          if (!t.done) dailyCarryTasks.push({ dayIdx: di, dayName: dayLabel, task: t, taskIdx: ti });
+        });
+      }
+    }
 
     return (
       <div className="flex flex-col md:flex-row max-w-5xl mx-auto" ref={splitterContainer}>
@@ -2183,15 +2273,34 @@ export default function WeekPlan() {
         {groupView && (
           <div
             className="space-y-1"
-            onDragOver={(e) => { e.preventDefault(); }}
-            onDrop={(e) => handleDrop(selectedDayIdx, day.tasks.length, e)}
+            onDragOver={(e) => { if (!dragGroupRef.current) e.preventDefault(); }}
+            onDrop={(e) => { if (!dragGroupRef.current) handleDrop(selectedDayIdx, day.tasks.length, e); }}
           >
-            {/* Top-of-list drop zone — drop here to place ungrouped above first group */}
+            {/* Top-of-list drop zone — drop here to place above first group */}
             <div
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: selectedDayIdx, idx: 0 }); }}
-              onDrop={(e) => { e.stopPropagation(); handleDrop(selectedDayIdx, 0, e, null); }}
-              className={`h-1 rounded transition-colors ${
-                dropTarget?.day === selectedDayIdx && dropTarget?.idx === 0 ? "bg-blue-400" : "bg-transparent"
+              onDragOver={(e) => {
+                if (dragGroupRef.current) {
+                  // Group drag to start position
+                  e.preventDefault(); e.stopPropagation();
+                  setDropGroupTarget({ day: selectedDayIdx, groupName: "__start__" });
+                  return;
+                }
+                e.preventDefault(); e.stopPropagation();
+                setDropTarget({ day: selectedDayIdx, idx: 0 });
+              }}
+              onDrop={(e) => {
+                if (dragGroupRef.current) {
+                  e.stopPropagation();
+                  handleGroupDropToPosition(selectedDayIdx, 'start');
+                  return;
+                }
+                e.stopPropagation(); handleDrop(selectedDayIdx, 0, e, null);
+              }}
+              className={`rounded transition-all ${
+                dropGroupTarget?.day === selectedDayIdx && dropGroupTarget?.groupName === "__start__"
+                  ? "h-3 bg-blue-400"
+                  : dropTarget?.day === selectedDayIdx && dropTarget?.idx === 0
+                    ? "h-3 bg-blue-400" : dropTarget || dropGroupTarget ? "h-4" : "h-1"
               }`}
             />
             {groups.map((section, sectionIdx) => {
@@ -2203,24 +2312,56 @@ export default function WeekPlan() {
               const activeInSection = section.items.length - doneInSection;
               return (
                 <div key={sectionKey}>
-                  {/* Drop zone line before group — insert ungrouped above this group */}
+                  {/* Drop zone before group — insert above this group (tasks only, not groups) */}
                   {section.name && (
                     <div
-                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx }); }}
-                      onDrop={(e) => { e.stopPropagation(); handleDrop(selectedDayIdx, firstOrigIdx, e); }}
-                      className={`h-1.5 -my-0.5 rounded transition-all ${
+                      onDragOver={(e) => {
+                        if (dragGroupRef.current) {
+                          // Let group drags pass through to group headers
+                          return;
+                        }
+                        e.preventDefault(); e.stopPropagation();
+                        setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx });
+                      }}
+                      onDrop={(e) => {
+                        if (dragGroupRef.current) return;
+                        e.stopPropagation(); handleDrop(selectedDayIdx, firstOrigIdx, e);
+                      }}
+                      className={`rounded transition-all ${
                         dropTarget?.day === selectedDayIdx && dropTarget?.idx === firstOrigIdx
-                          ? "bg-blue-400 h-1" : "bg-transparent"
+                          ? "h-3 bg-blue-400" : dropTarget ? "h-4" : "h-1"
                       }`}
                     />
                   )}
-                  {/* Group header — draggable, collapsible */}
+                  {/* Group header — draggable, collapsible, also a drop target for inserting before group */}
                   {section.name ? (
                     <div
                       draggable
                       onDragStart={(e) => { e.stopPropagation(); handleGroupDragStart(selectedDayIdx, section.name); }}
                       onDragEnd={handleDragEnd}
-                      className="flex items-center gap-1.5 py-2 px-2 cursor-grab active:cursor-grabbing rounded group/hdr hover:bg-gray-50 border-2 border-transparent"
+                      onDragOver={(e) => {
+                        if (dragGroupRef.current) {
+                          // Group drag — use group drag handler
+                          handleGroupDragOver(e, selectedDayIdx, section.name);
+                        } else if (dragRef.current) {
+                          // Task drag — insert before this group
+                          e.preventDefault(); e.stopPropagation();
+                          setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx });
+                        }
+                      }}
+                      onDrop={(e) => {
+                        if (dragGroupRef.current) {
+                          e.stopPropagation();
+                          handleGroupDrop(selectedDayIdx, section.name);
+                        } else if (dragRef.current) {
+                          e.stopPropagation();
+                          handleDrop(selectedDayIdx, firstOrigIdx, e);
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 py-2 px-2 cursor-grab active:cursor-grabbing rounded group/hdr hover:bg-gray-50 border-2 transition-colors ${
+                        dropGroupTarget?.day === selectedDayIdx && dropGroupTarget?.groupName === section.name
+                          ? "border-blue-400 bg-blue-50" : "border-transparent"
+                      }`}
                     >
                       <span className="text-gray-300 group-hover/hdr:text-gray-400 text-xs select-none" title="Drag to move group">&#x2630;</span>
                       <button
@@ -2260,11 +2401,29 @@ export default function WeekPlan() {
             })}
             {/* Bottom drop zone — after all sections */}
             <div
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length }); }}
-              onDrop={(e) => { e.stopPropagation(); handleDrop(selectedDayIdx, day.tasks.length, e); }}
-              className={`h-2 rounded transition-all ${
-                dropTarget?.day === selectedDayIdx && dropTarget?.idx === day.tasks.length
-                  ? "bg-blue-400 h-1" : "bg-transparent"
+              onDragOver={(e) => {
+                if (dragGroupRef.current) {
+                  // Group drag to end position
+                  e.preventDefault(); e.stopPropagation();
+                  setDropGroupTarget({ day: selectedDayIdx, groupName: "__end__" });
+                  return;
+                }
+                e.preventDefault(); e.stopPropagation();
+                setDropTarget({ day: selectedDayIdx, idx: day.tasks.length });
+              }}
+              onDrop={(e) => {
+                if (dragGroupRef.current) {
+                  e.stopPropagation();
+                  handleGroupDropToPosition(selectedDayIdx, 'end');
+                  return;
+                }
+                e.stopPropagation(); handleDrop(selectedDayIdx, day.tasks.length, e);
+              }}
+              className={`rounded transition-all ${
+                dropGroupTarget?.day === selectedDayIdx && dropGroupTarget?.groupName === "__end__"
+                  ? "h-3 bg-blue-400"
+                  : dropTarget?.day === selectedDayIdx && dropTarget?.idx === day.tasks.length
+                    ? "h-3 bg-blue-400" : dropTarget || dropGroupTarget ? "h-4" : "h-2"
               }`}
             />
             {/* Add task button */}
@@ -2416,22 +2575,34 @@ export default function WeekPlan() {
                       const activeInSection = section.items.length - doneInSection;
                       return (
                         <div key={sectionKey}>
-                          {/* Drop zone before group — insert ungrouped above this group */}
+                          {/* Drop zone before group — insert above this group */}
                           {section.name && (
                             <div
                               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: firstOrigIdx }); }}
                               onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, firstOrigIdx, e); }}
-                              className={`h-0.5 rounded transition-colors ${
-                                dropTarget?.day === dayIdx && dropTarget?.idx === firstOrigIdx ? "bg-blue-400" : "bg-transparent"
+                              className={`rounded transition-all ${
+                                dropTarget?.day === dayIdx && dropTarget?.idx === firstOrigIdx ? "h-1.5 bg-blue-400" : dropTarget ? "h-2" : "h-0.5"
                               }`}
                             />
                           )}
-                          {/* Group header — draggable, collapsible, NO drop forcing */}
+                          {/* Group header — draggable, collapsible, also a drop target */}
                           {section.name ? (
                             <div
                               draggable
                               onDragStart={(e) => { e.stopPropagation(); handleGroupDragStart(dayIdx, section.name); }}
                               onDragEnd={handleDragEnd}
+                              onDragOver={(e) => {
+                                if (dragRef.current && !dragGroupRef.current) {
+                                  e.preventDefault(); e.stopPropagation();
+                                  setDropTarget({ day: dayIdx, idx: firstOrigIdx });
+                                }
+                              }}
+                              onDrop={(e) => {
+                                if (dragRef.current) {
+                                  e.stopPropagation();
+                                  handleDrop(dayIdx, firstOrigIdx, e);
+                                }
+                              }}
                               className="text-[10px] font-bold text-gray-500 px-1 mb-0.5 cursor-grab active:cursor-grabbing flex items-center gap-0.5 group/hdr hover:bg-white/60 rounded border-t-2 border-transparent"
                             >
                               <span className="text-gray-300 group-hover/hdr:text-gray-400 text-[9px] select-none">&#x2630;</span>
@@ -2495,7 +2666,7 @@ export default function WeekPlan() {
   return (
     <div className="flex gap-0">
 
-    <div className={`space-y-3 pb-12 ${bucketOpen || carryForwardOpen ? "flex-1 min-w-0" : "w-full"}`}>
+    <div className={`space-y-3 pb-12 ${bucketOpen || carryForwardOpen || dailyCarryOpen ? "flex-1 min-w-0" : "w-full"}`}>
       {error && (
         <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
       )}
@@ -2618,6 +2789,16 @@ export default function WeekPlan() {
                   {mode === "3day" ? "3 Day" : mode === "5day" ? "Mon-Fri" : mode === "7day" ? "Full week" : "Weekend"}
                 </button>
               ))}
+              {/* Pin/unpin toggle */}
+              <button
+                onClick={() => setPinFilters(!pinFilters)}
+                className={`ml-0.5 w-5 h-5 flex items-center justify-center rounded text-[11px] transition-colors ${
+                  pinFilters ? "text-blue-400 hover:text-blue-600" : "text-gray-400 hover:text-gray-600"
+                }`}
+                title={pinFilters ? "Unpin toolbar" : "Pin toolbar"}
+              >
+                {pinFilters ? "✦" : "✧"}
+              </button>
             </div>
           </div>
 
@@ -2675,44 +2856,30 @@ export default function WeekPlan() {
               </button>
             </div>
           )}
-          {/* Pin/unpin toggle */}
-          <button
-            onClick={() => setPinFilters(!pinFilters)}
-            className={`absolute top-1 right-1 px-1 py-0.5 rounded text-[9px] transition-colors ${
-              pinFilters ? "text-gray-300 hover:text-gray-500" : "text-blue-400 hover:text-blue-600"
-            }`}
-            title={pinFilters ? "Unpin toolbar" : "Pin toolbar"}
-          >
-            {pinFilters ? "📌" : "📌"}
-          </button>
           </div>
 
           {/* Goals Banner */}
           {!isArchive && (
-            <div className={`rounded-lg border transition-all ${
-              hasGoals
-                ? "border-amber-200/60"
-                : "border-amber-300/80"
-            }`} style={{ backgroundColor: "var(--amber-bg)" }}>
+            <div className="rounded-lg border transition-all" style={{ backgroundColor: "var(--amber-bg)", borderColor: "var(--amber-border)" }}>
               {/* Header row — always visible */}
               <button
                 onClick={() => setGoalsExpanded(!goalsExpanded)}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-left"
               >
                 <span className="text-sm">🎯</span>
-                <span className="text-xs font-semibold text-amber-800">Goals</span>
+                <span className="text-xs font-semibold" style={{ color: "var(--amber-text)" }}>Goals</span>
                 {hasGoals && !goalsExpanded && (
-                  <span className="text-xs text-amber-600/70 truncate flex-1">
+                  <span className="text-xs truncate flex-1 opacity-70" style={{ color: "var(--amber-text)" }}>
                     — {goalsAsList.slice(0, 3).join(" · ")}{goalsAsList.length > 3 ? " …" : ""}
                   </span>
                 )}
                 {!hasGoals && !goalsExpanded && (
-                  <span className="text-xs text-amber-500 italic flex-1">No goals set for this week</span>
+                  <span className="text-xs italic flex-1 opacity-60" style={{ color: "var(--amber-text)" }}>No goals set for this week</span>
                 )}
                 {hasGoals && (
-                  <span className="text-[10px] text-amber-500 bg-amber-100 px-1.5 rounded-full">{goalsAsList.length}</span>
+                  <span className="text-[10px] px-1.5 rounded-full opacity-80" style={{ color: "var(--amber-text)", backgroundColor: "var(--amber-border)" }}>{goalsAsList.length}</span>
                 )}
-                <span className="text-[10px] text-amber-400">{goalsExpanded ? "▾" : "▸"}</span>
+                <span className="text-[10px] opacity-60" style={{ color: "var(--amber-text)" }}>{goalsExpanded ? "▾" : "▸"}</span>
               </button>
 
               {/* Expanded content */}
@@ -2730,8 +2897,8 @@ export default function WeekPlan() {
                           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { saveGoals(goalsDraft); }
                         }}
                         placeholder="One goal per line..."
-                        className="w-full text-xs border border-amber-200 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-amber-300 min-h-[60px]"
-                        style={{ color: "var(--text)", backgroundColor: "var(--bg-secondary)" }}
+                        className="w-full text-xs rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-1 min-h-[60px]"
+                        style={{ color: "var(--text)", backgroundColor: "var(--bg-secondary)", borderColor: "var(--amber-border)" }}
                         rows={Math.max(3, goalsDraft.split("\n").length + 1)}
                       />
                       <div className="flex items-center gap-2">
@@ -2744,25 +2911,27 @@ export default function WeekPlan() {
                         </button>
                         <button
                           onClick={() => setGoalsEditing(false)}
-                          className="px-2 py-0.5 rounded text-xs font-medium text-amber-600 hover:bg-amber-100 transition-colors"
+                          className="px-2 py-0.5 rounded text-xs font-medium transition-colors hover:opacity-80"
+                          style={{ color: "var(--amber-text)" }}
                         >
                           Cancel
                         </button>
-                        <span className="text-[10px] text-amber-400 ml-auto">⌘+Enter to save</span>
+                        <span className="text-[10px] ml-auto opacity-60" style={{ color: "var(--amber-text)" }}>⌘+Enter to save</span>
                       </div>
                     </div>
                   ) : hasGoals ? (
                     /* Display mode — bullet list */
                     <div className="space-y-0.5">
                       {goalsAsList.map((g, i) => (
-                        <div key={i} className="flex items-start gap-1.5 text-xs text-amber-900/80">
-                          <span className="text-amber-400 mt-0.5 text-[8px]">●</span>
+                        <div key={i} className="flex items-start gap-1.5 text-xs" style={{ color: "var(--amber-text)", opacity: 0.85 }}>
+                          <span className="mt-0.5 text-[8px] opacity-60">●</span>
                           <span>{g}</span>
                         </div>
                       ))}
                       <button
                         onClick={(e) => { e.stopPropagation(); startEditingGoals(); }}
-                        className="text-[10px] text-amber-500 hover:text-amber-700 mt-1 transition-colors"
+                        className="text-[10px] mt-1 transition-colors hover:opacity-100 opacity-60"
+                        style={{ color: "var(--amber-text)" }}
                       >
                         Edit goals
                       </button>
@@ -2778,7 +2947,8 @@ export default function WeekPlan() {
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); carryOverGoals(); }}
-                        className="px-2 py-0.5 rounded text-xs font-medium text-amber-600 border border-amber-300 hover:bg-amber-100 transition-colors"
+                        className="px-2 py-0.5 rounded text-xs font-medium transition-colors hover:opacity-80"
+                        style={{ color: "var(--amber-text)", borderColor: "var(--amber-border)", border: "1px solid" }}
                       >
                         Carry over from last week
                       </button>
@@ -2840,7 +3010,41 @@ export default function WeekPlan() {
 
       {/* Floating pomodoro timer */}
       {pomodoro && (
-        <div className="fixed left-6 top-1/2 -translate-y-1/2 z-40 rounded-2xl shadow-2xl border p-4 w-56" style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}>
+        <div
+          className="fixed z-40 rounded-2xl shadow-2xl border p-4 w-56"
+          style={{
+            backgroundColor: "var(--card)",
+            borderColor: "var(--card-border)",
+            left: pomodoroPos ? `${pomodoroPos.x}px` : "24px",
+            top: pomodoroPos ? `${pomodoroPos.y}px` : "50%",
+            transform: pomodoroPos ? "none" : "translateY(-50%)",
+          }}
+        >
+          {/* Drag handle */}
+          <div
+            className="flex justify-center mb-1 cursor-move select-none"
+            title="Drag to move"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const el = e.currentTarget.parentElement!;
+              const rect = el.getBoundingClientRect();
+              pomodoroDragRef.current = { startX: e.clientX, startY: e.clientY, origX: rect.left, origY: rect.top };
+              const onMove = (ev: MouseEvent) => {
+                if (!pomodoroDragRef.current) return;
+                const dx = ev.clientX - pomodoroDragRef.current.startX;
+                const dy = ev.clientY - pomodoroDragRef.current.startY;
+                setPomodoroPos({
+                  x: Math.max(0, Math.min(window.innerWidth - 224, pomodoroDragRef.current.origX + dx)),
+                  y: Math.max(0, Math.min(window.innerHeight - 100, pomodoroDragRef.current.origY + dy)),
+                });
+              };
+              const onUp = () => { pomodoroDragRef.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+              window.addEventListener("mousemove", onMove);
+              window.addEventListener("mouseup", onUp);
+            }}
+          >
+            <span className="text-gray-300 text-xs tracking-widest">⋯⋯⋯</span>
+          </div>
           {/* Tomato with timer */}
           <div className="flex flex-col items-center gap-1">
             <div className={`text-5xl select-none ${pomodoro.state === "running" ? "animate-spin-slow" : pomodoro.state === "breakRunning" ? "" : ""}`}
@@ -2964,14 +3168,34 @@ export default function WeekPlan() {
     {/* Bucket & Carry icons — above status bar, togglable */}
     {data && showBottomBar && (
       <div className="fixed bottom-8 right-6 z-40 flex items-end gap-2">
-        {/* Carry forward */}
+        {/* Daily carry — open tasks from earlier days */}
+        {dailyCarryCount > 0 && (viewMode === "day" || viewMode === "3day") && (
+          <div
+            className={`relative cursor-pointer transition-all duration-200 hover:scale-105`}
+            title={`${dailyCarryCount} open tasks from earlier days`}
+            onClick={() => {
+              const opening = !dailyCarryOpen;
+              setDailyCarryOpen(opening);
+              if (opening) { setBucketOpen(false); setCarryForwardOpen(false); }
+            }}
+          >
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg shadow-md border-2 transition-colors ${
+              dailyCarryOpen ? "bg-purple-200 border-purple-500" : "bg-white border-gray-200 hover:border-purple-300"
+            }`}>⏩</div>
+            <span className="absolute -top-1 -right-1 bg-purple-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+              {dailyCarryCount > 99 ? "99+" : dailyCarryCount}
+            </span>
+          </div>
+        )}
+
+        {/* Weekly carry forward */}
         {weekOffset > 0 && carryTasks.length > 0 && (
           <div
             className={`relative cursor-pointer transition-all duration-200 ${carryHighlight ? "scale-110" : "hover:scale-105"}`}
             title={`⏩ Carry Forward (${carryTasks.length} tasks)`}
             onClick={() => {
               if (carryForwardOpen) { setCarryForwardOpen(false); }
-              else { setBucketOpen(false); setCarryForwardOpen(true); }
+              else { setBucketOpen(false); setCarryForwardOpen(true); setDailyCarryOpen(false); }
             }}
           >
             <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg shadow-md border-2 transition-colors ${
@@ -2988,7 +3212,7 @@ export default function WeekPlan() {
           <div
             className={`relative cursor-pointer transition-all duration-200 ${bucketHighlight ? "scale-110" : "hover:scale-105"}`}
             title={`🪣 Bucket (${bucketCount})`}
-            onClick={() => { const opening = !bucketOpen; setBucketOpen(opening); if (opening) { refreshBucket(); setCarryForwardOpen(false); } }}
+            onClick={() => { const opening = !bucketOpen; setBucketOpen(opening); if (opening) { refreshBucket(); setCarryForwardOpen(false); setDailyCarryOpen(false); } }}
             onDragOver={(e) => {
               if (dragRef.current || dragGroupRef.current || carryDragRef.current || carryGroupDragRef.current || e.dataTransfer.types.includes("carry-task") || e.dataTransfer.types.includes("carry-group")) {
                 e.preventDefault(); setBucketHighlight(true);
@@ -3313,6 +3537,105 @@ export default function WeekPlan() {
               className="w-full px-2 py-1 bg-amber-500 text-white rounded text-[10px] font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors"
             >
               {carryLoading ? "Moving..." : `🪣 All to Bucket`}
+            </button>
+          </div>
+        )}
+      </div>
+    )}
+    {/* Daily carry side panel (right, matching carry-forward style) */}
+    {dailyCarryOpen && data && selectedDayIdx > 0 && (
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+        <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
+          <div>
+            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Earlier Days ({dailyCarryCount})</h3>
+            <p className="text-[10px] text-gray-500">Open tasks from {DAY_LABELS[data.days[0]?.day] || "Mon"}–{selectedDayIdx > 0 ? DAY_LABELS[data.days[selectedDayIdx - 1]?.day] || "" : ""}</p>
+          </div>
+          <button onClick={() => setDailyCarryOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+        </div>
+        <div className="p-2 space-y-0.5">
+          {dailyCarryCount === 0 && (
+            <p className="text-xs text-gray-400 text-center py-4">No open tasks from earlier days</p>
+          )}
+          {(() => {
+            // Collect open tasks from previous days, grouped by day then by group
+            const items: { dayIdx: number; dayName: string; taskIdx: number; task: Task; group: string; label: string }[] = [];
+            for (let di = 0; di < selectedDayIdx; di++) {
+              const prevDay = data.days[di];
+              if (!prevDay) continue;
+              const dayLabel = DAY_LABELS[prevDay.day] || prevDay.day;
+              prevDay.tasks.forEach((t, ti) => {
+                if (!t.done) {
+                  const { group, label } = parseGroup(t.text);
+                  items.push({ dayIdx: di, dayName: dayLabel, taskIdx: ti, task: t, group, label });
+                }
+              });
+            }
+
+            // Group by source day
+            const byDay = new Map<number, typeof items>();
+            items.forEach((it) => {
+              if (!byDay.has(it.dayIdx)) byDay.set(it.dayIdx, []);
+              byDay.get(it.dayIdx)!.push(it);
+            });
+
+            const prioBadge = (p: string) => (
+              <span className={`inline-block text-[9px] font-bold mr-1 px-1 rounded shrink-0 ${
+                p === "A" ? "bg-red-100 text-red-700" : p === "B" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"
+              }`}>{p}</span>
+            );
+
+            const targetDayName = DAY_LABELS[data.days[selectedDayIdx]?.day] || "today";
+
+            return Array.from(byDay.entries()).map(([di, dayItems]) => (
+              <div key={`dc-${di}`} className="mb-1">
+                <div className="flex items-center gap-1 py-1 px-2">
+                  <span className="text-[10px] font-medium text-purple-500">{dayItems[0].dayName}</span>
+                  <span className="text-[10px] text-gray-400">({dayItems.length})</span>
+                  <button
+                    onClick={() => {
+                      // Move all open from this day to selected day
+                      const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+                      const open = days[di].tasks.filter((t) => !t.done);
+                      days[di] = { ...days[di], tasks: days[di].tasks.filter((t) => t.done) };
+                      days[selectedDayIdx] = { ...days[selectedDayIdx], tasks: [...days[selectedDayIdx].tasks, ...open] };
+                      applyTaskChange(days);
+                    }}
+                    className="ml-auto text-[9px] text-purple-400 hover:text-purple-700 transition-colors"
+                  >
+                    Move all →
+                  </button>
+                </div>
+                {dayItems.map((it) => (
+                  <div
+                    key={`dc-${it.dayIdx}-${it.taskIdx}`}
+                    className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs group/dc transition-colors"
+                  >
+                    {prioBadge(it.task.priority || "C")}
+                    <span className={`flex-1 truncate ${it.task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }} title={it.label}>
+                      {it.task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
+                      {it.label}
+                    </span>
+                    <button
+                      onClick={() => moveTaskToDay(it.dayIdx, it.taskIdx, selectedDayIdx)}
+                      className="text-[10px] text-purple-400 hover:text-purple-700 opacity-0 group-hover/dc:opacity-100 shrink-0 transition-opacity"
+                      title={`Move to ${targetDayName}`}
+                    >
+                      →
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ));
+          })()}
+        </div>
+        {/* Bottom action: move all */}
+        {dailyCarryCount > 0 && (
+          <div className="p-2 border-t border-gray-200">
+            <button
+              onClick={() => { carryAllFromPreviousDays(selectedDayIdx); setDailyCarryOpen(false); }}
+              className="w-full px-2 py-1.5 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 transition-colors"
+            >
+              Move all to {DAY_LABELS[data.days[selectedDayIdx]?.day] || "today"} →
             </button>
           </div>
         )}

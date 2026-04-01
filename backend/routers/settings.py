@@ -1,7 +1,6 @@
 """Settings API — vault path and reference links configuration."""
 
 import os
-import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -25,7 +24,7 @@ class VaultStatus(BaseModel):
     exists: bool
     has_para: bool
     para_folders: List[str]  # which PARA folders exist
-    has_config: bool  # Plan Week Configuration.md exists
+    has_config: bool  # reference_links configured
     file_count: int
 
 
@@ -163,16 +162,13 @@ def _write_config_yaml(raw: dict) -> None:
 # Helpers — vault status
 # ---------------------------------------------------------------------------
 
-_PLAN_WEEK_CONFIG = "0-Inbox/Plan Week Configuration.md"
-
-
 def _vault_status(vault_root: Path) -> VaultStatus:
     """Check vault directory status."""
     if not vault_root.is_dir():
         return VaultStatus(exists=False, has_para=False, para_folders=[], has_config=False, file_count=0)
 
     existing_para = [s for s in PARA_SECTIONS if (vault_root / s).is_dir()]
-    has_config = (vault_root / _PLAN_WEEK_CONFIG).exists()
+    has_config = len(config.reference_links) > 0
 
     # Quick file count (top-level md files across PARA folders)
     file_count = 0
@@ -204,52 +200,18 @@ def _create_para_structure(vault_root: Path) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# Helpers — Plan Week Configuration.md reference_links
+# Helpers — reference_links (stored in config.yaml)
 # ---------------------------------------------------------------------------
 
 
 def _read_reference_links() -> Dict[str, str]:
-    """Read reference_links from Plan Week Configuration.md."""
-    config_path = config.vault_root / _PLAN_WEEK_CONFIG
-    if not config_path.exists():
-        return {}
-    try:
-        text = config_path.read_text(encoding="utf-8")
-        m = re.search(r"```yaml\s*\n(.*?)```", text, re.DOTALL)
-        if not m:
-            return {}
-        parsed = yaml.safe_load(m.group(1))
-        if isinstance(parsed, dict) and "reference_links" in parsed:
-            links = parsed["reference_links"]
-            if isinstance(links, dict):
-                return {k: v for k, v in links.items()}
-    except Exception:
-        pass
-    return {}
+    """Read reference_links from config.yaml."""
+    return dict(config.reference_links)
 
 
 def _write_reference_links(links: Dict[str, str]) -> None:
-    """Write reference_links to Plan Week Configuration.md."""
-    config_path = config.vault_root / _PLAN_WEEK_CONFIG
-    yaml_block = yaml.dump(
-        {"reference_links": links},
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-    ).strip()
-
-    content = f"""# Plan Week Configuration
-
-## Reference Links
-
-Map group names to vault folder paths (relative to vault root).
-
-```yaml
-{yaml_block}
-```
-"""
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(content, encoding="utf-8")
+    """Write reference_links to config.yaml."""
+    config.save_reference_links(links)
 
 
 # ---------------------------------------------------------------------------
@@ -290,28 +252,8 @@ async def validate_vault(body: VaultValidation):
         "vault_path": str(raw_path),
         "vault_root": str(vault_root),
         "vault_status": status.model_dump(),
-        "reference_links": _read_reference_links_from(vault_root),
+        "reference_links": _read_reference_links(),
     }
-
-
-def _read_reference_links_from(vault_root: Path) -> Dict[str, str]:
-    """Read reference_links from a specific vault root."""
-    config_path = vault_root / _PLAN_WEEK_CONFIG
-    if not config_path.exists():
-        return {}
-    try:
-        text = config_path.read_text(encoding="utf-8")
-        m = re.search(r"```yaml\s*\n(.*?)```", text, re.DOTALL)
-        if not m:
-            return {}
-        parsed = yaml.safe_load(m.group(1))
-        if isinstance(parsed, dict) and "reference_links" in parsed:
-            links = parsed["reference_links"]
-            if isinstance(links, dict):
-                return {k: v for k, v in links.items()}
-    except Exception:
-        pass
-    return {}
 
 
 @router.put("/vault-path")

@@ -1,26 +1,31 @@
-vault_path: ~/Obsidian/Home/0-Inbox
-vault_root: ~/Obsidian/Home
+vault_path: /Users/janlindquist/Obsidian/Home
+vault_root: /Users/janlindquist/Obsidian/Home
 memory_path: ./memory/agent_memory.md
 system_prompt_path: ./system_prompt.md
-
 vault_sections:
   inbox: 0-Inbox
   projects: 1-Projects
   areas: 2-Areas
   resources: 3-Resources
   archive: 4-Archive
-
+plan:
+  week_file: Plan Week.md
+  bucket_file: Plan Week Bucket.md
+reference_links:
+  wallet: 2-Areas/aProfessional/Wallet Standardization
+  igrant: 2-Areas/aProfessional/c iGrant
+  arratech: 2-Areas/aProfessional/c Arratech
+  rotary: 2-Areas/aProfessional/Rotary Youth Exchange
 api:
   model: claude-sonnet-4-6
   max_tokens: 4096
-
 server:
   host: 0.0.0.0
   port: 8000
   cors_origins:
-    - http://localhost:5173
-    - http://localhost:1420
-    - http://localhost:3000
-    - http://localhost:8000
-    - tauri://localhost
-    - https://tauri.localhost
+  - http://localhost:5173
+  - http://localhost:1420
+  - http://localhost:3000
+  - http://localhost:8000
+  - tauri://localhost
+  - https://tauri.localhost

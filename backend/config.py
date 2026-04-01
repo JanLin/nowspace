@@ -43,6 +43,11 @@ def _create_default_config(path: Path) -> None:
             "resources": "3-Resources",
             "archive": "4-Archive",
         },
+        "plan": {
+            "week_file": "Plan Week.md",
+            "bucket_file": "Plan Week Bucket.md",
+        },
+        "reference_links": {},
         "api": {"model": "claude-sonnet-4-6", "max_tokens": 4096},
         "server": {
             "host": "127.0.0.1",
@@ -101,6 +106,15 @@ class Config:
         if not self.system_prompt_path.is_absolute():
             self.system_prompt_path = root / raw["system_prompt_path"]
 
+        # Plan Week file names (configurable)
+        plan = raw.get("plan", {})
+        self.plan_week_file = plan.get("week_file", "Plan Week.md")
+        self.plan_week_bucket_file = plan.get("bucket_file", "Plan Week Bucket.md")
+        self.plan_week_config_file = plan.get("config_file", "0-Inbox/Plan Week Configuration.md")
+
+        # Reference links (group → vault folder path)
+        self.reference_links: Dict[str, str] = raw.get("reference_links", {})
+
         api = raw.get("api", {})
         self.model = api.get("model", "claude-sonnet-4-6")
         self.max_tokens = api.get("max_tokens", 1024)
@@ -119,6 +133,15 @@ class Config:
     @property
     def system_prompt(self) -> str:
         return self.system_prompt_path.read_text()
+
+    def save_reference_links(self, links: Dict[str, str]) -> None:
+        """Persist reference_links into config.yaml."""
+        self.reference_links = links
+        with open(self._config_file) as f:
+            raw = yaml.safe_load(f) or {}
+        raw["reference_links"] = links
+        with open(self._config_file, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
 config = Config()

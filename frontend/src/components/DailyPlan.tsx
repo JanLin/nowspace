@@ -307,7 +307,7 @@ export default function DailyPlan({
       source_file: "Plan Week.md",
       context: "",
       tags: [],
-      priority: "C",
+      priority: "B",
       pillars: [],
       subtasks: [],
       focused: false,
