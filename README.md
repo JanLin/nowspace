@@ -94,7 +94,7 @@ The app expects an Obsidian vault with PARA folders:
 YourVault/
   0-Inbox/
     Plan Week.md          <-- Your weekly plan
-    Plan Week Configuration.md  <-- Reference links config
+    Plan Week Bucket.md   <-- Parked tasks (bucket list)
   1-Projects/
   2-Areas/
   3-Resources/
