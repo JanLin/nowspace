@@ -1,5 +1,9 @@
-vault_path: /Users/janlindquist/Obsidian/Home
-vault_root: /Users/janlindquist/Obsidian/Home
+# Nowspace Configuration
+# Copy this file to config.yaml and adjust paths for your setup.
+# The desktop app creates config.yaml automatically on first launch.
+
+vault_path: ~/Obsidian/MyVault/0-Inbox
+vault_root: ~/Obsidian/MyVault
 memory_path: ./memory/agent_memory.md
 system_prompt_path: ./system_prompt.md
 vault_sections:
@@ -11,11 +15,7 @@ vault_sections:
 plan:
   week_file: Plan Week.md
   bucket_file: Plan Week Bucket.md
-reference_links:
-  wallet: 2-Areas/aProfessional/Wallet Standardization
-  igrant: 2-Areas/aProfessional/c iGrant
-  arratech: 2-Areas/aProfessional/c Arratech
-  rotary: 2-Areas/aProfessional/Rotary Youth Exchange
+reference_links: {}
 api:
   model: claude-sonnet-4-6
   max_tokens: 4096

@@ -59,7 +59,9 @@ Your API key is stored locally in `~/.nowspace/.env` and is never sent anywhere 
 
    ```bash
    cp .env.example .env
-   # Edit .env with your ANTHROPIC_API_KEY and vault path
+   cp config.yaml.example config.yaml
+   # Edit .env with your ANTHROPIC_API_KEY
+   # Edit config.yaml with your vault path
    ```
 
 3. Run:

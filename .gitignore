@@ -1,4 +1,5 @@
 .env
+config.yaml
 memory/
 node_modules/
 frontend/dist/
