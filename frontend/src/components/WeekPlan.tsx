@@ -711,22 +711,25 @@ export default function WeekPlan() {
     };
   }, []);
 
-  // Auto-fetch carry forward tasks from previous week when viewing current or future week
+  // Auto-fetch carry forward tasks from previous week when viewing current or future week.
+  // Refetch on every weekOffset change so stale carry state (e.g. tasks fetched against
+  // wk-1 while viewing wk+1) doesn't survive navigation back to the current week.
   useEffect(() => {
-    if (weekOffset >= 0 && data && carryTasks.length === 0) {
-      const sourceOffset = weekOffset - 1;
-      api.getCarryForward(sourceOffset).then((r) => {
-        if (r.found && r.tasks.length > 0) {
-          setCarryTasks(r.tasks.map((t) => ({ ...t, priority: t.priority || "C", selected: true, targetDay: "monday" })));
-          setCarryLabel(r.week_label);
-        }
-      }).catch(() => {});
-    }
     if (weekOffset < 0) {
       setCarryTasks([]);
       setCarryForwardOpen(false);
+      return;
     }
-  }, [weekOffset, data]);
+    const sourceOffset = weekOffset - 1;
+    api.getCarryForward(sourceOffset).then((r) => {
+      if (r.found && r.tasks.length > 0) {
+        setCarryTasks(r.tasks.map((t) => ({ ...t, priority: t.priority || "C", selected: true, targetDay: "monday" })));
+        setCarryLabel(r.week_label);
+      } else {
+        setCarryTasks([]);
+      }
+    }).catch(() => {});
+  }, [weekOffset]);
 
   const allGroups = useMemo(() => (data ? collectGroups(data.days) : []), [data]);
 
