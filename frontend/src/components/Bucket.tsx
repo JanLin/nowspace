@@ -562,21 +562,21 @@ export default function Bucket() {
   }).slice(0, 9);
 
   const buildSections = (): Section[] => {
-    const sections: Section[] = [];
+    const byGroup = new Map<string, Section>();
     const filtered = filterGroup
       ? tasks.map((t, i) => ({ task: t, originalIdx: i })).filter(({ task }) => parseGroup(task.text).group === filterGroup)
       : tasks.map((t, i) => ({ task: t, originalIdx: i }));
 
     filtered.forEach(({ task, originalIdx }) => {
       const { group, label } = parseGroup(task.text);
-      const last = sections[sections.length - 1];
-      if (last && last.name === group) {
-        last.items.push({ task, originalIdx, label });
-      } else {
-        sections.push({ name: group, items: [{ task, originalIdx, label }] });
+      let section = byGroup.get(group);
+      if (!section) {
+        section = { name: group, items: [] };
+        byGroup.set(group, section);
       }
+      section.items.push({ task, originalIdx, label });
     });
-    return sections;
+    return [...byGroup.values()];
   };
 
   const sections = buildSections();
@@ -632,9 +632,13 @@ export default function Bucket() {
 
       {/* Task list */}
       <div className="space-y-2 max-w-2xl">
-        {sections.map((section, si) => (
-          <div key={`${section.name}-${si}`}>
-            {section.name && (
+        {sections.map((section, si) => {
+          const displayName = section.name || "Un-grouped";
+          const hasMultipleSections = sections.length > 1;
+          const showHeader = section.name || hasMultipleSections;
+          return (
+          <div key={`${displayName}-${si}`}>
+            {showHeader && (
               <div className={`text-xs font-semibold tracking-wide px-1 py-1 flex items-center gap-1 relative cursor-pointer select-none transition-colors ${
                 dropGroupTarget === section.name ? "bg-blue-100 rounded" : ""
               }`}
@@ -642,13 +646,13 @@ export default function Bucket() {
                 onDragOver={(e) => handleDragOverGroup(e, section.name)}
                 onDragLeave={() => setDropGroupTarget(null)}
                 onDrop={(e) => { e.preventDefault(); handleDropOnGroup(section.name); }}
-                style={{ color: 'var(--text-secondary)' }}>
-                <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{collapsedGroups.has(section.name) ? "▸" : "▾"}</span> {section.name}
+                style={{ color: section.name ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{collapsedGroups.has(section.name) ? "▸" : "▾"}</span> {displayName}
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>({section.items.length})</span>
               </div>
             )}
             {!collapsedGroups.has(section.name) && (
-            <div className={section.name ? "ml-4 border-l-2 pl-2" : ""} style={section.name ? { borderColor: 'var(--border)' } : undefined}>
+            <div className={showHeader ? "ml-4 border-l-2 pl-2" : ""} style={showHeader ? { borderColor: 'var(--border)' } : undefined}>
               {section.items.map(({ task, originalIdx, label }) => {
                 const taskLinks = extractLinks(label);
                 const hasLinks = taskLinks.length > 0;
@@ -870,7 +874,8 @@ export default function Bucket() {
             </div>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {/* Add task at bottom */}
         {!addingAt ? (
