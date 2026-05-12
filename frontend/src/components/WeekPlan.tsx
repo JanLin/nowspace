@@ -711,17 +711,16 @@ export default function WeekPlan() {
     };
   }, []);
 
-  // Auto-fetch carry forward tasks from previous week when viewing current or future week.
-  // Refetch on every weekOffset change so stale carry state (e.g. tasks fetched against
-  // wk-1 while viewing wk+1) doesn't survive navigation back to the current week.
+  // Auto-fetch last week's incomplete tasks — only on the current week. Past weeks are
+  // read-only archive; future weeks are for planning ahead, not catching up.
+  // Refetch on every weekOffset change so stale carry state doesn't survive navigation.
   useEffect(() => {
-    if (weekOffset < 0) {
+    if (weekOffset !== 0) {
       setCarryTasks([]);
       setCarryForwardOpen(false);
       return;
     }
-    const sourceOffset = weekOffset - 1;
-    api.getCarryForward(sourceOffset).then((r) => {
+    api.getCarryForward(-1).then((r) => {
       if (r.found && r.tasks.length > 0) {
         setCarryTasks(r.tasks.map((t) => ({ ...t, priority: t.priority || "C", selected: true, targetDay: "monday" })));
         setCarryLabel(r.week_label);
@@ -3199,8 +3198,8 @@ export default function WeekPlan() {
           </div>
         )}
 
-        {/* Weekly carry forward — from previous week, available on current and future weeks */}
-        {weekOffset >= 0 && carryTasks.length > 0 && (
+        {/* Weekly carry forward — only on current week, only when today or a later day is visible */}
+        {weekOffset === 0 && carryTasks.length > 0 && visibleDays.some(d => d >= todayIdx) && (
           <div
             className={`relative cursor-pointer transition-all duration-200 ${carryHighlight ? "scale-110" : "hover:scale-105"}`}
             title={`⏩ Carry Forward (${carryTasks.length} tasks)`}
