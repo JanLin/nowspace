@@ -71,6 +71,15 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
     });
   }, [flash]);
 
+  // ── Sync reference links when changed from vault browser ──────────
+  useEffect(() => {
+    const handler = () => {
+      api.getSettings().then((s) => setReferenceLinks(s.reference_links)).catch(() => {});
+    };
+    window.addEventListener("reference-links-changed", handler);
+    return () => window.removeEventListener("reference-links-changed", handler);
+  }, []);
+
   // ── Live vault validation ──────────────────────────────────────────
   const validateVaultPath = useCallback((path: string) => {
     if (validateTimer.current) clearTimeout(validateTimer.current);

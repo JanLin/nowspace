@@ -62,7 +62,7 @@ export default function App() {
           <div className={view === "week" ? "" : "hidden"}>
             <WeekPlan />
           </div>
-          <div className={view === "bucket" ? "max-w-3xl mx-auto" : "hidden"}>
+          <div className={view === "bucket" ? "" : "hidden"}>
             <Bucket />
           </div>
           <div className={view === "goals" ? "max-w-3xl mx-auto" : "hidden"}>

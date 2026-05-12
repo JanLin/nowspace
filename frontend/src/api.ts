@@ -233,6 +233,27 @@ export const api = {
       `/api/vault/folder?path=${encodeURIComponent(path)}`
     ),
 
+  vaultMove: (source: string, destination: string) =>
+    request<{ success: boolean; new_path: string }>("/api/vault/move", {
+      method: "POST",
+      body: JSON.stringify({ source, destination }),
+    }),
+
+  vaultDelete: (path: string) =>
+    request<{ success: boolean; path: string }>(
+      `/api/vault/file?path=${encodeURIComponent(path)}`,
+      { method: "DELETE" }
+    ),
+
+  getPinnedNotes: () =>
+    request<{ pinned: string[] }>("/api/vault/pinned-notes"),
+
+  savePinnedNotes: (pinned: string[]) =>
+    request<{ pinned: string[] }>("/api/vault/pinned-notes", {
+      method: "PUT",
+      body: JSON.stringify({ pinned }),
+    }),
+
   vaultLinkedDocs: async (group: string) => {
     const raw = await request<{
       folder_path: string | null;

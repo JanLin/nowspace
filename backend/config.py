@@ -115,6 +115,9 @@ class Config:
         # Reference links (group → vault folder path)
         self.reference_links: Dict[str, str] = raw.get("reference_links", {})
 
+        # Pinned notes for vault browser (list of relative paths)
+        self.pinned_notes: list = raw.get("pinned_notes", [])
+
         api = raw.get("api", {})
         self.model = api.get("model", "claude-sonnet-4-6")
         self.max_tokens = api.get("max_tokens", 1024)
@@ -140,6 +143,15 @@ class Config:
         with open(self._config_file) as f:
             raw = yaml.safe_load(f) or {}
         raw["reference_links"] = links
+        with open(self._config_file, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    def save_pinned_notes(self, notes: list) -> None:
+        """Persist pinned_notes list into config.yaml."""
+        self.pinned_notes = notes[:10]  # cap at 10
+        with open(self._config_file) as f:
+            raw = yaml.safe_load(f) or {}
+        raw["pinned_notes"] = self.pinned_notes
         with open(self._config_file, "w") as f:
             yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
