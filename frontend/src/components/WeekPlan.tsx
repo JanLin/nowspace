@@ -711,9 +711,9 @@ export default function WeekPlan() {
     };
   }, []);
 
-  // Auto-fetch carry forward tasks when viewing a future week
+  // Auto-fetch carry forward tasks from previous week when viewing current or future week
   useEffect(() => {
-    if (weekOffset > 0 && data && carryTasks.length === 0) {
+    if (weekOffset >= 0 && data && carryTasks.length === 0) {
       const sourceOffset = weekOffset - 1;
       api.getCarryForward(sourceOffset).then((r) => {
         if (r.found && r.tasks.length > 0) {
@@ -722,7 +722,7 @@ export default function WeekPlan() {
         }
       }).catch(() => {});
     }
-    if (weekOffset <= 0) {
+    if (weekOffset < 0) {
       setCarryTasks([]);
       setCarryForwardOpen(false);
     }
@@ -2169,9 +2169,9 @@ export default function WeekPlan() {
     ? visibleDays.reduce((sum, di) => sum + data.days[di].tasks.filter((t) => t.done).length, 0)
     : 0;
 
-  // Daily carry count: open tasks from days before selectedDayIdx
-  const dailyCarryCount = data && selectedDayIdx > 0
-    ? data.days.slice(0, selectedDayIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done).length, 0)
+  // Daily carry count: open tasks from days before today (current week only)
+  const dailyCarryCount = data && weekOffset === 0 && todayIdx > 0
+    ? data.days.slice(0, todayIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done).length, 0)
     : 0;
 
   // --- Day view renderer ---
@@ -2251,12 +2251,12 @@ export default function WeekPlan() {
               <div className="h-0.5 bg-blue-400 rounded" />
             )}
             <button
-              onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: day.tasks.length - 1 })}
+              onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: day.tasks.length })}
               className="w-full text-xs text-gray-300 hover:text-blue-400 py-1 transition-colors text-left px-2"
             >
               + Add task
             </button>
-            {addingAt?.dayIdx === selectedDayIdx && addingAt?.afterIdx === day.tasks.length - 1 && !filteredTasks.some(t => day.tasks.indexOf(t) === day.tasks.length - 1) && (
+            {addingAt?.dayIdx === selectedDayIdx && addingAt?.afterIdx === day.tasks.length && (
               <div className="py-0.5 px-2">
                 <AutoFocusInput
                   onSubmit={(text) => addTask(selectedDayIdx, day.tasks.length - 1, text)}
@@ -2428,12 +2428,12 @@ export default function WeekPlan() {
             />
             {/* Add task button */}
             <button
-              onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: day.tasks.length - 1 })}
+              onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: day.tasks.length })}
               className="w-full text-xs text-gray-300 hover:text-blue-400 py-1 transition-colors text-left px-2"
             >
               + Add task
             </button>
-            {addingAt?.dayIdx === selectedDayIdx && addingAt?.afterIdx === day.tasks.length - 1 && (
+            {addingAt?.dayIdx === selectedDayIdx && addingAt?.afterIdx === day.tasks.length && (
               <div className="py-0.5 px-2">
                 <AutoFocusInput
                   onSubmit={(text) => addTask(selectedDayIdx, day.tasks.length - 1, text)}
@@ -2651,6 +2651,14 @@ export default function WeekPlan() {
                     {buildDayGroups(day.tasks).length === 0 && renderAddInput(dayIdx, -1)}
                   </div>
                 )}
+                {/* Bottom + Add task button — available in all grid views */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: day.tasks.length }); }}
+                  className="w-full text-[10px] text-gray-300 hover:text-blue-400 py-1 mt-1 transition-colors text-left px-1"
+                >
+                  + Add task
+                </button>
+                {renderAddInput(dayIdx, day.tasks.length)}
               </div>
             );
           })}
@@ -3168,11 +3176,11 @@ export default function WeekPlan() {
     {/* Bucket & Carry icons — above status bar, togglable */}
     {data && showBottomBar && (
       <div className="fixed bottom-8 right-6 z-40 flex items-end gap-2">
-        {/* Daily carry — open tasks from earlier days */}
-        {dailyCarryCount > 0 && (viewMode === "day" || viewMode === "3day") && (
+        {/* Daily carry — open tasks from days before today */}
+        {dailyCarryCount > 0 && (
           <div
             className={`relative cursor-pointer transition-all duration-200 hover:scale-105`}
-            title={`${dailyCarryCount} open tasks from earlier days`}
+            title={`${dailyCarryCount} open tasks from before today`}
             onClick={() => {
               const opening = !dailyCarryOpen;
               setDailyCarryOpen(opening);
@@ -3188,8 +3196,8 @@ export default function WeekPlan() {
           </div>
         )}
 
-        {/* Weekly carry forward */}
-        {weekOffset > 0 && carryTasks.length > 0 && (
+        {/* Weekly carry forward — from previous week, available on current and future weeks */}
+        {weekOffset >= 0 && carryTasks.length > 0 && (
           <div
             className={`relative cursor-pointer transition-all duration-200 ${carryHighlight ? "scale-110" : "hover:scale-105"}`}
             title={`⏩ Carry Forward (${carryTasks.length} tasks)`}
@@ -3335,17 +3343,19 @@ export default function WeekPlan() {
             <p className="text-xs text-gray-400 text-center py-4">Empty — drag tasks here to defer</p>
           )}
           {(() => {
-            // Build grouped sections for bucket panel
-            const sections: { name: string; items: { task: import("../api").BucketTask; idx: number; label: string }[] }[] = [];
+            // Build grouped sections for bucket panel — coalesce by group name
+            type BucketSection = { name: string; items: { task: import("../api").BucketTask; idx: number; label: string }[] };
+            const byGroup = new Map<string, BucketSection>();
             bucketTasks.forEach((task, idx) => {
               const { group, label } = parseGroup(task.text);
-              const last = sections[sections.length - 1];
-              if (last && last.name === group) {
-                last.items.push({ task, idx, label });
-              } else {
-                sections.push({ name: group, items: [{ task, idx, label }] });
+              let section = byGroup.get(group);
+              if (!section) {
+                section = { name: group, items: [] };
+                byGroup.set(group, section);
               }
+              section.items.push({ task, idx, label });
             });
+            const sections = [...byGroup.values()];
 
             const toggleBucketGroup = (name: string) => {
               setBucketExpandedGroups((prev) => {
@@ -3376,19 +3386,20 @@ export default function WeekPlan() {
             );
 
             return sections.map((section, si) => {
-              if (!section.name) {
-                // Ungrouped tasks — show directly
+              // If only one section and ungrouped, show tasks directly (no header)
+              if (!section.name && sections.length === 1) {
                 return section.items.map(({ task, idx, label }) => renderBucketItem(task, idx, label));
               }
+              const displayName = section.name || "Un-grouped";
               const isExpanded = bucketExpandedGroups.has(section.name);
               return (
-                <div key={`bg-${si}`} className="mb-0.5">
+                <div key={`bg-${si}-${displayName}`} className="mb-0.5">
                   <button
                     onClick={() => toggleBucketGroup(section.name)}
                     className="w-full flex items-center gap-1 py-1 px-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-white rounded transition-colors"
                   >
                     <span className="text-[10px]">{isExpanded ? "▾" : "▸"}</span>
-                    <span>{section.name}</span>
+                    <span>{displayName}</span>
                     <span className="text-[10px] text-gray-400">({section.items.length})</span>
                   </button>
                   {isExpanded && (
@@ -3543,23 +3554,23 @@ export default function WeekPlan() {
       </div>
     )}
     {/* Daily carry side panel (right, matching carry-forward style) */}
-    {dailyCarryOpen && data && selectedDayIdx > 0 && (
+    {dailyCarryOpen && data && weekOffset === 0 && todayIdx > 0 && (
       <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
-            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Earlier Days ({dailyCarryCount})</h3>
-            <p className="text-[10px] text-gray-500">Open tasks from {DAY_LABELS[data.days[0]?.day] || "Mon"}–{selectedDayIdx > 0 ? DAY_LABELS[data.days[selectedDayIdx - 1]?.day] || "" : ""}</p>
+            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Before Today ({dailyCarryCount})</h3>
+            <p className="text-[10px] text-gray-500">Open tasks from {DAY_LABELS[data.days[0]?.day] || "Mon"}–{DAY_LABELS[data.days[todayIdx - 1]?.day] || ""}</p>
           </div>
           <button onClick={() => setDailyCarryOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
         </div>
         <div className="p-2 space-y-0.5">
           {dailyCarryCount === 0 && (
-            <p className="text-xs text-gray-400 text-center py-4">No open tasks from earlier days</p>
+            <p className="text-xs text-gray-400 text-center py-4">No open tasks from before today</p>
           )}
           {(() => {
-            // Collect open tasks from previous days, grouped by day then by group
+            // Collect open tasks from days before today, grouped by day then by group
             const items: { dayIdx: number; dayName: string; taskIdx: number; task: Task; group: string; label: string }[] = [];
-            for (let di = 0; di < selectedDayIdx; di++) {
+            for (let di = 0; di < todayIdx; di++) {
               const prevDay = data.days[di];
               if (!prevDay) continue;
               const dayLabel = DAY_LABELS[prevDay.day] || prevDay.day;
@@ -3584,7 +3595,7 @@ export default function WeekPlan() {
               }`}>{p}</span>
             );
 
-            const targetDayName = DAY_LABELS[data.days[selectedDayIdx]?.day] || "today";
+            const targetDayName = DAY_LABELS[data.days[todayIdx]?.day] || "today";
 
             return Array.from(byDay.entries()).map(([di, dayItems]) => (
               <div key={`dc-${di}`} className="mb-1">
@@ -3593,11 +3604,11 @@ export default function WeekPlan() {
                   <span className="text-[10px] text-gray-400">({dayItems.length})</span>
                   <button
                     onClick={() => {
-                      // Move all open from this day to selected day
+                      // Move all open from this day to today
                       const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
                       const open = days[di].tasks.filter((t) => !t.done);
                       days[di] = { ...days[di], tasks: days[di].tasks.filter((t) => t.done) };
-                      days[selectedDayIdx] = { ...days[selectedDayIdx], tasks: [...days[selectedDayIdx].tasks, ...open] };
+                      days[todayIdx] = { ...days[todayIdx], tasks: [...days[todayIdx].tasks, ...open] };
                       applyTaskChange(days);
                     }}
                     className="ml-auto text-[9px] text-purple-400 hover:text-purple-700 transition-colors"
@@ -3616,7 +3627,7 @@ export default function WeekPlan() {
                       {it.label}
                     </span>
                     <button
-                      onClick={() => moveTaskToDay(it.dayIdx, it.taskIdx, selectedDayIdx)}
+                      onClick={() => moveTaskToDay(it.dayIdx, it.taskIdx, todayIdx)}
                       className="text-[10px] text-purple-400 hover:text-purple-700 opacity-0 group-hover/dc:opacity-100 shrink-0 transition-opacity"
                       title={`Move to ${targetDayName}`}
                     >
@@ -3632,10 +3643,10 @@ export default function WeekPlan() {
         {dailyCarryCount > 0 && (
           <div className="p-2 border-t border-gray-200">
             <button
-              onClick={() => { carryAllFromPreviousDays(selectedDayIdx); setDailyCarryOpen(false); }}
+              onClick={() => { carryAllFromPreviousDays(todayIdx); setDailyCarryOpen(false); }}
               className="w-full px-2 py-1.5 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 transition-colors"
             >
-              Move all to {DAY_LABELS[data.days[selectedDayIdx]?.day] || "today"} →
+              Move all to {DAY_LABELS[data.days[todayIdx]?.day] || "today"} →
             </button>
           </div>
         )}
