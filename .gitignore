@@ -12,6 +12,7 @@ __pycache__/
 # Tauri / PyInstaller build artifacts
 frontend/src-tauri/target/
 frontend/src-tauri/binaries/
+frontend/src-tauri/gen/
 build/
 dist/
 *.spec
