@@ -1213,8 +1213,11 @@ export default function WeekPlan() {
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
       const tasks = [...d.tasks];
-      // Preserve group prefix if the task had one and user edited only the label
-      tasks[taskIdx] = { ...tasks[taskIdx], text: trimmed };
+      // Preserve group prefix if the task had one and user edited only the label.
+      // Clear clean_text so getDisplayText reads from the updated text instead of
+      // the now-stale server-side clean version (otherwise the rendered label
+      // reverts to what the server originally parsed, making the edit look lost).
+      tasks[taskIdx] = { ...tasks[taskIdx], text: trimmed, clean_text: "" };
       return { ...d, tasks };
     });
     applyTaskChange(days);
