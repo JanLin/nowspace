@@ -60,6 +60,40 @@ def _find_archived_week(year: int, week: int) -> Optional[Path]:
     return None
 
 
+def _list_archived_week_files() -> list[tuple[int, int, Path]]:
+    """List all archived week files as (year, week, path), sorted newest first."""
+    archive = _archive_path()
+    if not archive.exists():
+        return []
+    base = re.escape(config.plan_week_file.replace(".md", ""))
+    pattern = re.compile(rf"^{base} - (\d{{4}})-wk(\d{{1,2}})\.md$")
+    found: list[tuple[int, int, Path]] = []
+    for p in archive.iterdir():
+        if not p.is_file():
+            continue
+        m = pattern.match(p.name)
+        if m:
+            found.append((int(m.group(1)), int(m.group(2)), p))
+    found.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return found
+
+
+def _find_archived_week_or_earlier(year: int, week: int) -> Optional[Path]:
+    """Find the archived week file at (year, week), or the most recent one before it.
+
+    Resilient to gaps in the archive — e.g. if the user took a week off and
+    Plan Week - 2026-wk24.md was never created, asking for wk24 falls back to
+    wk23 (or the closest prior archived week).
+    """
+    exact = _find_archived_week(year, week)
+    if exact:
+        return exact
+    for y, w, p in _list_archived_week_files():
+        if (y, w) < (year, week):
+            return p
+    return None
+
+
 def _next_week_file(year: int, week: int) -> Path:
     """Return path for a future week file in same folder as Plan Week.md."""
     base = config.plan_week_file.replace(".md", "")
@@ -552,10 +586,16 @@ async def get_carry_forward_tasks(offset: int = -1):
             return {"tasks": [], "week_label": f"{year}-wk{week:02d}", "found": False}
         source_file = plan_file
     else:
-        found = _find_archived_week(year, week)
+        # Fall back to the most recent archived week before the target, so a gap
+        # in the archive (e.g. user took a week off) doesn't hide carry-forward.
+        found = _find_archived_week_or_earlier(year, week)
         if not found:
             return {"tasks": [], "week_label": f"{year}-wk{week:02d}", "found": False}
         source_file = found
+        # Update the label to reflect which week we actually read from
+        m = re.search(r"(\d{4})-wk(\d{1,2})", source_file.name)
+        if m:
+            year, week = int(m.group(1)), int(m.group(2))
 
     content = source_file.read_text(encoding="utf-8")
     result = parse_week_plan(content, source_file.name)
@@ -652,7 +692,9 @@ def _remove_carried_tasks_from_source(source_offset: int, carried_tasks: list[Ca
         if source_offset > 0:
             source_file = _next_week_file(year, week)
         else:
-            found = _find_archived_week(year, week)
+            # Use the same fallback as the GET so removal targets the actual file
+            # the user pulled tasks from (e.g. wk23 when wk24 is missing).
+            found = _find_archived_week_or_earlier(year, week)
             if not found:
                 return
             source_file = found
