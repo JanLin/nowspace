@@ -115,6 +115,15 @@ class Config:
         # Reference links (group → vault folder path)
         self.reference_links: Dict[str, str] = raw.get("reference_links", {})
 
+        # Contexts: map of context name → list of group prefixes (lowercase).
+        # e.g. {"work": ["arratech", "wallet"], "volunteer": ["rotary"]}
+        # Groups not listed anywhere default to "personal". Empty dict = feature off.
+        raw_contexts = raw.get("contexts", {}) or {}
+        self.contexts: Dict[str, list] = {
+            str(name).lower(): [str(g).lower() for g in (groups or [])]
+            for name, groups in raw_contexts.items()
+        }
+
         api = raw.get("api", {})
         self.model = api.get("model", "claude-sonnet-4-6")
         self.max_tokens = api.get("max_tokens", 1024)

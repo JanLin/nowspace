@@ -164,6 +164,26 @@ Click the elephant to break a hard-to-start task into small, actionable subtasks
 
 Click the hourglass when a task is blocked. Waiting tasks show a `WAIT:` prefix in Obsidian and are deprioritised in coaching.
 
+## Contexts (Work / Volunteer / Personal)
+
+Optionally separate tasks into three contexts so you can mentally switch off work at the end of the day (and keep private errands out of sight during work hours). Enable by mapping group prefixes in `config.yaml`:
+
+```yaml
+contexts:
+  work: [acme, client-x]
+  volunteer: [rotary]
+  # everything else counts as personal
+```
+
+When configured, a **Work | Volunteer | Personal | All** switch appears in the week view and bucket. The active mode filters every list, panel, and counter — nothing from other contexts leaks through.
+
+**Markup convention** — trailing `@` tokens on a task line are metadata, hidden from the displayed label:
+
+- `@w` / `@v` / `@p` — force a context for one task (overrides the group mapping)
+- `@pin` — surface a personal/volunteer task during Work mode (the 📌 icon toggles it)
+
+Pins are deliberately short-lived: completing the task removes `@pin`, and carrying a task to another day or week drops it too — surfacing an errand during work hours is a decision you re-make each day. Tasks added while a mode is active automatically get that mode's token so they don't vanish from the current filter.
+
 ## Configuration
 
 Settings are managed from the **Settings** tab in the app:

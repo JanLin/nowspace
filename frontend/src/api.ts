@@ -294,6 +294,7 @@ export const api = {
       reference_links: Record<string, string>;
       vault_status: VaultStatus;
       api_key_status: ApiKeyStatus;
+      contexts: Record<string, string[]>;
     }>("/api/settings"),
 
   validateVault: (vault_path: string) =>

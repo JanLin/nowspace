@@ -4,6 +4,11 @@ import TaskLinkPopup from "./TaskLinkPopup";
 import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
+import {
+  type CtxMode, type CtxMap, CTX_TOKEN_RE, CTX_TOKEN_OF, CTX_EDGE_COLOR,
+  stripCtxTokens, isPinnedText, resolveContext, ctxFeatureEnabled,
+  taskVisibleInCtxMode, loadCtxMode, saveCtxMode,
+} from "../contexts";
 
 const PRIORITY_BADGE: Record<string, string> = {
   A: "bg-red-100 text-red-700",
@@ -77,7 +82,7 @@ function parseGroup(text: string): { group: string; label: string } {
 function getDisplayText(task: Task): string {
   // clean_text has [[...]] stripped; fall back to parsing the label from group prefix
   const base = task.clean_text || task.text;
-  return parseGroup(base).label;
+  return stripCtxTokens(parseGroup(base).label);
 }
 
 /** Collect all unique group names across all days */
@@ -278,6 +283,18 @@ export default function WeekPlan() {
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // Contexts: group→context mapping from config; empty = feature off
+  const [ctxMap, setCtxMap] = useState<CtxMap>({});
+  const [ctxMode, setCtxModeState] = useState<CtxMode>(loadCtxMode);
+  const ctxEnabled = ctxFeatureEnabled(ctxMap);
+  const setCtxMode = (mode: CtxMode) => {
+    setCtxModeState(mode);
+    saveCtxMode(mode);
+  };
+
+  // A task is visible in the current mode; Work mode also admits pinned exceptions
+  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxMode(text, ctxMode, ctxMap);
 
   // Inline add state
   const [addingAt, setAddingAt] = useState<{ dayIdx: number; afterIdx: number; group?: string | null } | null>(null);
@@ -599,7 +616,7 @@ export default function WeekPlan() {
       const dayName = data.days[dayIdx]?.day || "monday";
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
-        [{ text: task.text, day: dayName, subtasks: task.subtasks, focused: task.focused, waiting: task.waiting, priority: task.priority }],
+        [{ text: task.text.replace(/\s*@pin\b/gi, ""), day: dayName, subtasks: task.subtasks, focused: task.focused, waiting: task.waiting, priority: task.priority }],
         weekOffset, sourceOffset
       );
       setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
@@ -617,7 +634,7 @@ export default function WeekPlan() {
     try {
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
-        groupTasks.map((t) => ({ text: t.text, day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
+        groupTasks.map((t) => ({ text: t.text.replace(/\s*@pin\b/gi, ""), day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
         weekOffset, sourceOffset
       );
       setCarryTasks((prev) => prev.filter((t) => parseGroup(t.text).group !== groupName));
@@ -633,7 +650,7 @@ export default function WeekPlan() {
     try {
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
-        carryTasks.map((t) => ({ text: t.text, day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
+        carryTasks.map((t) => ({ text: t.text.replace(/\s*@pin\b/gi, ""), day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
         weekOffset, sourceOffset
       );
       setCarryTasks([]);
@@ -712,6 +729,11 @@ export default function WeekPlan() {
       window.removeEventListener("week-changed", handleWeekChanged);
       window.removeEventListener("bucket-changed", refresh);
     };
+  }, []);
+
+  // Load context mapping from config (feature off when empty)
+  useEffect(() => {
+    api.getSettings().then((s) => setCtxMap(s.contexts || {})).catch(() => {});
   }, []);
 
   // Auto-fetch last week's incomplete tasks — only on the current week. Past weeks are
@@ -1028,7 +1050,12 @@ export default function WeekPlan() {
 
   const addTask = (dayIdx: number, afterIdx: number, text: string, group?: string | null) => {
     if (!data) return;
-    const fullText = group ? `${group}: ${text}` : text;
+    let fullText = group ? `${group}: ${text}` : text;
+    // Task added while a context mode is active must stay visible in it:
+    // append the mode's token unless the task already resolves there.
+    if (ctxEnabled && ctxMode !== "all" && resolveContext(fullText, ctxMap) !== ctxMode) {
+      fullText = `${fullText} ${CTX_TOKEN_OF[ctxMode]}`;
+    }
     const newTask: Task = {
       text: fullText, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
     };
@@ -1042,24 +1069,31 @@ export default function WeekPlan() {
     setAddingAt({ dayIdx, afterIdx: afterIdx + 1 });
   };
 
+  // Drop the @pin marker from a task text — pins never survive a carry;
+  // surfacing an errand during work hours is a per-day decision.
+  const unpinText = (t: Task): Task =>
+    isPinnedText(t.text) ? { ...t, text: t.text.replace(/\s*@pin\b/gi, ""), clean_text: "" } : t;
+
   // Move a task from a previous day to the current day (daily carry-over)
   const moveTaskToDay = (fromDayIdx: number, fromTaskIdx: number, toDayIdx: number) => {
     if (!data || fromDayIdx === toDayIdx) return;
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
     const [moved] = days[fromDayIdx].tasks.splice(fromTaskIdx, 1);
-    days[toDayIdx].tasks.push(moved);
+    days[toDayIdx].tasks.push(unpinText(moved));
     applyTaskChange(days);
   };
 
-  // Move all open tasks from previous days to today
+  // Move all open tasks from previous days to today.
+  // Bulk moves only touch tasks visible in the active context mode — what the
+  // panel shows is exactly what moves; hidden contexts stay put.
   const carryAllFromPreviousDays = (toDayIdx: number) => {
     if (!data) return;
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
     const moved: Task[] = [];
     for (let di = 0; di < toDayIdx; di++) {
-      const openTasks = days[di].tasks.filter((t) => !t.done);
-      const remaining = days[di].tasks.filter((t) => t.done);
-      moved.push(...openTasks);
+      const openTasks = days[di].tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
+      const remaining = days[di].tasks.filter((t) => t.done || !taskVisibleInMode(t.text));
+      moved.push(...openTasks.map(unpinText));
       days[di] = { ...days[di], tasks: remaining };
     }
     days[toDayIdx] = { ...days[toDayIdx], tasks: [...days[toDayIdx].tasks, ...moved] };
@@ -1076,6 +1110,22 @@ export default function WeekPlan() {
         ? tasks[taskIdx].subtasks.map((s) => ({ ...s, done: true }))
         : tasks[taskIdx].subtasks;
       tasks[taskIdx] = { ...tasks[taskIdx], done: newDone, subtasks };
+      // Completing a pinned exception clears the pin
+      if (newDone) tasks[taskIdx] = unpinText(tasks[taskIdx]);
+      return { ...d, tasks };
+    });
+    applyTaskChange(days);
+  };
+
+  const togglePinned = (dayIdx: number, taskIdx: number) => {
+    if (!data) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      const t = tasks[taskIdx];
+      tasks[taskIdx] = isPinnedText(t.text)
+        ? { ...t, text: t.text.replace(/\s*@pin\b/gi, ""), clean_text: "" }
+        : { ...t, text: `${t.text.trimEnd()} @pin`, clean_text: "" };
       return { ...d, tasks };
     });
     applyTaskChange(days);
@@ -1206,13 +1256,22 @@ export default function WeekPlan() {
 
   const editTask = (dayIdx: number, taskIdx: number, newText: string) => {
     if (!data) return;
-    const trimmed = newText.trim();
+    let trimmed = newText.trim();
     if (!trimmed) return; // don't allow empty — use delete instead
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
       const tasks = [...d.tasks];
-      // Preserve group prefix if the task had one and user edited only the label
-      tasks[taskIdx] = { ...tasks[taskIdx], text: trimmed };
+      // The edit input shows the label with @tokens stripped — re-append the
+      // original tokens unless the user typed their own into the new text.
+      if (!/@(w|v|p|pin)\b/i.test(trimmed)) {
+        const oldTokens = tasks[taskIdx].text.match(CTX_TOKEN_RE);
+        if (oldTokens) trimmed = `${trimmed} ${oldTokens.map((t) => t.trim()).join(" ")}`;
+      }
+      // Preserve group prefix if the task had one and user edited only the label.
+      // Clear clean_text so getDisplayText reads from the updated text instead of
+      // the now-stale server-side clean version (otherwise the rendered label
+      // reverts to what the server originally parsed, making the edit look lost).
+      tasks[taskIdx] = { ...tasks[taskIdx], text: trimmed, clean_text: "" };
       return { ...d, tasks };
     });
     applyTaskChange(days);
@@ -1523,7 +1582,7 @@ export default function WeekPlan() {
     const rawTarget = dropTarget && dropTarget.day === dayIdx ? dropTarget.idx : taskIdx;
 
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
-    const [movedTask] = days[fromDay].tasks.splice(fromIdx, 1);
+    let [movedTask] = days[fromDay].tasks.splice(fromIdx, 1);
 
     // Re-prefix task if moving between groups
     if (targetGroup !== undefined) {
@@ -1531,6 +1590,9 @@ export default function WeekPlan() {
       const newText = targetGroup ? `${targetGroup}: ${label}` : label;
       movedTask.text = newText;
     }
+
+    // Dragging to another day is a carry — pins never survive a carry
+    if (fromDay !== dayIdx) movedTask = unpinText(movedTask);
 
     // Flat views display priority-sorted, so the card only stays where it was
     // dropped if its priority matches that position — adopt the anchor's band.
@@ -1627,7 +1689,7 @@ export default function WeekPlan() {
   const gridCols = viewMode === "3day" ? "grid-cols-3" : viewMode === "weekend" ? "grid-cols-2" : viewMode === "5day" ? "grid-cols-5" : "grid-cols-7";
 
   const getFilteredTasks = (tasks: Task[]): Task[] => {
-    let filtered = tasks;
+    let filtered = tasks.filter((t) => taskVisibleInMode(t.text));
     if (filterGroup) {
       filtered = filtered.filter((t) => parseGroup(t.text).group === filterGroup);
     }
@@ -1645,6 +1707,7 @@ export default function WeekPlan() {
     tasks.forEach((task, idx) => {
       const { group } = parseGroup(task.text);
       const label = getDisplayText(task);
+      if (!taskVisibleInMode(task.text)) return;
       if (filterGroup && group !== filterGroup) return;
       if (!showCompleted && task.done && !(task.subtasks?.some((s) => !s.done))) return;
       const last = sections[sections.length - 1];
@@ -1837,7 +1900,12 @@ export default function WeekPlan() {
   };
 
   // --- Compact task item for grid views (5day, 7day, weekend) ---
-  const renderCompactTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, group: string | null, seqLabel: string = "", nextIdx?: number) => (
+  const renderCompactTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, group: string | null, seqLabel: string = "", nextIdx?: number) => {
+    const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap) : null;
+    const pinned = ctxEnabled && isPinnedText(task.text);
+    const isException = pinned && ctxMode === "work" && taskCtx !== "work";
+    const showEdge = taskCtx !== null && (ctxMode === "all" || isException);
+    return (
     <div
       key={`${task.text}-${taskIdx}`}
       draggable={!task.done}
@@ -1849,6 +1917,7 @@ export default function WeekPlan() {
         e.stopPropagation();
         setAddingAt({ dayIdx, afterIdx: taskIdx, group });
       }}
+      style={showEdge ? { boxShadow: `inset 2px 0 0 ${CTX_EDGE_COLOR[taskCtx!]}` } : undefined}
       className={`group flex items-start gap-1 py-0.5 px-1 rounded text-[11px] leading-tight select-none ${
         dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
           ? "border-t-2 border-blue-400"
@@ -1856,7 +1925,9 @@ export default function WeekPlan() {
       } ${
         task.done
           ? "opacity-40"
-          : "cursor-grab active:cursor-grabbing hover:bg-white/80"
+          : isException
+            ? "opacity-75 cursor-grab active:cursor-grabbing hover:bg-white/80"
+            : "cursor-grab active:cursor-grabbing hover:bg-white/80"
       }`}
     >
       <button
@@ -1927,6 +1998,16 @@ export default function WeekPlan() {
           ⏳
         </button>
       )}
+      {/* Pin toggle — personal/volunteer tasks only: surface during Work mode */}
+      {ctxEnabled && !task.done && taskCtx !== "work" && (
+        <button
+          onClick={(e) => { e.stopPropagation(); togglePinned(dayIdx, taskIdx); }}
+          className={`shrink-0 text-[10px] transition-opacity ${pinned ? "opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
+          title={pinned ? "Unpin — stop showing during Work mode" : "Pin — show during Work mode"}
+        >
+          📌
+        </button>
+      )}
       {/* Focus horn icon */}
       {!task.done && (
         <button
@@ -1982,10 +2063,17 @@ export default function WeekPlan() {
         &times;
       </button>
     </div>
-  );
+    );
+  };
 
   // --- Full-size task item for Day view ---
-  const renderDayTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, seqLabel: string, group: string | null, nextIdx?: number) => (
+  const renderDayTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, seqLabel: string, group: string | null, nextIdx?: number) => {
+    const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap) : null;
+    const pinned = ctxEnabled && isPinnedText(task.text);
+    // A pinned personal/volunteer task shown inside Work mode = the exception
+    const isException = pinned && ctxMode === "work" && taskCtx !== "work";
+    const showEdge = taskCtx !== null && (ctxMode === "all" || isException);
+    return (
     <div key={`day-${taskIdx}`}>
       <div
         draggable={!task.done}
@@ -1994,6 +2082,7 @@ export default function WeekPlan() {
         onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx, e); }}
         onDragEnd={handleDragEnd}
         onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx, group }); }}
+        style={showEdge ? { boxShadow: `inset 2px 0 0 ${CTX_EDGE_COLOR[taskCtx!]}` } : undefined}
         className={`group flex items-center gap-2 py-1 px-2 rounded text-sm select-none ${
           dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
             ? "border-t-2 border-blue-400"
@@ -2001,7 +2090,9 @@ export default function WeekPlan() {
         } ${
           task.done
             ? "opacity-50"
-            : "cursor-grab active:cursor-grabbing hover:bg-gray-50"
+            : isException
+              ? "opacity-75 cursor-grab active:cursor-grabbing hover:bg-gray-50"
+              : "cursor-grab active:cursor-grabbing hover:bg-gray-50"
         }`}
       >
         <button
@@ -2076,6 +2167,16 @@ export default function WeekPlan() {
             title="Mark as waiting"
           >
             ⏳
+          </button>
+        )}
+        {/* Pin toggle — personal/volunteer tasks only: surface during Work mode */}
+        {ctxEnabled && !task.done && taskCtx !== "work" && (
+          <button
+            onClick={(e) => { e.stopPropagation(); togglePinned(dayIdx, taskIdx); }}
+            className={`shrink-0 text-sm transition-opacity ${pinned ? "opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
+            title={pinned ? "Unpin — stop showing during Work mode" : "Pin — show during Work mode"}
+          >
+            📌
           </button>
         )}
         {/* Focus horn icon */}
@@ -2185,7 +2286,8 @@ export default function WeekPlan() {
         </button>
       </div>
     </div>
-  );
+    );
+  };
 
   const renderAddInput = (dayIdx: number, afterIdx: number) => {
     if (!addingAt || addingAt.dayIdx !== dayIdx || addingAt.afterIdx !== afterIdx) return null;
@@ -2202,12 +2304,13 @@ export default function WeekPlan() {
 
   // Count completed across visible days for the toggle label
   const completedCount = data
-    ? visibleDays.reduce((sum, di) => sum + data.days[di].tasks.filter((t) => t.done).length, 0)
+    ? visibleDays.reduce((sum, di) => sum + data.days[di].tasks.filter((t) => t.done && taskVisibleInMode(t.text)).length, 0)
     : 0;
 
-  // Daily carry count: open tasks from days before today (current week only)
+  // Daily carry count: open tasks from days before today (current week only),
+  // counting only tasks visible in the active context mode
   const dailyCarryCount = data && weekOffset === 0 && todayIdx > 0
-    ? data.days.slice(0, todayIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done).length, 0)
+    ? data.days.slice(0, todayIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done && taskVisibleInMode(t.text)).length, 0)
     : 0;
 
   // --- Day view renderer ---
@@ -2230,7 +2333,7 @@ export default function WeekPlan() {
         if (!prevDay) continue;
         const dayLabel = DAY_LABELS[prevDay.day] || prevDay.day;
         prevDay.tasks.forEach((t, ti) => {
-          if (!t.done) dailyCarryTasks.push({ dayIdx: di, dayName: dayLabel, task: t, taskIdx: ti });
+          if (!t.done && taskVisibleInMode(t.text)) dailyCarryTasks.push({ dayIdx: di, dayName: dayLabel, task: t, taskIdx: ti });
         });
       }
     }
@@ -2764,6 +2867,30 @@ export default function WeekPlan() {
               </button>
             </div>
             <div className="flex gap-1 items-center flex-wrap justify-end">
+              {/* Context mode switch — only when contexts are configured */}
+              {ctxEnabled && (
+                <>
+                  {(["work", "volunteer", "personal", "all"] as CtxMode[]).map((mode) => {
+                    const active = ctxMode === mode;
+                    const activeCls = mode === "work" ? "bg-blue-100 text-blue-700"
+                      : mode === "volunteer" ? "bg-purple-100 text-purple-700"
+                      : mode === "personal" ? "bg-green-100 text-green-700"
+                      : "bg-gray-200 text-gray-700";
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => setCtxMode(mode)}
+                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${active ? activeCls : "hover:opacity-80"}`}
+                        style={!active ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+                        title={mode === "all" ? "Show every context" : `Show only ${mode} tasks${mode === "work" ? " (+ pinned exceptions)" : ""}`}
+                      >
+                        {mode === "work" ? "Work" : mode === "volunteer" ? "Volunteer" : mode === "personal" ? "Personal" : "All"}
+                      </button>
+                    );
+                  })}
+                  <span className="w-px h-4 bg-gray-200" />
+                </>
+              )}
               {/* Group toggle */}
               <button
                 onClick={() => setGroupView(!groupView)}
@@ -2876,9 +3003,9 @@ export default function WeekPlan() {
                       <span className={`text-[10px] ${
                         isSelected ? "text-blue-100"
                           : isVisible ? "text-blue-400"
-                          : d.tasks.filter(t => !t.done).length > 0 ? "text-gray-500" : "text-gray-300"
+                          : d.tasks.filter(t => !t.done && taskVisibleInMode(t.text)).length > 0 ? "text-gray-500" : "text-gray-300"
                       }`}>
-                        {d.tasks.filter(t => !t.done).length}
+                        {d.tasks.filter(t => !t.done && taskVisibleInMode(t.text)).length}
                       </span>
                     </button>
                   );
@@ -3227,10 +3354,10 @@ export default function WeekPlan() {
         )}
 
         {/* Weekly carry forward — only on current week, only when today or a later day is visible */}
-        {weekOffset === 0 && carryTasks.length > 0 && visibleDays.some(d => d >= todayIdx) && (
+        {weekOffset === 0 && carryTasks.filter((t) => taskVisibleInMode(t.text)).length > 0 && visibleDays.some(d => d >= todayIdx) && (
           <div
             className={`relative cursor-pointer transition-all duration-200 ${carryHighlight ? "scale-110" : "hover:scale-105"}`}
-            title={`⏩ Carry Forward (${carryTasks.length} tasks)`}
+            title={`⏩ Carry Forward (${carryTasks.filter((t) => taskVisibleInMode(t.text)).length} tasks)`}
             onClick={() => {
               if (carryForwardOpen) { setCarryForwardOpen(false); }
               else { setBucketOpen(false); setCarryForwardOpen(true); setDailyCarryOpen(false); }
@@ -3240,7 +3367,7 @@ export default function WeekPlan() {
               carryForwardOpen ? "bg-purple-200 border-purple-500" : carryHighlight ? "bg-purple-100 border-purple-400" : "bg-white border-gray-200 hover:border-purple-300"
             }`}>⏩</div>
             <span className="absolute -top-1 -right-1 bg-purple-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-              {carryTasks.length > 99 ? "99+" : carryTasks.length}
+              {(() => { const n = carryTasks.filter((t) => taskVisibleInMode(t.text)).length; return n > 99 ? "99+" : n; })()}
             </span>
           </div>
         )}
@@ -3377,7 +3504,8 @@ export default function WeekPlan() {
             type BucketSection = { name: string; items: { task: import("../api").BucketTask; idx: number; label: string }[] };
             const byGroup = new Map<string, BucketSection>();
             bucketTasks.forEach((task, idx) => {
-              const { group, label } = parseGroup(task.text);
+              if (!taskVisibleInMode(task.text)) return;
+              const { group, label } = parseGroup(stripCtxTokens(task.text));
               let section = byGroup.get(group);
               if (!section) {
                 section = { name: group, items: [] };
@@ -3449,7 +3577,7 @@ export default function WeekPlan() {
       <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
-            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({carryTasks.length})</h3>
+            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({carryTasks.filter((t) => taskVisibleInMode(t.text)).length})</h3>
             <p className="text-[10px] text-gray-500">From week {carryLabel.replace(/^\d{4}-wk0?/, "")}</p>
           </div>
           <button onClick={() => setCarryForwardOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
@@ -3462,7 +3590,8 @@ export default function WeekPlan() {
             // Build grouped sections matching bucket style
             const sections: { name: string; items: { task: typeof carryTasks[0]; idx: number; label: string }[] }[] = [];
             carryTasks.forEach((task, idx) => {
-              const { group, label } = parseGroup(task.text);
+              if (!taskVisibleInMode(task.text)) return;
+              const { group, label } = parseGroup(stripCtxTokens(task.text));
               const last = sections[sections.length - 1];
               if (last && last.name === group) {
                 last.items.push({ task, idx, label });
@@ -3605,8 +3734,8 @@ export default function WeekPlan() {
               if (!prevDay) continue;
               const dayLabel = DAY_LABELS[prevDay.day] || prevDay.day;
               prevDay.tasks.forEach((t, ti) => {
-                if (!t.done) {
-                  const { group, label } = parseGroup(t.text);
+                if (!t.done && taskVisibleInMode(t.text)) {
+                  const { group, label } = parseGroup(stripCtxTokens(t.text));
                   items.push({ dayIdx: di, dayName: dayLabel, taskIdx: ti, task: t, group, label });
                 }
               });
@@ -3634,11 +3763,11 @@ export default function WeekPlan() {
                   <span className="text-[10px] text-gray-400">({dayItems.length})</span>
                   <button
                     onClick={() => {
-                      // Move all open from this day to today
+                      // Move this day's open tasks (only those visible in the mode) to today
                       const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
-                      const open = days[di].tasks.filter((t) => !t.done);
-                      days[di] = { ...days[di], tasks: days[di].tasks.filter((t) => t.done) };
-                      days[todayIdx] = { ...days[todayIdx], tasks: [...days[todayIdx].tasks, ...open] };
+                      const open = days[di].tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
+                      days[di] = { ...days[di], tasks: days[di].tasks.filter((t) => t.done || !taskVisibleInMode(t.text)) };
+                      days[todayIdx] = { ...days[todayIdx], tasks: [...days[todayIdx].tasks, ...open.map(unpinText)] };
                       applyTaskChange(days);
                     }}
                     className="ml-auto text-[9px] text-purple-400 hover:text-purple-700 transition-colors"

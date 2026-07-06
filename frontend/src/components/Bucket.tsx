@@ -2,6 +2,10 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import NoteFilePicker from "./NoteFilePicker";
+import {
+  type CtxMode, type CtxMap, stripCtxTokens, ctxFeatureEnabled,
+  taskVisibleInCtxMode, loadCtxMode, saveCtxMode,
+} from "../contexts";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -136,6 +140,19 @@ export default function Bucket() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
+
+  // Context mode — follows the mode set in the week view (shared via localStorage)
+  const [ctxMap, setCtxMap] = useState<CtxMap>({});
+  const [ctxMode, setCtxModeState] = useState<CtxMode>(loadCtxMode);
+  const ctxEnabled = ctxFeatureEnabled(ctxMap);
+  const setCtxMode = (mode: CtxMode) => { setCtxModeState(mode); saveCtxMode(mode); };
+  useEffect(() => {
+    api.getSettings().then((s) => setCtxMap(s.contexts || {})).catch(() => {});
+    const sync = () => setCtxModeState(loadCtxMode());
+    window.addEventListener("ctx-mode-changed", sync);
+    return () => window.removeEventListener("ctx-mode-changed", sync);
+  }, []);
+  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxMode(text, ctxMode, ctxMap);
   const [pinFilters, setPinFilters] = useState(true);
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
   const [editingTask, setEditingTask] = useState<number | null>(null);
@@ -321,7 +338,14 @@ export default function Bucket() {
     const next = [...tasks];
     const old = next[idx];
     const { group } = parseGroup(old.text);
-    next[idx] = { ...old, text: group ? `${group}: ${newText}` : newText };
+    // The edit input shows the label with @tokens stripped — re-append the
+    // original tokens unless the user typed their own into the new text.
+    let text = newText;
+    if (!/@(w|v|p|pin)\b/i.test(text)) {
+      const oldTokens = old.text.match(/\s*@(w|v|p|pin)\b/gi);
+      if (oldTokens) text = `${text} ${oldTokens.map((t) => t.trim()).join(" ")}`;
+    }
+    next[idx] = { ...old, text: group ? `${group}: ${text}` : text };
     updateTasks(next);
     setEditingTask(null);
   };
@@ -534,8 +558,11 @@ export default function Bucket() {
 
   /* ── build groups ────────────────────────────────────── */
 
+  const visibleTaskCount = tasks.filter((t) => taskVisibleInMode(t.text)).length;
+
   const allGroups = new Map<string, number>();
   tasks.forEach((t) => {
+    if (!taskVisibleInMode(t.text)) return;
     const { group } = parseGroup(t.text);
     if (group) allGroups.set(group, (allGroups.get(group) || 0) + 1);
   });
@@ -563,9 +590,11 @@ export default function Bucket() {
 
   const buildSections = (): Section[] => {
     const byGroup = new Map<string, Section>();
-    const filtered = filterGroup
-      ? tasks.map((t, i) => ({ task: t, originalIdx: i })).filter(({ task }) => parseGroup(task.text).group === filterGroup)
-      : tasks.map((t, i) => ({ task: t, originalIdx: i }));
+    let filtered = tasks.map((t, i) => ({ task: t, originalIdx: i }))
+      .filter(({ task }) => taskVisibleInMode(task.text));
+    if (filterGroup) {
+      filtered = filtered.filter(({ task }) => parseGroup(task.text).group === filterGroup);
+    }
 
     filtered.forEach(({ task, originalIdx }) => {
       const { group, label } = parseGroup(task.text);
@@ -591,7 +620,25 @@ export default function Bucket() {
 
       <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-4 px-4 border-b" : ""}`} style={pinFilters ? { background: 'var(--bg)', borderColor: 'var(--border)' } : undefined}>
       <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-        <span>{tasks.length} task{tasks.length !== 1 ? "s" : ""} in bucket</span>
+        <span>{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""} in bucket{ctxEnabled && ctxMode !== "all" ? ` (${ctxMode})` : ""}</span>
+        {ctxEnabled && (
+          <span className="flex gap-0.5">
+            {(["work", "volunteer", "personal", "all"] as CtxMode[]).map((mode) => {
+              const active = ctxMode === mode;
+              const activeCls = mode === "work" ? "bg-blue-100 text-blue-700"
+                : mode === "volunteer" ? "bg-purple-100 text-purple-700"
+                : mode === "personal" ? "bg-green-100 text-green-700"
+                : "bg-gray-200 text-gray-700";
+              return (
+                <button key={mode} onClick={() => setCtxMode(mode)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${active ? activeCls : ""}`}
+                  style={!active ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
+                  {mode === "work" ? "Work" : mode === "volunteer" ? "Volunteer" : mode === "personal" ? "Personal" : "All"}
+                </button>
+              );
+            })}
+          </span>
+        )}
         <button onClick={allCollapsed ? expandAll : collapseAll}
           className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
           {allCollapsed ? "Expand all" : "Collapse all"}
@@ -659,7 +706,7 @@ export default function Bucket() {
                 const hasSubtasks = task.subtasks && task.subtasks.length > 0;
                 const isExpanded = expandedSubtasks.has(originalIdx);
                 // Strip wiki links from display label
-                const displayLabel = label.replace(WIKI_LINK_RE, "").trim();
+                const displayLabel = stripCtxTokens(label.replace(WIKI_LINK_RE, "").trim());
 
                 return (
                   <div key={originalIdx}>

@@ -40,6 +40,7 @@ class SettingsResponse(BaseModel):
     reference_links: Dict[str, str]
     vault_status: VaultStatus
     api_key_status: ApiKeyStatus
+    contexts: Dict[str, list] = {}
 
 
 class VaultPathUpdate(BaseModel):
@@ -229,6 +230,7 @@ async def get_settings():
         reference_links=_read_reference_links(),
         vault_status=_vault_status(config.vault_root),
         api_key_status=ApiKeyStatus(**key_status),
+        contexts=config.contexts,
     )
 
 
