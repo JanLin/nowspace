@@ -71,12 +71,16 @@ export function ctxFeatureEnabled(ctxMap: CtxMap): boolean {
   return Object.values(ctxMap).some((groups) => (groups || []).length > 0);
 }
 
-/** Shared visibility rule: Work mode also admits pinned exceptions */
+/** Shared visibility rule:
+    - Work mode also admits pinned exceptions
+    - Personal mode also admits volunteer tasks (volunteering happens in
+      private time; Volunteer mode remains for volunteer-only focus) */
 export function taskVisibleInCtxMode(text: string, mode: CtxMode, ctxMap: CtxMap): boolean {
   if (!ctxFeatureEnabled(ctxMap) || mode === "all") return true;
   const ctx = resolveContext(text, ctxMap);
   if (ctx === mode) return true;
   if (mode === "work" && isPinnedText(text)) return true;
+  if (mode === "personal" && ctx === "volunteer") return true;
   return false;
 }
 

@@ -1906,7 +1906,7 @@ export default function WeekPlan() {
     const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap) : null;
     const pinned = ctxEnabled && isPinnedText(task.text);
     const isException = pinned && ctxMode === "work" && taskCtx !== "work";
-    const showEdge = taskCtx !== null && (ctxMode === "all" || isException);
+    const showEdge = taskCtx !== null && (ctxMode === "all" || isException || (ctxMode === "personal" && taskCtx === "volunteer"));
     return (
     <div
       key={`${task.text}-${taskIdx}`}
@@ -2074,7 +2074,7 @@ export default function WeekPlan() {
     const pinned = ctxEnabled && isPinnedText(task.text);
     // A pinned personal/volunteer task shown inside Work mode = the exception
     const isException = pinned && ctxMode === "work" && taskCtx !== "work";
-    const showEdge = taskCtx !== null && (ctxMode === "all" || isException);
+    const showEdge = taskCtx !== null && (ctxMode === "all" || isException || (ctxMode === "personal" && taskCtx === "volunteer"));
     return (
     <div key={`day-${taskIdx}`}>
       <div
@@ -2884,7 +2884,10 @@ export default function WeekPlan() {
                         onClick={() => setCtxMode(mode)}
                         className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${active ? activeCls : "hover:opacity-80"}`}
                         style={!active ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
-                        title={mode === "all" ? "Show every context" : `Show only ${mode} tasks${mode === "work" ? " (+ pinned exceptions)" : ""}`}
+                        title={mode === "all" ? "Show every context"
+                          : mode === "work" ? "Show only work tasks (+ pinned exceptions)"
+                          : mode === "personal" ? "Show personal + volunteer tasks"
+                          : "Show only volunteer tasks"}
                       >
                         {mode === "work" ? "Work" : mode === "volunteer" ? "Volunteer" : mode === "personal" ? "Personal" : "All"}
                       </button>
