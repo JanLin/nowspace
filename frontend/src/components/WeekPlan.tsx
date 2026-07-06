@@ -6,7 +6,7 @@ import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import {
   type CtxMode, type CtxMap, CTX_TOKEN_RE, CTX_TOKEN_OF, CTX_EDGE_COLOR,
-  stripCtxTokens, isPinnedText, resolveContext, ctxFeatureEnabled,
+  stripCtxTokens, stripGroupCtxTag, isPinnedText, resolveContext, ctxFeatureEnabled,
   taskVisibleInCtxMode, loadCtxMode, saveCtxMode,
 } from "../contexts";
 
@@ -67,8 +67,10 @@ function renderLinkedText(text: string) {
   return <>{parts}</>;
 }
 
-/** Parse group prefix from task text. "Rotary: do X" => { group: "Rotary", label: "do X" } */
-function parseGroup(text: string): { group: string; label: string } {
+/** Parse group prefix from task text. "Rotary: do X" => { group: "Rotary", label: "do X" }.
+    Inline group teaching tags are transparent: "wallet@w: do X" groups as "wallet". */
+function parseGroup(rawText: string): { group: string; label: string } {
+  const text = stripGroupCtxTag(rawText);
   const idx = text.indexOf(":");
   if (idx > 1 && idx < 30) {
     const group = text.slice(0, idx).trim();

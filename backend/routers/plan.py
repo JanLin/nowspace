@@ -48,6 +48,41 @@ def _archive_path() -> Path:
     return _vault_root() / "4-Archive" / "a0-Inbox"
 
 
+# Inline group teaching: "wallet@w: task" assigns group wallet → work (w/v/p),
+# persists the mapping to config.yaml, and the tag is cleaned from the text.
+GROUP_CTX_TAG_RE = re.compile(r"^([^:@\[\]]{2,29}?)@(w|v|p)(\s*:)", re.IGNORECASE)
+_CTX_OF_TAG = {"w": "work", "v": "volunteer", "p": "personal"}
+
+
+def _learn_and_clean_group_tag(text: str) -> str:
+    """If the text starts with an inline group tag, learn the mapping and clean it."""
+    m = GROUP_CTX_TAG_RE.match(text or "")
+    if not m:
+        return text
+    group, tag, colon = m.group(1), m.group(2).lower(), m.group(3)
+    config.assign_group_context(group, _CTX_OF_TAG[tag])
+    return f"{group}{colon}{text[m.end():]}"
+
+
+def _learn_and_clean_parsed_days(result: dict) -> None:
+    """Apply inline-group-tag learning/cleaning to a parsed week result in place."""
+    for day_data in result.get("days", []):
+        tasks = day_data.tasks if hasattr(day_data, "tasks") else day_data["tasks"]
+        for task in tasks:
+            if hasattr(task, "text"):
+                cleaned = _learn_and_clean_group_tag(task.text)
+                if cleaned != task.text:
+                    task.text = cleaned
+                    if hasattr(task, "clean_text") and task.clean_text:
+                        task.clean_text = _learn_and_clean_group_tag(task.clean_text)
+            else:
+                cleaned = _learn_and_clean_group_tag(task.get("text", ""))
+                if cleaned != task.get("text"):
+                    task["text"] = cleaned
+                    if task.get("clean_text"):
+                        task["clean_text"] = _learn_and_clean_group_tag(task["clean_text"])
+
+
 def _find_archived_week(year: int, week: int) -> Optional[Path]:
     """Find an archived week file, handling both zero-padded and non-padded names."""
     archive = _archive_path()
@@ -381,6 +416,9 @@ async def get_week_plan(offset: int = 0):
 
     content = plan_file.read_text(encoding="utf-8")
     result = parse_week_plan(content, plan_file.name)
+    # Learn inline group tags (also covers tags typed directly in Obsidian);
+    # the cleaned text reaches the file on the next save.
+    _learn_and_clean_parsed_days(result)
     resp = WeekPlanResponse(**result)
     # Add offset and read-only info
     resp.offset = offset
@@ -440,6 +478,9 @@ async def save_week_plan(req: SaveWeekRequest):
     day_lines: list[str] = []
     for day_data in req.days:
         day_lines.append(day_data.heading or f"##### {day_data.day.capitalize()}")
+        # Inline group teaching: learn "wallet@w:"-style tags and clean them
+        for task in day_data.tasks:
+            task.text = _learn_and_clean_group_tag(task.text)
         day_lines.extend(_format_tasks_grouped(day_data.tasks))
         # No blank line between days — matches original format
 
@@ -1096,6 +1137,9 @@ async def get_bucket():
 
     content = bucket.read_text(encoding="utf-8")
     tasks, pinned = _parse_bucket_file(content)
+    # Learn inline group tags typed directly into the bucket file
+    for task in tasks:
+        task.text = _learn_and_clean_group_tag(task.text)
     return BucketResponse(tasks=tasks, pinned_groups=pinned)
 
 
@@ -1103,6 +1147,9 @@ async def get_bucket():
 async def save_bucket(req: BucketSaveRequest):
     """Write bucket tasks back to Bucket.md."""
     bucket = _bucket_path()
+    # Inline group teaching: learn "wallet@w:"-style tags and clean them
+    for task in req.tasks:
+        task.text = _learn_and_clean_group_tag(task.text)
     md = _format_bucket_tasks(req.tasks, req.pinned_groups)
     bucket.write_text(md, encoding="utf-8")
     return {"status": "saved", "task_count": len(req.tasks)}

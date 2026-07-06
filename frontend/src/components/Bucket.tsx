@@ -3,7 +3,7 @@ import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import NoteFilePicker from "./NoteFilePicker";
 import {
-  type CtxMode, type CtxMap, stripCtxTokens, ctxFeatureEnabled,
+  type CtxMode, type CtxMap, stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
   taskVisibleInCtxMode, loadCtxMode, saveCtxMode,
 } from "../contexts";
 
@@ -18,7 +18,8 @@ function obsidianUri(path: string): string {
 
 /* ── helpers ────────────────────────────────────────────────── */
 
-function parseGroup(text: string): { group: string; label: string } {
+function parseGroup(rawText: string): { group: string; label: string } {
+  const text = stripGroupCtxTag(rawText);
   const idx = text.indexOf(":");
   if (idx > 1 && idx < 30) {
     const group = text.slice(0, idx).trim();

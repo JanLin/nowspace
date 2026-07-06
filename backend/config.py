@@ -152,5 +152,32 @@ class Config:
         with open(self._config_file, "w") as f:
             yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
+    def assign_group_context(self, group: str, context: str) -> bool:
+        """Assign a task group to a context (inline teaching: "wallet@w: task").
+
+        Latest teaching wins: the group is removed from every other context list.
+        Assigning to "personal" (the default) just removes explicit mappings.
+        Returns True if the config changed and was persisted.
+        """
+        group = group.strip().lower()
+        context = context.strip().lower()
+        if not group:
+            return False
+        changed = False
+        for ctx in list(self.contexts.keys()):
+            if ctx != context and group in self.contexts[ctx]:
+                self.contexts[ctx].remove(group)
+                changed = True
+        if context != "personal" and group not in self.contexts.get(context, []):
+            self.contexts.setdefault(context, []).append(group)
+            changed = True
+        if changed:
+            with open(self._config_file) as f:
+                raw = yaml.safe_load(f) or {}
+            raw["contexts"] = {k: v for k, v in self.contexts.items() if v}
+            with open(self._config_file, "w") as f:
+                yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        return changed
+
 
 config = Config()

@@ -182,6 +182,8 @@ When configured, a **Work | Volunteer | Personal | All** switch appears in the w
 - `@w` / `@v` / `@p` — force a context for one task (overrides the group mapping)
 - `@pin` — surface a personal/volunteer task during Work mode (the 📌 icon toggles it)
 
+**Teach a group inline** — no need to edit config for new groups: type the tag right after the group name once, e.g. `wallet@w: fix access control`. Nowspace assigns the whole `wallet` group to Work, persists it to config, and cleans the tag from the line on save. Works when typed in the app or directly in Obsidian. Re-teaching (`wallet@p: …`) reassigns the group — latest wins.
+
 Pins are deliberately short-lived: completing the task removes `@pin`, and carrying a task to another day or week drops it too — surfacing an errand during work hours is a decision you re-make each day. Tasks added while a mode is active automatically get that mode's token so they don't vanish from the current filter.
 
 ## Configuration

@@ -12,6 +12,11 @@ export type CtxMap = Record<string, string[]>;
 export const CTX_TOKEN_RE = /\s*@(w|v|p|pin)\b/gi;
 const CTX_OVERRIDES: Record<string, CtxName> = { w: "work", v: "volunteer", p: "personal" };
 
+/** Inline group teaching: "wallet@w: task" assigns the wallet group to work.
+    The backend learns the mapping on save/read and auto-cleans the tag;
+    the frontend honors it immediately so the task doesn't misfile meanwhile. */
+export const GROUP_CTX_TAG_RE = /^([^:@[\]]{2,29}?)@(w|v|p)(\s*:)/i;
+
 export const CTX_TOKEN_OF: Record<CtxName, string> = { work: "@w", volunteer: "@v", personal: "@p" };
 export const CTX_EDGE_COLOR: Record<CtxName, string> = {
   work: "#3b82f6",      // blue
@@ -28,8 +33,14 @@ export function isPinnedText(text: string): boolean {
   return /@pin\b/i.test(text);
 }
 
+/** Drop an inline group tag: "wallet@w: task" → "wallet: task" */
+export function stripGroupCtxTag(text: string): string {
+  return text.replace(GROUP_CTX_TAG_RE, "$1$3");
+}
+
 /** Group-prefix extraction (mirrors the parseGroup rule used by the views) */
-function groupPrefix(text: string): string {
+function groupPrefix(rawText: string): string {
+  const text = stripGroupCtxTag(rawText);
   const idx = text.indexOf(":");
   if (idx > 1 && idx < 30) {
     const group = text.slice(0, idx).trim();
@@ -39,8 +50,10 @@ function groupPrefix(text: string): string {
   return "";
 }
 
-/** Resolve a task's context: @token override > group mapping > personal */
+/** Resolve a task's context: inline group tag > @token override > group mapping > personal */
 export function resolveContext(text: string, ctxMap: CtxMap): CtxName {
+  const gt = text.match(GROUP_CTX_TAG_RE);
+  if (gt) return CTX_OVERRIDES[gt[2].toLowerCase()];
   const m = text.match(/@(w|v|p)\b/i);
   if (m) return CTX_OVERRIDES[m[1].toLowerCase()];
   const group = groupPrefix(text);
