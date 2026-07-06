@@ -3,8 +3,8 @@ import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import NoteFilePicker from "./NoteFilePicker";
 import {
-  type CtxMode, type CtxMap, stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
-  taskVisibleInCtxMode, loadCtxMode, saveCtxMode,
+  type CtxName, type CtxMap, type CtxSelection, stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
+  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
 
 const VAULT_NAME = "Home";
@@ -142,18 +142,26 @@ export default function Bucket() {
   const [saved, setSaved] = useState(false);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
 
-  // Context mode — follows the mode set in the week view (shared via localStorage)
+  // Context filter — follows the selection set in the week view (shared via localStorage)
   const [ctxMap, setCtxMap] = useState<CtxMap>({});
-  const [ctxMode, setCtxModeState] = useState<CtxMode>(loadCtxMode);
+  const [ctxSel, setCtxSelState] = useState<CtxSelection>(loadCtxSelection);
   const ctxEnabled = ctxFeatureEnabled(ctxMap);
-  const setCtxMode = (mode: CtxMode) => { setCtxModeState(mode); saveCtxMode(mode); };
+  const setCtxSel = (sel: CtxSelection) => { setCtxSelState(sel); saveCtxSelection(sel); };
+  // Functional update so rapid successive toggles never work from stale state
+  const toggleCtx = (name: CtxName) => {
+    setCtxSelState((prev) => {
+      const next = prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name];
+      saveCtxSelection(next);
+      return next;
+    });
+  };
   useEffect(() => {
     api.getSettings().then((s) => setCtxMap(s.contexts || {})).catch(() => {});
-    const sync = () => setCtxModeState(loadCtxMode());
+    const sync = () => setCtxSelState(loadCtxSelection());
     window.addEventListener("ctx-mode-changed", sync);
     return () => window.removeEventListener("ctx-mode-changed", sync);
   }, []);
-  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxMode(text, ctxMode, ctxMap);
+  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxSelection(text, ctxSel, ctxMap);
   const [pinFilters, setPinFilters] = useState(true);
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
   const [editingTask, setEditingTask] = useState<number | null>(null);
@@ -621,23 +629,27 @@ export default function Bucket() {
 
       <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-4 px-4 border-b" : ""}`} style={pinFilters ? { background: 'var(--bg)', borderColor: 'var(--border)' } : undefined}>
       <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-        <span>{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""} in bucket{ctxEnabled && ctxMode !== "all" ? ` (${ctxMode})` : ""}</span>
+        <span>{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""} in bucket{ctxEnabled && ctxSel.length > 0 ? ` (${ctxSel.join(" + ")})` : ""}</span>
         {ctxEnabled && (
           <span className="flex gap-0.5">
-            {(["work", "volunteer", "personal", "all"] as CtxMode[]).map((mode) => {
-              const active = ctxMode === mode;
-              const activeCls = mode === "work" ? "bg-blue-100 text-blue-700"
-                : mode === "volunteer" ? "bg-purple-100 text-purple-700"
-                : mode === "personal" ? "bg-green-100 text-green-700"
-                : "bg-gray-200 text-gray-700";
+            {(["work", "volunteer", "personal"] as CtxName[]).map((name) => {
+              const active = ctxSel.includes(name);
+              const activeCls = name === "work" ? "bg-blue-100 text-blue-700"
+                : name === "volunteer" ? "bg-purple-100 text-purple-700"
+                : "bg-green-100 text-green-700";
               return (
-                <button key={mode} onClick={() => setCtxMode(mode)}
+                <button key={name} onClick={() => toggleCtx(name)}
                   className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${active ? activeCls : ""}`}
                   style={!active ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
-                  {mode === "work" ? "Work" : mode === "volunteer" ? "Volunteer" : mode === "personal" ? "Personal" : "All"}
+                  {name === "work" ? "Work" : name === "volunteer" ? "Volunteer" : "Personal"}
                 </button>
               );
             })}
+            <button onClick={() => setCtxSel([])}
+              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${ctxSel.length === 0 ? "bg-gray-200 text-gray-700" : ""}`}
+              style={ctxSel.length !== 0 ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
+              All
+            </button>
           </span>
         )}
         <button onClick={allCollapsed ? expandAll : collapseAll}

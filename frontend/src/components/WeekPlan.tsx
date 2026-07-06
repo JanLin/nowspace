@@ -5,9 +5,9 @@ import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import {
-  type CtxMode, type CtxMap, CTX_TOKEN_RE, CTX_TOKEN_OF, CTX_EDGE_COLOR,
+  type CtxName, type CtxMap, type CtxSelection, CTX_TOKEN_RE, CTX_TOKEN_OF, CTX_EDGE_COLOR,
   stripCtxTokens, stripGroupCtxTag, isPinnedText, resolveContext, ctxFeatureEnabled,
-  taskVisibleInCtxMode, loadCtxMode, saveCtxMode,
+  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -288,15 +288,25 @@ export default function WeekPlan() {
 
   // Contexts: group→context mapping from config; empty = feature off
   const [ctxMap, setCtxMap] = useState<CtxMap>({});
-  const [ctxMode, setCtxModeState] = useState<CtxMode>(loadCtxMode);
+  // Selection is a set of contexts (multi-select); empty = show everything
+  const [ctxSel, setCtxSelState] = useState<CtxSelection>(loadCtxSelection);
   const ctxEnabled = ctxFeatureEnabled(ctxMap);
-  const setCtxMode = (mode: CtxMode) => {
-    setCtxModeState(mode);
-    saveCtxMode(mode);
+  const setCtxSel = (sel: CtxSelection) => {
+    setCtxSelState(sel);
+    saveCtxSelection(sel);
+  };
+  // Functional update so rapid successive toggles never work from stale state
+  const toggleCtx = (name: CtxName) => {
+    setCtxSelState((prev) => {
+      const next = prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name];
+      saveCtxSelection(next);
+      return next;
+    });
   };
 
-  // A task is visible in the current mode; Work mode also admits pinned exceptions
-  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxMode(text, ctxMode, ctxMap);
+  // A task is visible when its context is selected (empty selection = all);
+  // pinned personal/volunteer tasks also surface while Work is selected
+  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxSelection(text, ctxSel, ctxMap);
 
   // Inline add state
   const [addingAt, setAddingAt] = useState<{ dayIdx: number; afterIdx: number; group?: string | null } | null>(null);
@@ -1053,10 +1063,11 @@ export default function WeekPlan() {
   const addTask = (dayIdx: number, afterIdx: number, text: string, group?: string | null) => {
     if (!data) return;
     let fullText = group ? `${group}: ${text}` : text;
-    // Task added while a context mode is active must stay visible in it:
-    // append the mode's token unless the task already resolves there.
-    if (ctxEnabled && ctxMode !== "all" && resolveContext(fullText, ctxMap) !== ctxMode) {
-      fullText = `${fullText} ${CTX_TOKEN_OF[ctxMode]}`;
+    // Task added while a context filter is active must stay visible in it:
+    // if it wouldn't resolve into the selection, tag it with the first
+    // selected context so it doesn't vanish from the current view.
+    if (ctxEnabled && ctxSel.length > 0 && !ctxSel.includes(resolveContext(fullText, ctxMap))) {
+      fullText = `${fullText} ${CTX_TOKEN_OF[ctxSel[0]]}`;
     }
     const newTask: Task = {
       text: fullText, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
@@ -1905,8 +1916,10 @@ export default function WeekPlan() {
   const renderCompactTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, group: string | null, seqLabel: string = "", nextIdx?: number) => {
     const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap) : null;
     const pinned = ctxEnabled && isPinnedText(task.text);
-    const isException = pinned && ctxMode === "work" && taskCtx !== "work";
-    const showEdge = taskCtx !== null && (ctxMode === "all" || isException || (ctxMode === "personal" && taskCtx === "volunteer"));
+    // Exception = visible only because it's pinned while Work is selected
+    const isException = pinned && taskCtx !== null && ctxSel.includes("work") && !ctxSel.includes(taskCtx);
+    // Edges help whenever more than one context is on screen
+    const showEdge = taskCtx !== null && (ctxSel.length === 0 || ctxSel.length > 1 || isException);
     return (
     <div
       key={`${task.text}-${taskIdx}`}
@@ -2073,8 +2086,10 @@ export default function WeekPlan() {
     const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap) : null;
     const pinned = ctxEnabled && isPinnedText(task.text);
     // A pinned personal/volunteer task shown inside Work mode = the exception
-    const isException = pinned && ctxMode === "work" && taskCtx !== "work";
-    const showEdge = taskCtx !== null && (ctxMode === "all" || isException || (ctxMode === "personal" && taskCtx === "volunteer"));
+    // Exception = visible only because it's pinned while Work is selected
+    const isException = pinned && taskCtx !== null && ctxSel.includes("work") && !ctxSel.includes(taskCtx);
+    // Edges help whenever more than one context is on screen
+    const showEdge = taskCtx !== null && (ctxSel.length === 0 || ctxSel.length > 1 || isException);
     return (
     <div key={`day-${taskIdx}`}>
       <div
@@ -2869,30 +2884,34 @@ export default function WeekPlan() {
               </button>
             </div>
             <div className="flex gap-1 items-center flex-wrap justify-end">
-              {/* Context mode switch — only when contexts are configured */}
+              {/* Context filter — toggleable chips, combine freely; only when contexts are configured */}
               {ctxEnabled && (
                 <>
-                  {(["work", "volunteer", "personal", "all"] as CtxMode[]).map((mode) => {
-                    const active = ctxMode === mode;
-                    const activeCls = mode === "work" ? "bg-blue-100 text-blue-700"
-                      : mode === "volunteer" ? "bg-purple-100 text-purple-700"
-                      : mode === "personal" ? "bg-green-100 text-green-700"
-                      : "bg-gray-200 text-gray-700";
+                  {(["work", "volunteer", "personal"] as CtxName[]).map((name) => {
+                    const active = ctxSel.includes(name);
+                    const activeCls = name === "work" ? "bg-blue-100 text-blue-700"
+                      : name === "volunteer" ? "bg-purple-100 text-purple-700"
+                      : "bg-green-100 text-green-700";
                     return (
                       <button
-                        key={mode}
-                        onClick={() => setCtxMode(mode)}
+                        key={name}
+                        onClick={() => toggleCtx(name)}
                         className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${active ? activeCls : "hover:opacity-80"}`}
                         style={!active ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
-                        title={mode === "all" ? "Show every context"
-                          : mode === "work" ? "Show only work tasks (+ pinned exceptions)"
-                          : mode === "personal" ? "Show personal + volunteer tasks"
-                          : "Show only volunteer tasks"}
+                        title={`${active ? "Hide" : "Show"} ${name} tasks${name === "work" ? " (Work also surfaces pinned exceptions)" : ""} — combine chips freely`}
                       >
-                        {mode === "work" ? "Work" : mode === "volunteer" ? "Volunteer" : mode === "personal" ? "Personal" : "All"}
+                        {name === "work" ? "Work" : name === "volunteer" ? "Volunteer" : "Personal"}
                       </button>
                     );
                   })}
+                  <button
+                    onClick={() => setCtxSel([])}
+                    className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${ctxSel.length === 0 ? "bg-gray-200 text-gray-700" : "hover:opacity-80"}`}
+                    style={ctxSel.length !== 0 ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+                    title="Show every context"
+                  >
+                    All
+                  </button>
                   <span className="w-px h-4 bg-gray-200" />
                 </>
               )}

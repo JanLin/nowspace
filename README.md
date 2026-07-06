@@ -175,7 +175,7 @@ contexts:
   # everything else counts as personal
 ```
 
-When configured, a **Work | Volunteer | Personal | All** switch appears in the week view and bucket. The active mode filters every list, panel, and counter — nothing from other contexts leaks through.
+When configured, **Work / Volunteer / Personal** filter chips appear in the week view and bucket. Chips toggle independently and combine — e.g. select Personal + Volunteer for the full private-time view, or just Work during the day. **All** clears the filter. The active selection filters every list, panel, and counter — nothing from unselected contexts leaks through. When more than one context is visible, tasks carry a colored left edge (blue work / purple volunteer / green personal).
 
 **Markup convention** — trailing `@` tokens on a task line are metadata, hidden from the displayed label:
 

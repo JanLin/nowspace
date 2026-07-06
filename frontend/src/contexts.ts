@@ -6,7 +6,6 @@
    ungrouped tasks are personal. Empty mapping = feature off. */
 
 export type CtxName = "work" | "volunteer" | "personal";
-export type CtxMode = CtxName | "all";
 export type CtxMap = Record<string, string[]>;
 
 export const CTX_TOKEN_RE = /\s*@(w|v|p|pin)\b/gi;
@@ -71,27 +70,34 @@ export function ctxFeatureEnabled(ctxMap: CtxMap): boolean {
   return Object.values(ctxMap).some((groups) => (groups || []).length > 0);
 }
 
-/** Shared visibility rule:
-    - Work mode also admits pinned exceptions
-    - Personal mode also admits volunteer tasks (volunteering happens in
-      private time; Volunteer mode remains for volunteer-only focus) */
-export function taskVisibleInCtxMode(text: string, mode: CtxMode, ctxMap: CtxMap): boolean {
-  if (!ctxFeatureEnabled(ctxMap) || mode === "all") return true;
+/** The active filter is a set of contexts; empty selection = show everything.
+    Combine freely — e.g. Personal + Volunteer for the full private-time view. */
+export type CtxSelection = CtxName[];
+
+/** Shared visibility rule: a task shows when its context is selected.
+    Pinned personal/volunteer tasks also surface while Work is selected. */
+export function taskVisibleInCtxSelection(text: string, sel: CtxSelection, ctxMap: CtxMap): boolean {
+  if (!ctxFeatureEnabled(ctxMap) || sel.length === 0) return true;
   const ctx = resolveContext(text, ctxMap);
-  if (ctx === mode) return true;
-  if (mode === "work" && isPinnedText(text)) return true;
-  if (mode === "personal" && ctx === "volunteer") return true;
+  if (sel.includes(ctx)) return true;
+  if (sel.includes("work") && isPinnedText(text)) return true;
   return false;
 }
 
 const CTX_MODE_KEY = "nowspace-ctx-mode";
+const ALL_CTX: CtxName[] = ["work", "volunteer", "personal"];
 
-export function loadCtxMode(): CtxMode {
+export function loadCtxSelection(): CtxSelection {
   const saved = localStorage.getItem(CTX_MODE_KEY);
-  return saved === "work" || saved === "volunteer" || saved === "personal" ? saved : "all";
+  if (!saved) return [];
+  try {
+    const parsed = JSON.parse(saved);
+    if (Array.isArray(parsed)) return parsed.filter((c): c is CtxName => ALL_CTX.includes(c));
+  } catch { /* legacy single-mode value */ }
+  return ALL_CTX.includes(saved as CtxName) ? [saved as CtxName] : [];
 }
 
-export function saveCtxMode(mode: CtxMode): void {
-  localStorage.setItem(CTX_MODE_KEY, mode);
+export function saveCtxSelection(sel: CtxSelection): void {
+  localStorage.setItem(CTX_MODE_KEY, JSON.stringify(sel));
   window.dispatchEvent(new CustomEvent("ctx-mode-changed"));
 }
