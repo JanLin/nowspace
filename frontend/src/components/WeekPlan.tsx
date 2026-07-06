@@ -1370,7 +1370,7 @@ export default function WeekPlan() {
     }
   };
 
-  const handleDragOver = (e: React.DragEvent, dayIdx: number, taskIdx: number, _group: string | null = null) => {
+  const handleDragOver = (e: React.DragEvent, dayIdx: number, taskIdx: number, _group: string | null = null, nextIdx?: number) => {
     // Accept individual task drags, group drags, and subtask-to-task promotions
     const dominated = dragGroupRef.current || dragRef.current ||
       e.dataTransfer.types.includes("subtask") || e.dataTransfer.types.includes("bucket-task") ||
@@ -1378,11 +1378,15 @@ export default function WeekPlan() {
     if (!dominated) return;
     if (dragGroupRef.current && dragGroupRef.current.fromDay !== dayIdx) return;
     e.preventDefault();
+    // Keep the container-level "drop at end" fallback from overwriting the row indicator
+    e.stopPropagation();
 
-    // Use mouse Y position relative to the element to decide above vs below
+    // Use mouse Y position relative to the element to decide above vs below.
+    // In priority-sorted views the row below is not taskIdx + 1 in the stored
+    // array — callers pass the next *displayed* row's index as nextIdx.
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
-    const insertIdx = e.clientY < midY ? taskIdx : taskIdx + 1;
+    const insertIdx = e.clientY < midY ? taskIdx : (nextIdx ?? taskIdx + 1);
     setDropTarget({ day: dayIdx, idx: insertIdx });
   };
 
@@ -1507,6 +1511,11 @@ export default function WeekPlan() {
 
     if (!dragRef.current) return;
     const { fromDay, fromIdx } = dragRef.current;
+
+    // Land where the indicator showed: dropTarget holds the midpoint-adjusted
+    // insert index from the last dragOver; taskIdx alone is just the hovered row.
+    const rawTarget = dropTarget && dropTarget.day === dayIdx ? dropTarget.idx : taskIdx;
+
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
     const [movedTask] = days[fromDay].tasks.splice(fromIdx, 1);
 
@@ -1517,8 +1526,25 @@ export default function WeekPlan() {
       movedTask.text = newText;
     }
 
-    let insertIdx = taskIdx;
-    if (fromDay === dayIdx && fromIdx < taskIdx) insertIdx = Math.max(0, insertIdx - 1);
+    // Flat views display priority-sorted, so the card only stays where it was
+    // dropped if its priority matches that position — adopt the anchor's band.
+    if (!groupView) {
+      const origTasks = data.days[dayIdx].tasks;
+      let anchor: Task | undefined;
+      if (rawTarget < origTasks.length) {
+        anchor = origTasks[rawTarget];
+      } else {
+        // End-of-list drop: anchor on the visually last active task (worst band)
+        const actives = origTasks.filter((t) => !t.done && t !== movedTask);
+        anchor = actives.reduce<Task | undefined>((worst, t) =>
+          !worst || (PRIORITY_ORDER_MAP[t.priority] ?? 4) >= (PRIORITY_ORDER_MAP[worst.priority] ?? 4) ? t : worst
+        , undefined);
+      }
+      if (anchor && anchor !== movedTask && anchor.priority) movedTask.priority = anchor.priority;
+    }
+
+    let insertIdx = rawTarget;
+    if (fromDay === dayIdx && fromIdx < rawTarget) insertIdx = Math.max(0, insertIdx - 1);
     insertIdx = Math.min(insertIdx, days[dayIdx].tasks.length);
 
     days[dayIdx].tasks.splice(insertIdx, 0, movedTask);
@@ -1803,12 +1829,12 @@ export default function WeekPlan() {
   };
 
   // --- Compact task item for grid views (5day, 7day, weekend) ---
-  const renderCompactTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, group: string | null, seqLabel: string = "") => (
+  const renderCompactTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, group: string | null, seqLabel: string = "", nextIdx?: number) => (
     <div
       key={`${task.text}-${taskIdx}`}
       draggable={!task.done}
       onDragStart={(e) => handleDragStart(dayIdx, taskIdx, group, e)}
-      onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group)}
+      onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group, nextIdx)}
       onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx, e); }}
       onDragEnd={handleDragEnd}
       onDoubleClick={(e) => {
@@ -1951,12 +1977,12 @@ export default function WeekPlan() {
   );
 
   // --- Full-size task item for Day view ---
-  const renderDayTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, seqLabel: string, group: string | null) => (
+  const renderDayTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, seqLabel: string, group: string | null, nextIdx?: number) => (
     <div key={`day-${taskIdx}`}>
       <div
         draggable={!task.done}
         onDragStart={!task.done ? (e) => handleDragStart(dayIdx, taskIdx, group, e) : undefined}
-        onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group)}
+        onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group, nextIdx)}
         onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx, e); }}
         onDragEnd={handleDragEnd}
         onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx, group }); }}
@@ -2240,10 +2266,12 @@ export default function WeekPlan() {
           >
             {sortedTasks.map((task, fi) => {
               const originalIdx = day.tasks.indexOf(task);
+              // Raw index of the next *displayed* row, for below-midpoint drops
+              const nextIdx = fi + 1 < sortedTasks.length ? day.tasks.indexOf(sortedTasks[fi + 1]) : day.tasks.length;
               const seq = seqNumbers.get(filteredTasks.indexOf(task)) ?? "";
               return (
                 <div key={`flat-${originalIdx}`}>
-                  {renderDayTaskItem(task, selectedDayIdx, originalIdx, getDisplayText(task), String(seq), null)}
+                  {renderDayTaskItem(task, selectedDayIdx, originalIdx, getDisplayText(task), String(seq), null, nextIdx)}
                   {renderSubtasks(selectedDayIdx, originalIdx, task, false)}
                 </div>
               );
@@ -2534,10 +2562,12 @@ export default function WeekPlan() {
                     {sortedTasks.length > 0 ? (
                       sortedTasks.map((task, fi) => {
                         const originalIdx = day.tasks.indexOf(task);
+                        // Raw index of the next *displayed* row, for below-midpoint drops
+                        const nextIdx = fi + 1 < sortedTasks.length ? day.tasks.indexOf(sortedTasks[fi + 1]) : day.tasks.length;
                         const seq = seqNumbers.get(filteredTasks.indexOf(task)) ?? "";
                         return (
                           <div key={`wrap-${originalIdx}`}>
-                            {renderCompactTaskItem(task, dayIdx, originalIdx, getDisplayText(task), null, String(seq))}
+                            {renderCompactTaskItem(task, dayIdx, originalIdx, getDisplayText(task), null, String(seq), nextIdx)}
                             {renderSubtasks(dayIdx, originalIdx, task, true)}
                             {renderAddInput(dayIdx, originalIdx)}
                           </div>
