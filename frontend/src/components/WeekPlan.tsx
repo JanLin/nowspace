@@ -285,7 +285,10 @@ export default function WeekPlan() {
   // Drag state — supports both task and group dragging
   const dragRef = useRef<{ fromDay: number; fromIdx: number; group: string | null } | null>(null);
   const dragGroupRef = useRef<{ fromDay: number; groupName: string } | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ day: number; idx: number } | null>(null);
+  // zone disambiguates indicators that share the same raw index: "task" lights a
+  // row's top border, "gap" lights a standalone between-groups bar, "end" the
+  // end-of-list bar. Exactly one indicator may render for a given dropTarget.
+  const [dropTarget, setDropTarget] = useState<{ day: number; idx: number; zone?: "task" | "gap" | "end" } | null>(null);
   const [dropGroupTarget, setDropGroupTarget] = useState<{ day: number; groupName: string } | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
   const [groupPicker, setGroupPicker] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
@@ -1381,19 +1384,22 @@ export default function WeekPlan() {
     // Keep the container-level "drop at end" fallback from overwriting the row indicator
     e.stopPropagation();
 
+    // A row indicator replaces any group-header highlight from a group drag
+    setDropGroupTarget(null);
+
     // Use mouse Y position relative to the element to decide above vs below.
     // In priority-sorted views the row below is not taskIdx + 1 in the stored
     // array — callers pass the next *displayed* row's index as nextIdx.
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
     const insertIdx = e.clientY < midY ? taskIdx : (nextIdx ?? taskIdx + 1);
-    setDropTarget({ day: dayIdx, idx: insertIdx });
+    setDropTarget({ day: dayIdx, idx: insertIdx, zone: "task" });
   };
 
   const handleDayDragOver = (e: React.DragEvent, dayIdx: number) => {
     e.preventDefault();
     if (!data) return;
-    setDropTarget({ day: dayIdx, idx: data.days[dayIdx].tasks.length });
+    setDropTarget({ day: dayIdx, idx: data.days[dayIdx].tasks.length, zone: "end" });
   };
 
   const handleDrop = (dayIdx: number, taskIdx: number, e?: React.DragEvent, targetGroup?: string | null) => {
@@ -1569,6 +1575,8 @@ export default function WeekPlan() {
   const handleGroupDragOver = (e: React.DragEvent, dayIdx: number, groupName: string) => {
     if (!dragGroupRef.current) return;
     e.preventDefault();
+    // A group-header highlight replaces any stale row indicator
+    setDropTarget(null);
     setDropGroupTarget({ day: dayIdx, groupName });
   };
 
@@ -1842,7 +1850,7 @@ export default function WeekPlan() {
         setAddingAt({ dayIdx, afterIdx: taskIdx, group });
       }}
       className={`group flex items-start gap-1 py-0.5 px-1 rounded text-[11px] leading-tight select-none ${
-        dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx
+        dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
           ? "border-t-2 border-blue-400"
           : "border-t-2 border-transparent"
       } ${
@@ -1987,7 +1995,7 @@ export default function WeekPlan() {
         onDragEnd={handleDragEnd}
         onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx, group }); }}
         className={`group flex items-center gap-2 py-1 px-2 rounded text-sm select-none ${
-          dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx
+          dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
             ? "border-t-2 border-blue-400"
             : "border-t-2 border-transparent"
         } ${
@@ -2261,7 +2269,7 @@ export default function WeekPlan() {
           return (
           <div
             className="space-y-0.5"
-            onDragOver={(e) => { if (dragGroupRef.current) return; e.preventDefault(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length }); }}
+            onDragOver={(e) => { if (dragGroupRef.current) return; e.preventDefault(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length, zone: "end" }); }}
             onDrop={(e) => handleDrop(selectedDayIdx, day.tasks.length, e)}
           >
             {sortedTasks.map((task, fi) => {
@@ -2316,7 +2324,7 @@ export default function WeekPlan() {
                   return;
                 }
                 e.preventDefault(); e.stopPropagation();
-                setDropTarget({ day: selectedDayIdx, idx: 0 });
+                setDropTarget({ day: selectedDayIdx, idx: 0, zone: "gap" });
               }}
               onDrop={(e) => {
                 if (dragGroupRef.current) {
@@ -2329,13 +2337,12 @@ export default function WeekPlan() {
               className={`rounded transition-all ${
                 dropGroupTarget?.day === selectedDayIdx && dropGroupTarget?.groupName === "__start__"
                   ? "h-3 bg-blue-400"
-                  : dropTarget?.day === selectedDayIdx && dropTarget?.idx === 0
+                  : dropTarget?.day === selectedDayIdx && dropTarget?.idx === 0 && dropTarget?.zone === "gap"
                     ? "h-3 bg-blue-400" : dropTarget || dropGroupTarget ? "h-4" : "h-1"
               }`}
             />
             {groups.map((section, sectionIdx) => {
               const firstOrigIdx = section.items[0]?.originalIdx ?? 0;
-              const lastOrigIdx = section.items[section.items.length - 1]?.originalIdx ?? 0;
               const sectionKey = section.name ? `${section.name}-${firstOrigIdx}` : `ungrouped-${firstOrigIdx}`;
               const isCollapsed = section.name ? collapsedGroups.has(section.name) : false;
               const doneInSection = section.items.filter((e) => e.task.done).length;
@@ -2351,14 +2358,14 @@ export default function WeekPlan() {
                           return;
                         }
                         e.preventDefault(); e.stopPropagation();
-                        setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx });
+                        setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx, zone: "gap" });
                       }}
                       onDrop={(e) => {
                         if (dragGroupRef.current) return;
                         e.stopPropagation(); handleDrop(selectedDayIdx, firstOrigIdx, e);
                       }}
                       className={`rounded transition-all ${
-                        dropTarget?.day === selectedDayIdx && dropTarget?.idx === firstOrigIdx
+                        dropTarget?.day === selectedDayIdx && dropTarget?.idx === firstOrigIdx && dropTarget?.zone === "gap"
                           ? "h-3 bg-blue-400" : dropTarget ? "h-4" : "h-1"
                       }`}
                     />
@@ -2374,9 +2381,9 @@ export default function WeekPlan() {
                           // Group drag — use group drag handler
                           handleGroupDragOver(e, selectedDayIdx, section.name);
                         } else if (dragRef.current) {
-                          // Task drag — insert before this group
+                          // Task drag — insert before this group; light the gap bar above the header
                           e.preventDefault(); e.stopPropagation();
-                          setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx });
+                          setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx, zone: "gap" });
                         }
                       }}
                       onDrop={(e) => {
@@ -2420,10 +2427,6 @@ export default function WeekPlan() {
                           </div>
                         );
                       })}
-                      {/* Bottom-of-section drop indicator */}
-                      {dropTarget?.day === selectedDayIdx && dropTarget?.idx === lastOrigIdx + 1 && (
-                        <div className="h-1 bg-blue-400 rounded -my-0.5" />
-                      )}
                     </div>
                   )}
                 </div>
@@ -2439,7 +2442,7 @@ export default function WeekPlan() {
                   return;
                 }
                 e.preventDefault(); e.stopPropagation();
-                setDropTarget({ day: selectedDayIdx, idx: day.tasks.length });
+                setDropTarget({ day: selectedDayIdx, idx: day.tasks.length, zone: "end" });
               }}
               onDrop={(e) => {
                 if (dragGroupRef.current) {
@@ -2592,15 +2595,14 @@ export default function WeekPlan() {
                   >
                     {/* Top drop zone for ungrouped tasks above first group */}
                     <div
-                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: 0 }); }}
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: 0, zone: "gap" }); }}
                       onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, 0, e, null); }}
                       className={`h-0.5 rounded transition-colors ${
-                        dropTarget?.day === dayIdx && dropTarget?.idx === 0 ? "bg-blue-400" : "bg-transparent"
+                        dropTarget?.day === dayIdx && dropTarget?.idx === 0 && dropTarget?.zone === "gap" ? "bg-blue-400" : "bg-transparent"
                       }`}
                     />
                     {buildDayGroups(day.tasks).map((section) => {
                       const firstOrigIdx = section.items[0]?.originalIdx ?? 0;
-                      const lastOrigIdx = section.items[section.items.length - 1]?.originalIdx ?? 0;
                       const sectionKey = section.name ? `${section.name}-${firstOrigIdx}` : `ungrouped-${firstOrigIdx}`;
                       const isCollapsed = section.name ? collapsedGroups.has(section.name) : false;
                       const doneInSection = section.items.filter((e) => e.task.done).length;
@@ -2610,10 +2612,10 @@ export default function WeekPlan() {
                           {/* Drop zone before group — insert above this group */}
                           {section.name && (
                             <div
-                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: firstOrigIdx }); }}
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: firstOrigIdx, zone: "gap" }); }}
                               onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, firstOrigIdx, e); }}
                               className={`rounded transition-all ${
-                                dropTarget?.day === dayIdx && dropTarget?.idx === firstOrigIdx ? "h-1.5 bg-blue-400" : dropTarget ? "h-2" : "h-0.5"
+                                dropTarget?.day === dayIdx && dropTarget?.idx === firstOrigIdx && dropTarget?.zone === "gap" ? "h-1.5 bg-blue-400" : dropTarget ? "h-2" : "h-0.5"
                               }`}
                             />
                           )}
@@ -2626,7 +2628,7 @@ export default function WeekPlan() {
                               onDragOver={(e) => {
                                 if (dragRef.current && !dragGroupRef.current) {
                                   e.preventDefault(); e.stopPropagation();
-                                  setDropTarget({ day: dayIdx, idx: firstOrigIdx });
+                                  setDropTarget({ day: dayIdx, idx: firstOrigIdx, zone: "gap" });
                                 }
                               }}
                               onDrop={(e) => {
@@ -2663,10 +2665,6 @@ export default function WeekPlan() {
                                   </div>
                                 );
                               })}
-                              {/* Bottom-of-section drop indicator */}
-                              {dropTarget?.day === dayIdx && dropTarget?.idx === lastOrigIdx + 1 && (
-                                <div className="h-0.5 bg-blue-400 rounded" />
-                              )}
                             </div>
                           )}
                         </div>
