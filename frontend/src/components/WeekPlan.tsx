@@ -755,8 +755,16 @@ export default function WeekPlan() {
 
   useEffect(() => {
     refreshHabits();
+    // Refetch on focus and after edits elsewhere, so a Habits.md created or
+    // edited after page load (Habits tab, Obsidian) shows up without a reload
     window.addEventListener("week-changed", refreshHabits);
-    return () => window.removeEventListener("week-changed", refreshHabits);
+    window.addEventListener("habits-changed", refreshHabits);
+    window.addEventListener("focus", refreshHabits);
+    return () => {
+      window.removeEventListener("week-changed", refreshHabits);
+      window.removeEventListener("habits-changed", refreshHabits);
+      window.removeEventListener("focus", refreshHabits);
+    };
   }, []);
 
   // Load context mapping + tag table from config (feature off when empty).

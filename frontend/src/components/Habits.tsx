@@ -51,7 +51,7 @@ export default function Habits() {
 
   const createStarter = async () => {
     setCreating(true);
-    try { await api.initHabits(); load(); }
+    try { await api.initHabits(); load(); window.dispatchEvent(new CustomEvent("habits-changed")); }
     catch (e) { setError(e instanceof Error ? e.message : "Failed to create Plan Week Habits.md"); }
     setCreating(false);
   };
@@ -78,7 +78,7 @@ export default function Habits() {
       })));
       setEditing(false);
       load();
-      window.dispatchEvent(new CustomEvent("week-changed")); // refresh the strip
+      window.dispatchEvent(new CustomEvent("habits-changed")); // refresh the strip
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save habits");
     }
