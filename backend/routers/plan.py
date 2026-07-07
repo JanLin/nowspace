@@ -48,19 +48,35 @@ def _archive_path() -> Path:
     return _vault_root() / "4-Archive" / "a0-Inbox"
 
 
-# Inline group teaching: "wallet@w: task" assigns group wallet → work (w/v/p),
-# persists the mapping to config.yaml, and the tag is cleaned from the text.
-GROUP_CTX_TAG_RE = re.compile(r"^([^:@\[\]]{2,29}?)@(w|v|p)(\s*:)", re.IGNORECASE)
-_CTX_OF_TAG = {"w": "work", "v": "volunteer", "p": "personal"}
+# Inline group teaching: "wallet@w: task" assigns group wallet → the context
+# behind tag w, persists the mapping to config.yaml, and the tag is cleaned
+# from the text. Any single letter works; unknown letters auto-create a new
+# context named after the letter (rename it in Settings).
+GROUP_CTX_TAG_RE = re.compile(r"^([^:@\[\]]{2,29}?)@([a-z])(\s*:)", re.IGNORECASE)
+# Trailing per-task tags: "task text @f" — learned (auto-created) but never cleaned
+TASK_CTX_TAG_RE = re.compile(r"\s@([a-z])\b(?!\w)", re.IGNORECASE)
+
+
+def _context_for_tag(tag: str) -> str:
+    """Resolve a tag letter to its context name, auto-creating unknown tags."""
+    tag = tag.lower()
+    config.ensure_context_tag(tag)
+    return config.context_tags.get(tag, tag)
 
 
 def _learn_and_clean_group_tag(text: str) -> str:
-    """If the text starts with an inline group tag, learn the mapping and clean it."""
+    """Learn context mappings from a task line.
+
+    - Leading group tag ("wallet@w: task"): assign the group, clean the tag.
+    - Trailing task tags ("task @f"): auto-create unknown tags, keep the tag.
+    """
+    for tm in TASK_CTX_TAG_RE.finditer(text or ""):
+        config.ensure_context_tag(tm.group(1))
     m = GROUP_CTX_TAG_RE.match(text or "")
     if not m:
         return text
     group, tag, colon = m.group(1), m.group(2).lower(), m.group(3)
-    config.assign_group_context(group, _CTX_OF_TAG[tag])
+    config.assign_group_context(group, _context_for_tag(tag))
     return f"{group}{colon}{text[m.end():]}"
 
 

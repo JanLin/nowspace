@@ -3,7 +3,9 @@ import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import NoteFilePicker from "./NoteFilePicker";
 import {
-  type CtxName, type CtxMap, type CtxSelection, stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
+  type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
+  ctxChipClass, allContextNames, resolveContext,
+  stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
 
@@ -144,6 +146,7 @@ export default function Bucket() {
 
   // Context filter — follows the selection set in the week view (shared via localStorage)
   const [ctxMap, setCtxMap] = useState<CtxMap>({});
+  const [ctxTags, setCtxTags] = useState<CtxTags>(DEFAULT_CTX_TAGS);
   const [ctxSel, setCtxSelState] = useState<CtxSelection>(loadCtxSelection);
   const ctxEnabled = ctxFeatureEnabled(ctxMap);
   const setCtxSel = (sel: CtxSelection) => { setCtxSelState(sel); saveCtxSelection(sel); };
@@ -156,12 +159,20 @@ export default function Bucket() {
     });
   };
   useEffect(() => {
-    api.getSettings().then((s) => setCtxMap(s.contexts || {})).catch(() => {});
+    const load = () => api.getSettings().then((s) => {
+      setCtxMap(s.contexts || {});
+      setCtxTags({ ...DEFAULT_CTX_TAGS, ...(s.context_tags || {}) });
+    }).catch(() => {});
+    load();
     const sync = () => setCtxSelState(loadCtxSelection());
     window.addEventListener("ctx-mode-changed", sync);
-    return () => window.removeEventListener("ctx-mode-changed", sync);
+    window.addEventListener("ctx-config-changed", load);
+    return () => {
+      window.removeEventListener("ctx-mode-changed", sync);
+      window.removeEventListener("ctx-config-changed", load);
+    };
   }, []);
-  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxSelection(text, ctxSel, ctxMap);
+  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxSelection(text, ctxSel, ctxMap, ctxTags);
   const [pinFilters, setPinFilters] = useState(true);
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
   const [editingTask, setEditingTask] = useState<number | null>(null);
@@ -632,16 +643,17 @@ export default function Bucket() {
         <span>{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""} in bucket{ctxEnabled && ctxSel.length > 0 ? ` (${ctxSel.join(" + ")})` : ""}</span>
         {ctxEnabled && (
           <span className="flex gap-0.5">
-            {(["work", "volunteer", "personal"] as CtxName[]).map((name) => {
+            {allContextNames(ctxMap, ctxTags).filter((name) => {
+              if (["work", "volunteer", "personal"].includes(name)) return true;
+              if (ctxSel.includes(name)) return true;
+              return tasks.some((t) => resolveContext(t.text, ctxMap, ctxTags) === name);
+            }).map((name) => {
               const active = ctxSel.includes(name);
-              const activeCls = name === "work" ? "bg-blue-100 text-blue-700"
-                : name === "volunteer" ? "bg-purple-100 text-purple-700"
-                : "bg-green-100 text-green-700";
               return (
                 <button key={name} onClick={() => toggleCtx(name)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${active ? activeCls : ""}`}
+                  className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${active ? ctxChipClass(name) : ""}`}
                   style={!active ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
-                  {name === "work" ? "Work" : name === "volunteer" ? "Volunteer" : "Personal"}
+                  {name.charAt(0).toUpperCase() + name.slice(1)}
                 </button>
               );
             })}

@@ -5,7 +5,8 @@ import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import {
-  type CtxName, type CtxMap, type CtxSelection, CTX_TOKEN_RE, CTX_TOKEN_OF, CTX_EDGE_COLOR,
+  type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
+  ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
   stripCtxTokens, stripGroupCtxTag, isPinnedText, resolveContext, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
@@ -288,6 +289,8 @@ export default function WeekPlan() {
 
   // Contexts: group→context mapping from config; empty = feature off
   const [ctxMap, setCtxMap] = useState<CtxMap>({});
+  // Tag letters → context names (@w → work, plus user-defined like @f → fun)
+  const [ctxTags, setCtxTags] = useState<CtxTags>(DEFAULT_CTX_TAGS);
   // Selection is a set of contexts (multi-select); empty = show everything
   const [ctxSel, setCtxSelState] = useState<CtxSelection>(loadCtxSelection);
   const ctxEnabled = ctxFeatureEnabled(ctxMap);
@@ -306,7 +309,7 @@ export default function WeekPlan() {
 
   // A task is visible when its context is selected (empty selection = all);
   // pinned personal/volunteer tasks also surface while Work is selected
-  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxSelection(text, ctxSel, ctxMap);
+  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxSelection(text, ctxSel, ctxMap, ctxTags);
 
   // Inline add state
   const [addingAt, setAddingAt] = useState<{ dayIdx: number; afterIdx: number; group?: string | null } | null>(null);
@@ -743,9 +746,21 @@ export default function WeekPlan() {
     };
   }, []);
 
-  // Load context mapping from config (feature off when empty)
+  // Load context mapping + tag table from config (feature off when empty).
+  // Re-fetch on window focus so tags auto-created by the backend (e.g. a new
+  // @f typed in Obsidian) and Settings-tab edits show up without a reload.
   useEffect(() => {
-    api.getSettings().then((s) => setCtxMap(s.contexts || {})).catch(() => {});
+    const load = () => api.getSettings().then((s) => {
+      setCtxMap(s.contexts || {});
+      setCtxTags({ ...DEFAULT_CTX_TAGS, ...(s.context_tags || {}) });
+    }).catch(() => {});
+    load();
+    window.addEventListener("focus", load);
+    window.addEventListener("ctx-config-changed", load);
+    return () => {
+      window.removeEventListener("focus", load);
+      window.removeEventListener("ctx-config-changed", load);
+    };
   }, []);
 
   // Auto-fetch last week's incomplete tasks — only on the current week. Past weeks are
@@ -1066,8 +1081,8 @@ export default function WeekPlan() {
     // Task added while a context filter is active must stay visible in it:
     // if it wouldn't resolve into the selection, tag it with the first
     // selected context so it doesn't vanish from the current view.
-    if (ctxEnabled && ctxSel.length > 0 && !ctxSel.includes(resolveContext(fullText, ctxMap))) {
-      fullText = `${fullText} ${CTX_TOKEN_OF[ctxSel[0]]}`;
+    if (ctxEnabled && ctxSel.length > 0 && !ctxSel.includes(resolveContext(fullText, ctxMap, ctxTags))) {
+      fullText = `${fullText} ${ctxTokenOf(ctxSel[0], ctxTags)}`;
     }
     const newTask: Task = {
       text: fullText, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
@@ -1914,7 +1929,7 @@ export default function WeekPlan() {
 
   // --- Compact task item for grid views (5day, 7day, weekend) ---
   const renderCompactTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, group: string | null, seqLabel: string = "", nextIdx?: number) => {
-    const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap) : null;
+    const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap, ctxTags) : null;
     const pinned = ctxEnabled && isPinnedText(task.text);
     // Exception = visible only because it's pinned while Work is selected
     const isException = pinned && taskCtx !== null && ctxSel.includes("work") && !ctxSel.includes(taskCtx);
@@ -1932,7 +1947,7 @@ export default function WeekPlan() {
         e.stopPropagation();
         setAddingAt({ dayIdx, afterIdx: taskIdx, group });
       }}
-      style={showEdge ? { boxShadow: `inset 2px 0 0 ${CTX_EDGE_COLOR[taskCtx!]}` } : undefined}
+      style={showEdge ? { boxShadow: `inset 2px 0 0 ${ctxEdgeColor(taskCtx!)}` } : undefined}
       className={`group flex items-start gap-1 py-0.5 px-1 rounded text-[11px] leading-tight select-none ${
         dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
           ? "border-t-2 border-blue-400"
@@ -2083,7 +2098,7 @@ export default function WeekPlan() {
 
   // --- Full-size task item for Day view ---
   const renderDayTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, seqLabel: string, group: string | null, nextIdx?: number) => {
-    const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap) : null;
+    const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap, ctxTags) : null;
     const pinned = ctxEnabled && isPinnedText(task.text);
     // A pinned personal/volunteer task shown inside Work mode = the exception
     // Exception = visible only because it's pinned while Work is selected
@@ -2099,7 +2114,7 @@ export default function WeekPlan() {
         onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx, e); }}
         onDragEnd={handleDragEnd}
         onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx, group }); }}
-        style={showEdge ? { boxShadow: `inset 2px 0 0 ${CTX_EDGE_COLOR[taskCtx!]}` } : undefined}
+        style={showEdge ? { boxShadow: `inset 2px 0 0 ${ctxEdgeColor(taskCtx!)}` } : undefined}
         className={`group flex items-center gap-2 py-1 px-2 rounded text-sm select-none ${
           dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
             ? "border-t-2 border-blue-400"
@@ -2884,23 +2899,25 @@ export default function WeekPlan() {
               </button>
             </div>
             <div className="flex gap-1 items-center flex-wrap justify-end">
-              {/* Context filter — toggleable chips, combine freely; only when contexts are configured */}
+              {/* Context filter — toggleable chips, combine freely; only when contexts are configured.
+                  Core three always show; custom contexts only when present in this week or selected. */}
               {ctxEnabled && (
                 <>
-                  {(["work", "volunteer", "personal"] as CtxName[]).map((name) => {
+                  {allContextNames(ctxMap, ctxTags).filter((name) => {
+                    if (["work", "volunteer", "personal"].includes(name)) return true;
+                    if (ctxSel.includes(name)) return true;
+                    return (data?.days || []).some((d) => d.tasks.some((t) => resolveContext(t.text, ctxMap, ctxTags) === name));
+                  }).map((name) => {
                     const active = ctxSel.includes(name);
-                    const activeCls = name === "work" ? "bg-blue-100 text-blue-700"
-                      : name === "volunteer" ? "bg-purple-100 text-purple-700"
-                      : "bg-green-100 text-green-700";
                     return (
                       <button
                         key={name}
                         onClick={() => toggleCtx(name)}
-                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${active ? activeCls : "hover:opacity-80"}`}
+                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${active ? ctxChipClass(name) : "hover:opacity-80"}`}
                         style={!active ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
                         title={`${active ? "Hide" : "Show"} ${name} tasks${name === "work" ? " (Work also surfaces pinned exceptions)" : ""} — combine chips freely`}
                       >
-                        {name === "work" ? "Work" : name === "volunteer" ? "Volunteer" : "Personal"}
+                        {name.charAt(0).toUpperCase() + name.slice(1)}
                       </button>
                     );
                   })}

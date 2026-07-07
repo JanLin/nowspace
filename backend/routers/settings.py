@@ -41,6 +41,12 @@ class SettingsResponse(BaseModel):
     vault_status: VaultStatus
     api_key_status: ApiKeyStatus
     contexts: Dict[str, list] = {}
+    context_tags: Dict[str, str] = {}
+
+
+class ContextSettingsUpdate(BaseModel):
+    contexts: Dict[str, list]
+    context_tags: Dict[str, str]
 
 
 class VaultPathUpdate(BaseModel):
@@ -231,7 +237,15 @@ async def get_settings():
         vault_status=_vault_status(config.vault_root),
         api_key_status=ApiKeyStatus(**key_status),
         contexts=config.contexts,
+        context_tags=config.context_tags,
     )
+
+
+@router.post("/contexts")
+async def save_context_settings(body: ContextSettingsUpdate):
+    """Persist the context configuration edited in the Settings tab."""
+    config.save_context_settings(body.contexts, body.context_tags)
+    return {"status": "saved", "contexts": config.contexts, "context_tags": config.context_tags}
 
 
 @router.post("/validate-vault")

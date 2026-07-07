@@ -124,6 +124,17 @@ class Config:
             for name, groups in raw_contexts.items()
         }
 
+        # Context tags: single-letter abbreviation → context name, used in
+        # task markup (@w, @f, …). Unknown letters seen in tasks are
+        # auto-created (name defaults to the letter; rename in Settings).
+        raw_tags = raw.get("context_tags", {}) or {}
+        self.context_tags: Dict[str, str] = {
+            str(k).lower(): str(v).lower() for k, v in raw_tags.items()
+            if len(str(k)) == 1 and str(k).isalpha()
+        }
+        for abbrev, name in {"w": "work", "v": "volunteer", "p": "personal"}.items():
+            self.context_tags.setdefault(abbrev, name)
+
         api = raw.get("api", {})
         self.model = api.get("model", "claude-sonnet-4-6")
         self.max_tokens = api.get("max_tokens", 1024)
@@ -172,12 +183,45 @@ class Config:
             self.contexts.setdefault(context, []).append(group)
             changed = True
         if changed:
-            with open(self._config_file) as f:
-                raw = yaml.safe_load(f) or {}
-            raw["contexts"] = {k: v for k, v in self.contexts.items() if v}
-            with open(self._config_file, "w") as f:
-                yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            self._persist_contexts()
         return changed
+
+    def ensure_context_tag(self, abbrev: str) -> bool:
+        """Auto-create a context tag for an unknown single-letter abbreviation.
+
+        The context name defaults to the letter itself; the user can rename
+        it (and reassign the abbreviation) in Settings. Returns True if a new
+        tag was created and persisted.
+        """
+        abbrev = abbrev.strip().lower()
+        if len(abbrev) != 1 or not abbrev.isalpha() or abbrev in self.context_tags:
+            return False
+        self.context_tags[abbrev] = abbrev
+        self.contexts.setdefault(abbrev, [])
+        self._persist_contexts()
+        return True
+
+    def save_context_settings(self, contexts: Dict[str, list], context_tags: Dict[str, str]) -> None:
+        """Replace the context configuration from the Settings tab."""
+        self.contexts = {
+            str(name).lower(): [str(g).lower() for g in (groups or [])]
+            for name, groups in (contexts or {}).items()
+        }
+        self.context_tags = {
+            str(k).lower(): str(v).lower() for k, v in (context_tags or {}).items()
+            if len(str(k)) == 1 and str(k).isalpha()
+        }
+        for abbrev, name in {"w": "work", "v": "volunteer", "p": "personal"}.items():
+            self.context_tags.setdefault(abbrev, name)
+        self._persist_contexts()
+
+    def _persist_contexts(self) -> None:
+        with open(self._config_file) as f:
+            raw = yaml.safe_load(f) or {}
+        raw["contexts"] = {k: v for k, v in self.contexts.items() if v}
+        raw["context_tags"] = self.context_tags
+        with open(self._config_file, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
 config = Config()

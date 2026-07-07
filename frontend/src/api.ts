@@ -295,7 +295,14 @@ export const api = {
       vault_status: VaultStatus;
       api_key_status: ApiKeyStatus;
       contexts: Record<string, string[]>;
+      context_tags: Record<string, string>;
     }>("/api/settings"),
+
+  saveContextSettings: (contexts: Record<string, string[]>, context_tags: Record<string, string>) =>
+    request<{ status: string; contexts: Record<string, string[]>; context_tags: Record<string, string> }>(
+      "/api/settings/contexts",
+      { method: "POST", body: JSON.stringify({ contexts, context_tags }) }
+    ),
 
   validateVault: (vault_path: string) =>
     request<{
