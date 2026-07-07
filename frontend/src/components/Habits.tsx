@@ -42,9 +42,11 @@ export default function Habits() {
   useEffect(() => {
     load();
     window.addEventListener("week-changed", load);
+    window.addEventListener("week-saved", load);
     window.addEventListener("focus", load);
     return () => {
       window.removeEventListener("week-changed", load);
+      window.removeEventListener("week-saved", load);
       window.removeEventListener("focus", load);
     };
   }, []);

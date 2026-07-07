@@ -955,6 +955,8 @@ export default function WeekPlan() {
       setExternalChange(false);
       recordMtime();
       setTimeout(() => setSaved(false), 2000);
+      // Let read-only views (Habits tab) recompute from the saved file
+      window.dispatchEvent(new CustomEvent("week-saved"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
