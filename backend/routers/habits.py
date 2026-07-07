@@ -11,14 +11,13 @@ from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from backend.agents.obsidian_reader import parse_week_plan
 from backend.config import config
 from backend.routers.plan import _list_archived_week_files
 
 router = APIRouter(prefix="/plan/habits", tags=["habits"])
-
-HABITS_FILE = "Habits.md"
 
 # "- name (variant | variant): 3x/week, morning"  /  "- name: daily"
 TARGET_RE = re.compile(r"^\s*(\d+)\s*x\s*/\s*week\s*(,\s*morning)?\s*$", re.IGNORECASE)
@@ -30,7 +29,15 @@ HISTORY_WEEKS = 8
 
 
 def _habits_path() -> Path:
-    return config.vault_path / HABITS_FILE
+    """Habits live in the Plan Week file family (Plan Week Habits.md).
+
+    Migrates a pre-rename Habits.md transparently the first time it's seen.
+    """
+    path = config.vault_path / config.plan_week_habits_file
+    legacy = config.vault_path / "Habits.md"
+    if not path.exists() and legacy.exists():
+        legacy.rename(path)
+    return path
 
 def _parse_habits_file(content: str) -> list[dict]:
     """Parse Habits.md → habit definitions."""
@@ -183,6 +190,52 @@ Edit freely: "- name (variant | variant): 3x/week[, morning]" or "- name: daily"
 ## Sleep
 - sleep before 23: daily
 """
+
+
+class HabitDef(BaseModel):
+    name: str
+    domain: str = "body"
+    variants: list[str] = []
+    target: int = 1
+    period: str = "week"  # "week" | "day"
+    morning: bool = False
+
+
+class SaveHabitsRequest(BaseModel):
+    habits: list[HabitDef]
+
+
+def _format_habits_file(habits: list[HabitDef]) -> str:
+    """Serialize definitions to Plan Week Habits.md (edit-friendly format)."""
+    lines = [
+        "# Habits",
+        "",
+        "Targets are weekly and flexible — any variant counts, any day counts.",
+        'Edit freely: "- name (variant | variant): 3x/week[, morning]" or "- name: daily".',
+    ]
+    by_domain: dict[str, list[HabitDef]] = {}
+    for h in habits:
+        by_domain.setdefault(h.domain.strip().lower() or "body", []).append(h)
+    order = ["body", "mind", "soul", "sleep"]
+    domains = [d for d in order if d in by_domain] + sorted(d for d in by_domain if d not in order)
+    for d in domains:
+        lines += ["", f"## {d.capitalize()}"]
+        for h in by_domain[d]:
+            name = h.name.strip().lower()
+            if not name:
+                continue
+            variants = f" ({' | '.join(v.strip().lower() for v in h.variants if v.strip())})" if any(v.strip() for v in h.variants) else ""
+            target = "daily" if h.period == "day" else f"{max(1, h.target)}x/week" + (", morning" if h.morning else "")
+            lines.append(f"- {name}{variants}: {target}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+@router.post("/save")
+async def save_habits(req: SaveHabitsRequest):
+    """Persist habit definitions edited in the Habits tab."""
+    _habits_path().write_text(_format_habits_file(req.habits), encoding="utf-8")
+    return {"status": "saved", "count": len(req.habits)}
 
 
 @router.post("/init")

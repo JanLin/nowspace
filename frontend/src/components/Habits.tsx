@@ -5,7 +5,8 @@ import { habitDomainStyle } from "./HabitStrip";
 
 /* The registration of habits you've built — a calm, read-mostly view.
    Logging happens via the habit strip in the week view; this tab shows
-   this week's progress, an 8-week history, and "established" badges.
+   this week's progress, an 8-week history, and "established" badges,
+   plus a simple editor for the definitions (stored in Plan Week Habits.md).
    Tone rules: celebrate weeks met, never count weeks missed. */
 
 const DOMAIN_ORDER = ["body", "mind", "soul", "sleep"];
@@ -13,11 +14,25 @@ const DOMAIN_TITLES: Record<string, string> = {
   body: "Body", mind: "Mind", soul: "Soul", sleep: "Sleep",
 };
 
+type HabitRow = {
+  name: string;
+  domain: string;
+  variants: string; // CSV while editing
+  target: number;
+  period: string;
+  morning: boolean;
+};
+
 export default function Habits() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [found, setFound] = useState<boolean | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+
+  // Editor state
+  const [editing, setEditing] = useState(false);
+  const [rows, setRows] = useState<HabitRow[]>([]);
+  const [savingRows, setSavingRows] = useState(false);
 
   const load = () => {
     api.getHabits().then((r) => { setFound(r.found); setHabits(r.habits); setError(""); })
@@ -37,8 +52,37 @@ export default function Habits() {
   const createStarter = async () => {
     setCreating(true);
     try { await api.initHabits(); load(); }
-    catch (e) { setError(e instanceof Error ? e.message : "Failed to create Habits.md"); }
+    catch (e) { setError(e instanceof Error ? e.message : "Failed to create Plan Week Habits.md"); }
     setCreating(false);
+  };
+
+  const startEditing = () => {
+    setRows(habits.map((h) => ({
+      name: h.name, domain: h.domain, variants: h.variants.join(", "),
+      target: h.period === "day" ? 1 : h.target, period: h.period, morning: h.morning,
+    })));
+    setEditing(true);
+  };
+
+  const saveRows = async () => {
+    const clean = rows.filter((r) => r.name.trim());
+    setSavingRows(true);
+    try {
+      await api.saveHabits(clean.map((r) => ({
+        name: r.name.trim(),
+        domain: r.domain.trim() || "body",
+        variants: r.variants.split(",").map((v) => v.trim()).filter(Boolean),
+        target: Math.max(1, r.target),
+        period: r.period === "day" ? "day" : "week",
+        morning: r.morning,
+      })));
+      setEditing(false);
+      load();
+      window.dispatchEvent(new CustomEvent("week-changed")); // refresh the strip
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save habits");
+    }
+    setSavingRows(false);
   };
 
   if (found === null) return <p className="text-center py-8 text-sm" style={{ color: "var(--text-tertiary)" }}>Loading…</p>;
@@ -62,13 +106,98 @@ export default function Habits() {
           {creating ? "Creating…" : "Create my starter set"}
         </button>
         <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-          Creates <span className="font-mono">Habits.md</span> in your vault — edit it freely in Obsidian.
+          Creates <span className="font-mono">Plan Week Habits.md</span> in your vault — edit it here or in Obsidian.
         </p>
         {error && <p className="text-xs text-red-500">{error}</p>}
       </div>
     );
   }
 
+  /* ── Edit mode ─────────────────────────────────────────── */
+  if (editing) {
+    const editDomains = [
+      ...DOMAIN_ORDER,
+      ...[...new Set(rows.map((r) => r.domain))].filter((d) => !DOMAIN_ORDER.includes(d)).sort(),
+    ];
+    return (
+      <div className="space-y-5 pb-12">
+        <div className="flex items-center justify-between">
+          <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+            Editing <span className="font-mono">Plan Week Habits.md</span> — targets are weekly and flexible; any variant counts.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => setEditing(false)} className="text-xs px-3 py-1.5 rounded-lg"
+              style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+              Cancel
+            </button>
+            <button onClick={saveRows} disabled={savingRows}
+              className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-50"
+              style={{ backgroundColor: "var(--accent)" }}>
+              {savingRows ? "Saving…" : "Save habits"}
+            </button>
+          </div>
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+
+        {editDomains.map((d) => {
+          const { icon } = habitDomainStyle(d);
+          const domainRows = rows.map((r, i) => ({ r, i })).filter(({ r }) => r.domain === d);
+          return (
+            <section key={d} className="space-y-1.5">
+              <h2 className="text-sm font-semibold flex items-center gap-1.5" style={{ color: "var(--text)" }}>
+                <span>{icon}</span> {DOMAIN_TITLES[d] || d.charAt(0).toUpperCase() + d.slice(1)}
+              </h2>
+              {domainRows.map(({ r, i }) => {
+                const update = (patch: Partial<HabitRow>) =>
+                  setRows((prev) => prev.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+                return (
+                  <div key={i} className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg"
+                    style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                    <input type="text" value={r.name} placeholder="habit name"
+                      onChange={(e) => update({ name: e.target.value })}
+                      className="w-36 px-2 py-1 rounded text-xs"
+                      style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+                    <input type="text" value={r.variants} placeholder="variants, comma-separated"
+                      onChange={(e) => update({ variants: e.target.value })}
+                      className="flex-1 min-w-[10rem] px-2 py-1 rounded text-xs"
+                      style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+                    <select value={r.period} onChange={(e) => update({ period: e.target.value })}
+                      className="px-1.5 py-1 rounded text-xs"
+                      style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}>
+                      <option value="week">per week</option>
+                      <option value="day">daily</option>
+                    </select>
+                    {r.period === "week" && (
+                      <input type="number" min={1} max={7} value={r.target}
+                        onChange={(e) => update({ target: parseInt(e.target.value || "1", 10) })}
+                        className="w-14 px-1.5 py-1 rounded text-xs"
+                        style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+                    )}
+                    <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                      <input type="checkbox" checked={r.morning} onChange={(e) => update({ morning: e.target.checked })} />
+                      morning
+                    </label>
+                    <button onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
+                      className="text-xs px-1" style={{ color: "var(--text-tertiary)" }} title="Remove habit">
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                onClick={() => setRows((prev) => [...prev, { name: "", domain: d, variants: "", target: 1, period: "week", morning: false }])}
+                className="text-[10px] px-2 py-1 rounded"
+                style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                + Add {DOMAIN_TITLES[d] || d} habit
+              </button>
+            </section>
+          );
+        })}
+      </div>
+    );
+  }
+
+  /* ── Read view ─────────────────────────────────────────── */
   const byDomain = new Map<string, Habit[]>();
   habits.forEach((h) => byDomain.set(h.domain, [...(byDomain.get(h.domain) || []), h]));
   const domains = [
@@ -86,13 +215,18 @@ export default function Habits() {
     <div className="space-y-6 pb-12">
       <div className="flex items-center justify-between">
         <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          Log habits from the chips above your day. Edit definitions in{" "}
-          <span className="font-mono">Habits.md</span> — this page just remembers what you've built.
+          Log habits from the chips above your day — this page just remembers what you've built.
         </p>
-        <button onClick={load} className="text-[10px] px-2 py-1 rounded"
-          style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button onClick={load} className="text-[10px] px-2 py-1 rounded"
+            style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+            Refresh
+          </button>
+          <button onClick={startEditing} className="text-[10px] px-2 py-1 rounded"
+            style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+            Edit
+          </button>
+        </div>
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}
 

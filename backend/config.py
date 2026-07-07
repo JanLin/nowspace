@@ -110,6 +110,7 @@ class Config:
         plan = raw.get("plan", {})
         self.plan_week_file = plan.get("week_file", "Plan Week.md")
         self.plan_week_bucket_file = plan.get("bucket_file", "Plan Week Bucket.md")
+        self.plan_week_habits_file = plan.get("habits_file", "Plan Week Habits.md")
         self.plan_week_config_file = plan.get("config_file", "0-Inbox/Plan Week Configuration.md")
 
         # Reference links (group → vault folder path)

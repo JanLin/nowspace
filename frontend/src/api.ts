@@ -319,6 +319,12 @@ export const api = {
   initHabits: () =>
     request<{ status: string }>("/plan/habits/init", { method: "POST" }),
 
+  saveHabits: (habits: { name: string; domain: string; variants: string[]; target: number; period: string; morning: boolean }[]) =>
+    request<{ status: string; count: number }>("/plan/habits/save", {
+      method: "POST",
+      body: JSON.stringify({ habits }),
+    }),
+
   saveContextSettings: (contexts: Record<string, string[]>, context_tags: Record<string, string>) =>
     request<{ status: string; contexts: Record<string, string[]>; context_tags: Record<string, string> }>(
       "/api/settings/contexts",
