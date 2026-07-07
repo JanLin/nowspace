@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from "react";
-import { api, type WeekPlanResponse, type DayTasks, type Task, type TaskLink, type Habit } from "../api";
+import { api, type WeekPlanResponse, type DayTasks, type Task, type TaskLink, type Habit, type TimeEntry } from "../api";
 import TaskLinkPopup from "./TaskLinkPopup";
 import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
@@ -316,6 +316,39 @@ export default function WeekPlan() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const refreshHabits = () => {
     api.getHabits().then((r) => setHabits(r.found ? r.habits : [])).catch(() => {});
+  };
+
+  // Time tracking: one running entry, surfaced as a status-bar chip
+  const [runningTime, setRunningTime] = useState<TimeEntry | null>(null);
+  const [timeAdjustOpen, setTimeAdjustOpen] = useState(false);
+  const [timeAdjustVal, setTimeAdjustVal] = useState("");
+  const [, setTimeTick] = useState(0);
+  const refreshTime = () => {
+    api.getTimeLog().then((r) => setRunningTime(r.running)).catch(() => {});
+  };
+  const trackedTextOf = (task: Task): string => stripBucketMeta(stripCtxTokens(task.text));
+  const startTracking = async (task: Task) => {
+    try {
+      const r = await api.startTime(trackedTextOf(task));
+      setRunningTime(r.running);
+      window.dispatchEvent(new CustomEvent("time-changed"));
+    } catch { /* backend down — chip stays as-is */ }
+  };
+  const stopTracking = async () => {
+    try {
+      await api.stopTime();
+      setRunningTime(null);
+      setTimeAdjustOpen(false);
+      window.dispatchEvent(new CustomEvent("time-changed"));
+    } catch { /* ignore */ }
+  };
+  const adjustTracking = async (start: string) => {
+    try {
+      const r = await api.adjustTime(start);
+      setRunningTime(r.running);
+      setTimeAdjustOpen(false);
+      window.dispatchEvent(new CustomEvent("time-changed"));
+    } catch { /* invalid time — leave popover open */ }
   };
 
   // Inline add state
@@ -755,15 +788,22 @@ export default function WeekPlan() {
 
   useEffect(() => {
     refreshHabits();
+    refreshTime();
     // Refetch on focus and after edits elsewhere, so a Habits.md created or
     // edited after page load (Habits tab, Obsidian) shows up without a reload
     window.addEventListener("week-changed", refreshHabits);
     window.addEventListener("habits-changed", refreshHabits);
     window.addEventListener("focus", refreshHabits);
+    window.addEventListener("time-changed", refreshTime);
+    window.addEventListener("focus", refreshTime);
+    const timeTicker = setInterval(() => setTimeTick((x) => x + 1), 30000);
     return () => {
       window.removeEventListener("week-changed", refreshHabits);
       window.removeEventListener("habits-changed", refreshHabits);
       window.removeEventListener("focus", refreshHabits);
+      window.removeEventListener("time-changed", refreshTime);
+      window.removeEventListener("focus", refreshTime);
+      clearInterval(timeTicker);
     };
   }, []);
 
@@ -1050,6 +1090,11 @@ export default function WeekPlan() {
   }, [pomodoroState, pomodoroStartedAt]);
 
   const startPomodoro = (dayIdx: number, taskIdx: number, taskText: string, minutes: number) => {
+    // A pomodoro means "I'm working on this now" — start time tracking too
+    api.startTime(stripBucketMeta(stripCtxTokens(taskText))).then((r) => {
+      setRunningTime(r.running);
+      window.dispatchEvent(new CustomEvent("time-changed"));
+    }).catch(() => {});
     setPomodoro({
       taskIdx, dayIdx, taskText,
       duration: minutes * 60,
@@ -2067,6 +2112,16 @@ export default function WeekPlan() {
           ⏳
         </button>
       )}
+      {/* Start time tracking (auto-pauses whatever was running) */}
+      {!task.done && (
+        <button
+          onClick={(e) => { e.stopPropagation(); startTracking(task); }}
+          className="shrink-0 text-[10px] transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
+          title="Track time on this task"
+        >
+          ▶
+        </button>
+      )}
       {/* Pin toggle — personal/volunteer tasks only: surface during Work mode */}
       {ctxEnabled && !task.done && taskCtx !== "work" && (
         <button
@@ -2238,6 +2293,16 @@ export default function WeekPlan() {
             title="Mark as waiting"
           >
             ⏳
+          </button>
+        )}
+        {/* Start time tracking (auto-pauses whatever was running) */}
+        {!task.done && (
+          <button
+            onClick={(e) => { e.stopPropagation(); startTracking(task); }}
+            className="shrink-0 text-sm transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
+            title="Track time on this task"
+          >
+            ▶
           </button>
         )}
         {/* Pin toggle — personal/volunteer tasks only: surface during Work mode */}
@@ -3563,6 +3628,41 @@ export default function WeekPlan() {
               <button onClick={() => setExternalChange(false)} className="text-blue-400">✕</button>
             </div>
           )}
+          {runningTime && (() => {
+            const [sh, sm] = runningTime.start.split(":").map(Number);
+            const now = new Date();
+            const elapsed = Math.max(0, now.getHours() * 60 + now.getMinutes() - (sh * 60 + sm));
+            const shiftStart = (delta: number) => {
+              const t = Math.max(0, sh * 60 + sm + delta);
+              return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+            };
+            return (
+              <div className="relative flex items-center gap-1">
+                <button
+                  onClick={() => { setTimeAdjustVal(runningTime.start); setTimeAdjustOpen(!timeAdjustOpen); }}
+                  className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 hover:bg-green-200 max-w-[16rem] truncate"
+                  title={`Tracking since ${runningTime.start} — click to adjust the start time`}
+                >
+                  ⏱ {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")} · {runningTime.text}
+                </button>
+                <button onClick={stopTracking} className="px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-600 hover:bg-red-200" title="Stop tracking">■</button>
+                {timeAdjustOpen && (
+                  <div className="absolute bottom-7 left-0 z-50 rounded-lg shadow-xl border p-2 flex items-center gap-1.5"
+                    style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}>
+                    <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>started</span>
+                    <input value={timeAdjustVal} onChange={(e) => setTimeAdjustVal(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") adjustTracking(timeAdjustVal); if (e.key === "Escape") setTimeAdjustOpen(false); }}
+                      className="w-14 px-1 py-0.5 rounded text-[10px] font-mono border" style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
+                    {[-5, -15, -30].map((d) => (
+                      <button key={d} onClick={() => adjustTracking(shiftStart(d))}
+                        className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600 hover:bg-gray-200">{d}m</button>
+                    ))}
+                    <button onClick={() => adjustTracking(timeAdjustVal)} className="px-1.5 py-0.5 rounded text-[10px] bg-blue-600 text-white">Set</button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div className="flex-1" />
           <button
             onClick={() => setShowBottomBar(!showBottomBar)}

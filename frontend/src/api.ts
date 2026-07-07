@@ -113,6 +113,14 @@ export interface Habit {
   established: boolean;
 }
 
+export interface TimeEntry {
+  date: string;   // YYYY-MM-DD
+  start: string;  // HH:MM
+  end: string | null; // null = running
+  text: string;
+  minutes: number;
+}
+
 export interface DayNotesResponse {
   day?: string;
   content?: string;
@@ -324,6 +332,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ habits }),
     }),
+
+  // Time tracking
+  getTimeLog: (month?: string) =>
+    request<{ month: string; entries: TimeEntry[]; running: TimeEntry | null }>(
+      month ? `/time/log?month=${month}` : "/time/log"),
+
+  startTime: (text: string) =>
+    request<{ status: string; running: TimeEntry }>("/time/start", {
+      method: "POST", body: JSON.stringify({ text }) }),
+
+  stopTime: () =>
+    request<{ status: string }>("/time/stop", { method: "POST" }),
+
+  adjustTime: (start: string) =>
+    request<{ status: string; running: TimeEntry }>("/time/adjust", {
+      method: "POST", body: JSON.stringify({ start }) }),
+
+  addTimeEntry: (entry: { date: string; start: string; end: string | null; text: string }) =>
+    request<{ status: string }>("/time/add", { method: "POST", body: JSON.stringify(entry) }),
+
+  updateTimeEntry: (u: { date: string; index: number; start: string; end: string | null; text: string; delete?: boolean }) =>
+    request<{ status: string }>("/time/update", { method: "POST", body: JSON.stringify(u) }),
 
   saveContextSettings: (contexts: Record<string, string[]>, context_tags: Record<string, string>) =>
     request<{ status: string; contexts: Record<string, string[]>; context_tags: Record<string, string> }>(

@@ -3,6 +3,7 @@ import Nav from "./components/Nav";
 import WeekPlan from "./components/WeekPlan";
 import Bucket from "./components/Bucket";
 import Habits from "./components/Habits";
+import TimeTab from "./components/TimeTab";
 import Goals from "./components/Goals";
 import Coaching from "./components/Coaching";
 import Dashboard from "./components/Dashboard";
@@ -11,7 +12,7 @@ import { useTheme } from "./useTheme";
 import { api } from "./api";
 import type { Task } from "./api";
 
-type View = "week" | "bucket" | "habits" | "goals" | "coaching" | "dashboard" | "settings";
+type View = "week" | "bucket" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function App() {
   const [view, setView] = useState<View>("week");
@@ -68,6 +69,9 @@ export default function App() {
           </div>
           <div className={view === "habits" ? "max-w-3xl mx-auto" : "hidden"}>
             <Habits />
+          </div>
+          <div className={view === "time" ? "max-w-3xl mx-auto" : "hidden"}>
+            <TimeTab />
           </div>
           <div className={view === "goals" ? "max-w-3xl mx-auto" : "hidden"}>
             <Goals />
