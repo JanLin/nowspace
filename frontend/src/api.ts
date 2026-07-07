@@ -99,6 +99,20 @@ export interface BucketResponse {
   pinned_groups: string[];
 }
 
+export interface Habit {
+  name: string;
+  domain: string; // body | mind | soul | sleep | custom
+  variants: string[];
+  target: number;
+  period: "week" | "day";
+  morning: boolean;
+  week_count: number;
+  days_done: number;
+  today_count: number;
+  history: boolean[]; // oldest→newest, week-target met
+  established: boolean;
+}
+
 export interface DayNotesResponse {
   day?: string;
   content?: string;
@@ -297,6 +311,13 @@ export const api = {
       contexts: Record<string, string[]>;
       context_tags: Record<string, string>;
     }>("/api/settings"),
+
+  // Habits
+  getHabits: () =>
+    request<{ found: boolean; habits: Habit[] }>("/plan/habits"),
+
+  initHabits: () =>
+    request<{ status: string }>("/plan/habits/init", { method: "POST" }),
 
   saveContextSettings: (contexts: Record<string, string[]>, context_tags: Record<string, string>) =>
     request<{ status: string; contexts: Record<string, string[]>; context_tags: Record<string, string> }>(

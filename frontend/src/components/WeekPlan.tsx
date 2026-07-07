@@ -1,9 +1,10 @@
 import React, { useState, useRef, useMemo, useEffect } from "react";
-import { api, type WeekPlanResponse, type DayTasks, type Task, type TaskLink } from "../api";
+import { api, type WeekPlanResponse, type DayTasks, type Task, type TaskLink, type Habit } from "../api";
 import TaskLinkPopup from "./TaskLinkPopup";
 import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
+import HabitStrip from "./HabitStrip";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
   ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
@@ -310,6 +311,12 @@ export default function WeekPlan() {
   // A task is visible when its context is selected (empty selection = all);
   // pinned personal/volunteer tasks also surface while Work is selected
   const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxSelection(text, ctxSel, ctxMap, ctxTags);
+
+  // Habits: gentle chips above the day/grid (current week only)
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const refreshHabits = () => {
+    api.getHabits().then((r) => setHabits(r.found ? r.habits : [])).catch(() => {});
+  };
 
   // Inline add state
   const [addingAt, setAddingAt] = useState<{ dayIdx: number; afterIdx: number; group?: string | null } | null>(null);
@@ -746,6 +753,12 @@ export default function WeekPlan() {
     };
   }, []);
 
+  useEffect(() => {
+    refreshHabits();
+    window.addEventListener("week-changed", refreshHabits);
+    return () => window.removeEventListener("week-changed", refreshHabits);
+  }, []);
+
   // Load context mapping + tag table from config (feature off when empty).
   // Re-fetch on window focus so tags auto-created by the backend (e.g. a new
   // @f typed in Obsidian) and Settings-tab edits show up without a reload.
@@ -1095,6 +1108,22 @@ export default function WeekPlan() {
     });
     applyTaskChange(days);
     setAddingAt({ dayIdx, afterIdx: afterIdx + 1 });
+  };
+
+  // Log a habit completion: a checked Habit: task lands in today. The strip
+  // only renders on the current week, so todayIdx is always the right target.
+  const logHabit = (habit: Habit, variant?: string) => {
+    if (!data || weekOffset !== 0) return;
+    const label = variant || habit.name;
+    const newTask: Task = {
+      text: `Habit: ${label}`, done: true, source_file: "Plan Week.md", context: "", tags: [],
+      priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
+    };
+    const days = data.days.map((d, di) => (di === todayIdx ? { ...d, tasks: [...d.tasks, newTask] } : d));
+    applyTaskChange(days);
+    setHabits((prev) => prev.map((h) => h.name === habit.name
+      ? { ...h, week_count: h.week_count + 1, days_done: h.today_count === 0 ? h.days_done + 1 : h.days_done, today_count: h.today_count + 1 }
+      : h));
   };
 
   // Drop the @pin marker from a task text — pins never survive a carry;
@@ -2375,6 +2404,10 @@ export default function WeekPlan() {
       {/* Left column — Tasks */}
       <div className={`space-y-2 ${showNotesPanel ? "min-w-0" : "w-full max-w-lg mx-auto"}`}
         style={showNotesPanel ? { width: `${100 - notesPanelPct}%` } : undefined}>
+        {/* Habit chips — current week only, shrink as the week goes well */}
+        {weekOffset === 0 && habits.length > 0 && (
+          <HabitStrip habits={habits} onLog={logHabit} />
+        )}
         {/* Day info bar */}
         <div className="flex items-center gap-3 text-sm" style={{ color: "var(--text-secondary)" }}>
           <span className="font-medium" style={{ color: "var(--text)" }}>
@@ -2649,6 +2682,11 @@ export default function WeekPlan() {
     if (!data) return null;
     return (
       <>
+        {weekOffset === 0 && habits.length > 0 && (
+          <div className="mb-2">
+            <HabitStrip habits={habits} onLog={logHabit} compact />
+          </div>
+        )}
         <div className={`grid ${gridCols} gap-2`}>
           {visibleDays.map((dayIdx) => {
             const day = data.days[dayIdx];
