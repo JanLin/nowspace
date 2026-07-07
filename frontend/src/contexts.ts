@@ -129,6 +129,37 @@ export function taskVisibleInCtxSelection(text: string, sel: CtxSelection, ctxMa
   return false;
 }
 
+/* ── Bucket metadata (tilde tokens, hidden from labels) ─────────
+   ~w2628 = entered the bucket in ISO week 28 of 2026 (YYWW) — age hint
+   ~m     = "this month" GTD horizon on the bucket board */
+
+export const BUCKET_META_RE = /\s*~(w\d{4}|m)\b/gi;
+
+export function stripBucketMeta(text: string): string {
+  return text.replace(BUCKET_META_RE, "").trim();
+}
+
+/** Entered-week stamp as {yy, week} or null if unstamped */
+export function bucketEnteredWeek(text: string): { yy: number; week: number } | null {
+  const m = text.match(/~w(\d{2})(\d{2})\b/i);
+  return m ? { yy: parseInt(m[1], 10), week: parseInt(m[2], 10) } : null;
+}
+
+/** Sortable age key (higher = newer); unstamped sorts newest */
+export function bucketAgeKey(text: string): number {
+  const w = bucketEnteredWeek(text);
+  return w ? w.yy * 100 + w.week : 9999;
+}
+
+export function isMonthHorizon(text: string): boolean {
+  return /~m\b/i.test(text);
+}
+
+export function setMonthHorizon(text: string, on: boolean): string {
+  const without = text.replace(/\s*~m\b/gi, "");
+  return on ? `${without.trimEnd()} ~m` : without;
+}
+
 const CTX_MODE_KEY = "nowspace-ctx-mode";
 
 export function loadCtxSelection(): CtxSelection {

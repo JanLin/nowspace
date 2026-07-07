@@ -7,7 +7,7 @@ import NoteFilePicker from "./NoteFilePicker";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
   ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
-  stripCtxTokens, stripGroupCtxTag, isPinnedText, resolveContext, ctxFeatureEnabled,
+  stripCtxTokens, stripGroupCtxTag, stripBucketMeta, isPinnedText, resolveContext, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
 
@@ -3546,7 +3546,7 @@ export default function WeekPlan() {
             const byGroup = new Map<string, BucketSection>();
             bucketTasks.forEach((task, idx) => {
               if (!taskVisibleInMode(task.text)) return;
-              const { group, label } = parseGroup(stripCtxTokens(task.text));
+              const { group, label } = parseGroup(stripBucketMeta(stripCtxTokens(task.text)));
               let section = byGroup.get(group);
               if (!section) {
                 section = { name: group, items: [] };

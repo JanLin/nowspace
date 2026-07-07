@@ -57,6 +57,24 @@ GROUP_CTX_TAG_RE = re.compile(r"^([^:@\[\]]{2,29}?)@([a-z])(\s*:)", re.IGNORECAS
 TASK_CTX_TAG_RE = re.compile(r"\s@([a-z])\b(?!\w)", re.IGNORECASE)
 
 
+# Bucket metadata tokens (tilde family, hidden from UI labels):
+#   ~w2628 = entered the bucket in ISO week 28 of 2026 (YYWW) — age hint
+#   ~m     = "this month" GTD horizon on the bucket board
+BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m)\b", re.IGNORECASE)
+
+
+def _strip_bucket_meta(text: str) -> str:
+    return BUCKET_META_RE.sub("", text or "").strip()
+
+
+def _stamp_bucket_week(text: str) -> str:
+    """Append the entered-week stamp if the task doesn't have one yet."""
+    if re.search(r"~w\d{4}\b", text or "", re.IGNORECASE):
+        return text
+    iso = date.today().isocalendar()
+    return f"{(text or '').rstrip()} ~w{iso[0] % 100:02d}{iso[1]:02d}"
+
+
 def _context_for_tag(tag: str) -> str:
     """Resolve a tag letter to its context name, auto-creating unknown tags."""
     tag = tag.lower()
@@ -1163,9 +1181,10 @@ async def get_bucket():
 async def save_bucket(req: BucketSaveRequest):
     """Write bucket tasks back to Bucket.md."""
     bucket = _bucket_path()
-    # Inline group teaching: learn "wallet@w:"-style tags and clean them
+    # Inline group teaching: learn "wallet@w:"-style tags and clean them.
+    # Stamp entered-week metadata on tasks that don't carry it yet (age hint).
     for task in req.tasks:
-        task.text = _learn_and_clean_group_tag(task.text)
+        task.text = _stamp_bucket_week(_learn_and_clean_group_tag(task.text))
     md = _format_bucket_tasks(req.tasks, req.pinned_groups)
     bucket.write_text(md, encoding="utf-8")
     return {"status": "saved", "task_count": len(req.tasks)}
@@ -1205,7 +1224,7 @@ async def move_bucket_task(req: BucketMoveRequest):
 
         task = day.tasks.pop(req.task_index)
         new_bucket_task = BucketTask(
-            text=task.text,
+            text=_stamp_bucket_week(task.text),
             priority=task.priority or "C",
             focused=task.focused,
             waiting=task.waiting,
@@ -1231,7 +1250,7 @@ async def move_bucket_task(req: BucketMoveRequest):
 
         btask = bucket_tasks.pop(req.task_index)
         new_task = Task(
-            text=btask.text,
+            text=_strip_bucket_meta(btask.text),
             priority=btask.priority,
             focused=btask.focused,
             waiting=btask.waiting,
