@@ -32,6 +32,9 @@ python3 -m PyInstaller \
   --hidden-import backend.routers.memory \
   --hidden-import backend.routers.vault \
   --hidden-import backend.routers.notes \
+  --hidden-import backend.routers.settings \
+  --hidden-import backend.routers.habits \
+  --hidden-import backend.routers.timelog \
   --hidden-import backend.agents \
   --hidden-import backend.session \
   --hidden-import backend.vault_index \
