@@ -227,6 +227,12 @@ export const api = {
       `/plan/carry-forward?offset=${offset}`
     ),
 
+  resolveCarry: (text: string, sourceOffset: number, action: "done" | "delete") =>
+    request<{ status: string }>("/plan/carry-forward/resolve", {
+      method: "POST",
+      body: JSON.stringify({ text, source_offset: sourceOffset, action }),
+    }),
+
   carryForward: (tasks: { text: string; day: string; subtasks: { text: string; done: boolean }[]; focused: boolean; waiting: boolean; priority: string }[], offset: number = 0, sourceOffset?: number) =>
     request<{ status: string; count: number }>("/plan/carry-forward", {
       method: "POST",

@@ -718,6 +718,65 @@ async def carry_forward_tasks(req: CarryForwardRequest):
     return {"status": "ok", "count": len(req.tasks)}
 
 
+class ResolveCarryRequest(BaseModel):
+    text: str
+    source_offset: int = -1
+    action: str  # "done" (was completed, forgot to tick) | "delete" (dropped)
+
+
+def _source_week_file(source_offset: int) -> Optional[Path]:
+    if source_offset == 0:
+        f = config.vault_path / config.plan_week_file
+        return f if f.exists() else None
+    year, week = _week_info_for_offset(source_offset)
+    if source_offset > 0:
+        f = _next_week_file(year, week)
+        return f if f.exists() else None
+    return _find_archived_week_or_earlier(year, week)
+
+
+@router.post("/carry-forward/resolve")
+async def resolve_carry_task(req: ResolveCarryRequest):
+    """Resolve a carry-forward item without carrying it.
+
+    "done": the task actually happened that week — mark it completed in the
+    source file so history stays honest. "delete": it's no longer relevant.
+    """
+    if req.action not in ("done", "delete"):
+        raise HTTPException(status_code=400, detail="action must be 'done' or 'delete'")
+    source_file = _source_week_file(req.source_offset)
+    if not source_file:
+        raise HTTPException(status_code=404, detail="Source week file not found")
+
+    original = source_file.read_text(encoding="utf-8")
+    result = parse_week_plan(original, source_file.name)
+    wanted = req.text.strip().lower()
+    resolved = False
+    for day_data in result["days"]:
+        tasks = day_data.tasks if hasattr(day_data, "tasks") else day_data["tasks"]
+        kept = []
+        for task in tasks:
+            t_text = task.text if hasattr(task, "text") else task.get("text", "")
+            t_done = task.done if hasattr(task, "done") else task.get("done", False)
+            if not resolved and not t_done and t_text.strip().lower() == wanted:
+                resolved = True
+                if req.action == "delete":
+                    continue  # drop the line
+                if hasattr(task, "done"):
+                    task.done = True
+                else:
+                    task["done"] = True
+            kept.append(task)
+        if hasattr(day_data, "tasks"):
+            day_data.tasks = kept
+        else:
+            day_data["tasks"] = kept
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Task not found in source week")
+    _rewrite_week_file(source_file, original, result)
+    return {"status": req.action}
+
+
 def _remove_carried_tasks_from_source(source_offset: int, carried_tasks: list[CarryForwardItem]):
     """Remove carried-forward tasks from the source week file."""
     if source_offset == 0:

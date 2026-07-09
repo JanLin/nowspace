@@ -743,6 +743,20 @@ export default function WeekPlan() {
     setCarryLoading(false);
   };
 
+  // Resolve a carry item in place: "done" = it actually happened last week
+  // (forgot to tick), "delete" = no longer relevant. Both write to the
+  // source week file and drop the item from the panel.
+  const resolveCarryItem = async (carryIdx: number, action: "done" | "delete") => {
+    const task = carryTasks[carryIdx];
+    if (!task) return;
+    try {
+      await api.resolveCarry(task.text, weekOffset - 1, action);
+      setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update task");
+    }
+  };
+
   const carrySingleToBucket = async (carryIdx: number) => {
     const task = carryTasks[carryIdx];
     if (!task) return;
@@ -3823,7 +3837,20 @@ export default function WeekPlan() {
                   {label}
                 </span>
                 <span className="text-[9px] text-gray-300 shrink-0">{task.from_day.slice(0, 3)}</span>
-                <span className="text-[10px] text-gray-300 opacity-0 group-hover/ct:opacity-100 shrink-0">drag →</span>
+                <button
+                  onClick={() => resolveCarryItem(idx, "done")}
+                  title="It was actually done — mark completed in last week's file"
+                  className="shrink-0 text-green-500 hover:text-green-700 opacity-0 group-hover/ct:opacity-100 transition-opacity"
+                >
+                  ✓
+                </button>
+                <button
+                  onClick={() => resolveCarryItem(idx, "delete")}
+                  title="No longer relevant — remove from last week's file"
+                  className="shrink-0 text-gray-400 hover:text-red-500 opacity-0 group-hover/ct:opacity-100 transition-opacity"
+                >
+                  ✕
+                </button>
               </div>
             );
 
@@ -3864,9 +3891,9 @@ export default function WeekPlan() {
             });
           })()}
         </div>
-        {/* Bottom actions */}
+        {/* Bottom actions — sticky so they're visible without scrolling the list */}
         {carryTasks.length > 0 && (
-          <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5">
+          <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5 sticky bottom-0" style={{ backgroundColor: "var(--bg-secondary)" }}>
             <div className="flex gap-1">
               <select
                 id="carry-target-day"
