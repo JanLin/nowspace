@@ -784,19 +784,19 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
         style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
       >
         <div className="flex items-center justify-between mb-1">
-          <h2 className="text-base font-semibold" style={{ color: "var(--text)" }}>
+          <h2 className="text-base font-semibold flex items-center gap-2" style={{ color: "var(--text)" }}>
             Contexts
+            {ctxDirty && <span className="text-[10px] font-normal text-orange-500">unsaved changes</span>}
           </h2>
-          {ctxDirty && (
-            <button
-              onClick={() => saveContexts(ctxRows)}
-              disabled={ctxSaving}
-              className="px-3 py-1 rounded-lg text-xs font-medium text-white disabled:opacity-50"
-              style={{ backgroundColor: "var(--accent)" }}
-            >
-              {ctxSaving ? "Saving…" : "Save contexts"}
-            </button>
-          )}
+          <button
+            onClick={() => saveContexts(ctxRows)}
+            disabled={ctxSaving || !ctxDirty}
+            className="px-3 py-1 rounded-lg text-xs font-medium text-white disabled:opacity-40"
+            style={{ backgroundColor: ctxDirty ? "var(--accent)" : "var(--bg-tertiary)" }}
+            title={ctxDirty ? "Save changes to config.yaml" : "No changes to save"}
+          >
+            {ctxSaving ? "Saving…" : "Save contexts"}
+          </button>
         </div>
         <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
           Stored in <span className="font-mono">config.yaml</span>. Each context has a single-letter tag
@@ -829,6 +829,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
                     type="text"
                     value={row.abbrev}
                     maxLength={1}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveContexts(ctxRows); }}
                     onChange={(e) => update({ abbrev: e.target.value.toLowerCase() })}
                     className="w-6 px-1 py-1 rounded text-xs font-mono text-center"
                     style={{ backgroundColor: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
@@ -838,6 +839,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
                   type="text"
                   value={row.name}
                   disabled={isCore}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveContexts(ctxRows); }}
                   onChange={(e) => update({ name: e.target.value.toLowerCase() })}
                   className="w-28 px-2 py-1 rounded text-xs capitalize disabled:opacity-60"
                   style={{ backgroundColor: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
@@ -846,6 +848,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
                   type="text"
                   value={row.groups}
                   placeholder={row.name === "personal" ? "everything unmapped is personal" : "e.g. arratech, wallet"}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveContexts(ctxRows); }}
                   onChange={(e) => update({ groups: e.target.value })}
                   className="flex-1 px-2 py-1 rounded text-xs font-mono"
                   style={{ backgroundColor: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
