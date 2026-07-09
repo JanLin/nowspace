@@ -3486,7 +3486,9 @@ export default function WeekPlan() {
 
     {/* Bucket & Carry icons — above status bar, togglable */}
     {data && showBottomBar && (
-      <div className="fixed bottom-8 right-6 z-40 flex items-end gap-2">
+      <div className={`fixed bottom-8 z-40 flex items-end gap-2 right-6 ${
+        (bucketOpen || carryForwardOpen || dailyCarryOpen) ? "md:right-[max(19.5rem,calc(50vw-16.5rem))]" : ""
+      }`}>
         {/* Daily carry — open tasks from days before today */}
         {dailyCarryCount > 0 && (
           <div
@@ -3679,7 +3681,7 @@ export default function WeekPlan() {
 
     {/* Bucket side panel */}
     {bucketOpen && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>🪣 Bucket ({bucketTasks.length})</h3>
           <button onClick={() => setBucketOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
@@ -3763,7 +3765,7 @@ export default function WeekPlan() {
     )}
     {/* Carry Forward side panel (right, matching bucket style) */}
     {carryForwardOpen && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
             <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({carryTasks.filter((t) => taskVisibleInMode(t.text)).length})</h3>
@@ -3903,7 +3905,7 @@ export default function WeekPlan() {
     )}
     {/* Daily carry side panel (right, matching carry-forward style) */}
     {dailyCarryOpen && data && weekOffset === 0 && todayIdx > 0 && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
             <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Before Today ({dailyCarryCount})</h3>
@@ -4000,6 +4002,7 @@ export default function WeekPlan() {
         )}
       </div>
     )}
+
     {/* Task link popup */}
     {linkPopup && (
       <TaskLinkPopup
