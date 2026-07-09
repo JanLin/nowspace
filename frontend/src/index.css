@@ -39,6 +39,10 @@
   --green-bg: #dcfce7; --green-text: #15803d;
   --red-bg: #fef2f2;   --red-text: #b91c1c;
   --blue-bg: #eff6ff;   --blue-text: #1d4ed8;
+
+  /* Primary accent (buttons, highlights) */
+  --accent: #2563eb;      /* blue-600 */
+  --accent-bg: #eff6ff;   /* blue-50 */
 }
 
 .dark {
@@ -76,6 +80,9 @@
   --green-bg: #052e16; --green-text: #86efac;
   --red-bg: #450a0a;   --red-text: #fca5a5;
   --blue-bg: #1e3a5f;   --blue-text: #60a5fa;
+
+  --accent: #3b82f6;      /* blue-500 */
+  --accent-bg: #1e3a5f;
 }
 
 /* ── Theme utility classes ────────────────────────────────── */
