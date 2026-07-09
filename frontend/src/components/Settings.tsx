@@ -784,10 +784,10 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
         style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
       >
         <div className="flex items-center justify-between mb-1">
-          <h2 className="text-base font-semibold flex items-center gap-2" style={{ color: "var(--text)" }}>
+          <h2 className="text-base font-semibold" style={{ color: "var(--text)" }}>
             Contexts
-            {ctxDirty && <span className="text-[10px] font-normal text-orange-500">unsaved changes</span>}
           </h2>
+          {/* One status element: the button label narrates the state */}
           <button
             onClick={() => saveContexts(ctxRows)}
             disabled={ctxSaving || !ctxDirty}
@@ -795,9 +795,9 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
             style={ctxDirty
               ? { backgroundColor: "var(--accent)", color: "white" }
               : { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
-            title={ctxDirty ? "Save changes to config.yaml" : "No changes to save"}
+            title={ctxDirty ? "Save changes to config.yaml (Enter in a field also saves)" : "All changes saved"}
           >
-            {ctxSaving ? "Saving…" : "Save contexts"}
+            {ctxSaving ? "Saving…" : ctxDirty ? "Save changes" : "Saved ✓"}
           </button>
         </div>
         <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
