@@ -1,5 +1,8 @@
 import { useState } from "react";
 import type { Habit } from "../api";
+import { normTime, shiftTime, nowHHMM } from "../timefmt";
+
+export interface HabitTime { start: string; minutes: number }
 
 /* Gentle habit chips shown above the day/grid views.
    Rules: no unchecked tasks, no red, no overdue state. A chip only exists
@@ -24,10 +27,39 @@ export default function HabitStrip({
   compact = false,
 }: {
   habits: Habit[];
-  onLog: (habit: Habit, variant?: string) => void;
+  onLog: (habit: Habit, variant?: string, time?: HabitTime) => void;
   compact?: boolean;
 }) {
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // Timed habits confirm duration + start on completion (feeds the time log)
+  const [timeFor, setTimeFor] = useState<{ habit: Habit; variant?: string } | null>(null);
+  const [timeMinutes, setTimeMinutes] = useState("30");
+  const [timeStart, setTimeStart] = useState("");
+  const [timeErr, setTimeErr] = useState("");
+
+  const beginLog = (habit: Habit, variant?: string) => {
+    if (habit.duration > 0) {
+      setTimeMinutes(String(habit.duration));
+      setTimeStart(shiftTime(nowHHMM(), -habit.duration));
+      setTimeErr("");
+      setTimeFor({ habit, variant });
+    } else {
+      onLog(habit, variant);
+    }
+  };
+
+  const confirmTimed = (withTime: boolean) => {
+    if (!timeFor) return;
+    if (!withTime) { onLog(timeFor.habit, timeFor.variant); setTimeFor(null); return; }
+    const start = normTime(timeStart);
+    const minutes = parseInt(timeMinutes, 10);
+    if (!start || !minutes || minutes <= 0) {
+      setTimeErr("start like 1945 or 19:45, minutes > 0");
+      return;
+    }
+    onLog(timeFor.habit, timeFor.variant, { start, minutes });
+    setTimeFor(null);
+  };
 
   const remaining = (h: Habit) =>
     h.period === "day" ? h.today_count === 0 : h.week_count < h.target;
@@ -43,7 +75,7 @@ export default function HabitStrip({
     if (h.variants.length > 0) {
       setPickerFor(pickerFor === h.name ? null : h.name);
     } else {
-      onLog(h);
+      beginLog(h);
     }
   };
 
@@ -87,13 +119,46 @@ export default function HabitStrip({
                 {h.variants.map((v) => (
                   <button
                     key={v}
-                    onClick={() => { setPickerFor(null); onLog(h, v); }}
+                    onClick={() => { setPickerFor(null); beginLog(h, v); }}
                     className="px-2 py-0.5 rounded text-[10px] font-medium hover:opacity-80"
                     style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text)" }}
                   >
                     {v}
                   </button>
                 ))}
+              </div>
+            )}
+            {timeFor?.habit.name === h.name && (
+              <div
+                className="absolute left-0 top-full mt-1 z-30 rounded-lg shadow-lg border p-2 space-y-1.5 min-w-[15rem]"
+                style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}
+              >
+                <div className="text-[10px] font-medium" style={{ color: "var(--text)" }}>
+                  Log time for {timeFor.variant || h.name}?
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                  <span>started</span>
+                  <input value={timeStart} onChange={(e) => setTimeStart(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") confirmTimed(true); if (e.key === "Escape") setTimeFor(null); }}
+                    className="w-14 px-1 py-0.5 rounded font-mono border" style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
+                  <span>for</span>
+                  <input value={timeMinutes} onChange={(e) => setTimeMinutes(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") confirmTimed(true); if (e.key === "Escape") setTimeFor(null); }}
+                    className="w-10 px-1 py-0.5 rounded font-mono border" style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
+                  <span>min</span>
+                </div>
+                {timeErr && <div className="text-[9px] text-red-500">{timeErr}</div>}
+                <div className="flex gap-1">
+                  <button onClick={() => confirmTimed(true)}
+                    className="flex-1 px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-medium hover:bg-blue-700">
+                    ✓ Done + log time
+                  </button>
+                  <button onClick={() => confirmTimed(false)}
+                    className="px-2 py-1 rounded text-[10px]" style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                    title="Mark the habit done without a time entry">
+                    just done
+                  </button>
+                </div>
               </div>
             )}
           </div>
