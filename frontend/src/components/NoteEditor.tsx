@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import { api } from "../api";
+import { findOpenAPs, markHarvested, defaultSections, canonicalGroup } from "../actionPoints";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -95,6 +96,57 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const editorRef = useRef<HTMLDivElement>(null);
   const serverContentRef = useRef("");
+
+  // Action points in the open note (see actionPoints.ts for the AP convention)
+  const [showAPs, setShowAPs] = useState(false);
+  const [apSelected, setApSelected] = useState<Set<number>>(new Set());
+  const [apBusy, setApBusy] = useState(false);
+  const [refLinks, setRefLinks] = useState<Record<string, string>>({});
+  const openAPs = useMemo(() => (loading ? [] : findOpenAPs(content)), [content, loading]);
+
+  useEffect(() => {
+    api.referenceLinks().then((r) => setRefLinks(r.links)).catch(() => {});
+  }, []);
+  useEffect(() => { setShowAPs(false); }, [currentPath]);
+
+  // Pre-select only the newest call's APs — long histories stay opt-in
+  const openAPPanel = () => {
+    const defaults = defaultSections(openAPs);
+    setApSelected(new Set(openAPs.filter((a) => defaults.has(a.section)).map((a) => a.line)));
+    setShowAPs(true);
+  };
+
+  const harvestAPs = async () => {
+    const picked = openAPs.filter((a) => apSelected.has(a.line));
+    if (picked.length === 0) return;
+    setApBusy(true);
+    try {
+      const bucket = await api.getBucket();
+      const rawGroup = Object.entries(refLinks).find(([, folder]) => currentPath.startsWith(folder))?.[0] || "";
+      const group = canonicalGroup(rawGroup, bucket.tasks.map((t) => t.text));
+      const newTasks = [...bucket.tasks];
+      picked.forEach((a) => {
+        newTasks.push({
+          text: `${group ? `${group}: ` : ""}${a.text} [[${currentName}]]`,
+          priority: "C", focused: false, waiting: false, subtasks: [],
+        });
+      });
+      // Writing the marked content also flushes any unsaved edits
+      clearTimeout(saveTimerRef.current);
+      const marked = markHarvested(content, picked.map((a) => a.line));
+      const res = await api.writeNote(currentPath, marked);
+      setContent(marked);
+      serverContentRef.current = marked;
+      setLastModified(res.modified);
+      setHasUnsaved(false);
+      await api.saveBucket(newTasks, bucket.pinned_groups);
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+      setShowAPs(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to harvest action points");
+    }
+    setApBusy(false);
+  };
 
   function pathToName(p: string): string {
     return p.replace(/\.md$/, "").split("/").pop() || p;
@@ -432,6 +484,14 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
 
           {/* Status */}
           <div className="flex items-center gap-2 shrink-0">
+            {openAPs.length > 0 && (
+              <button onClick={() => (showAPs ? setShowAPs(false) : openAPPanel())}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition-colors"
+                title="Open action points — harvest them into the bucket">
+                <span>⚡</span>
+                <span>{openAPs.length} AP{openAPs.length !== 1 ? "s" : ""}</span>
+              </button>
+            )}
             {saving && <span className="text-[10px] text-blue-500">Saving...</span>}
             {hasUnsaved && !saving && <span className="text-[10px] text-amber-500">Unsaved</span>}
             {!hasUnsaved && !saving && !loading && <span className="text-[10px] text-green-500">Saved</span>}
@@ -441,6 +501,36 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
           </div>
         </div>
+
+        {/* Action-point harvest panel */}
+        {showAPs && openAPs.length > 0 && (
+          <div className="px-4 py-2 border-b border-amber-200 bg-amber-50/60 max-h-52 overflow-y-auto">
+            {[...new Set(openAPs.map((a) => a.section))].map((sec) => (
+              <div key={sec || "(top)"} className="mb-1">
+                {sec && <div className="text-[10px] font-medium text-amber-800/70 mb-0.5">{sec}</div>}
+                {openAPs.filter((a) => a.section === sec).map((a) => (
+                  <label key={a.line} className="flex items-start gap-1.5 py-0.5 px-1 rounded hover:bg-amber-100/60 cursor-pointer">
+                    <input type="checkbox" checked={apSelected.has(a.line)}
+                      onChange={() => setApSelected((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(a.line)) next.delete(a.line); else next.add(a.line);
+                        return next;
+                      })}
+                      className="mt-0.5 accent-amber-600" />
+                    <span className="text-[11px] text-gray-700 leading-snug">{a.text}</span>
+                  </label>
+                ))}
+              </div>
+            ))}
+            <div className="flex items-center gap-2 pt-1">
+              <button onClick={harvestAPs} disabled={apBusy || apSelected.size === 0}
+                className="px-2 py-1 rounded text-[11px] font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40 transition-colors">
+                {apBusy ? "Adding..." : `→ Add ${apSelected.size} to bucket`}
+              </button>
+              <span className="text-[9px] text-amber-700/60">harvested lines become AP→ in the note</span>
+            </div>
+          </div>
+        )}
 
         {/* Error */}
         {error && (

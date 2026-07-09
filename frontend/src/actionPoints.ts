@@ -56,6 +56,22 @@ export function markHarvested(content: string, lines: number[]): string {
   }).join("\n");
 }
 
+/** Prefer an existing bucket group's exact casing ("Rotary") over the
+    reference-link key ("rotary"), so harvested tasks join the group the
+    user already has instead of creating a case-variant twin. */
+export function canonicalGroup(group: string, taskTexts: string[]): string {
+  if (!group) return group;
+  const want = group.toLowerCase();
+  for (const text of taskTexts) {
+    const idx = text.indexOf(":");
+    if (idx > 1 && idx < 30) {
+      const g = text.slice(0, idx).trim();
+      if (g.toLowerCase() === want) return g;
+    }
+  }
+  return group;
+}
+
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
 /** Flip the harvested AP line matching taskText to done: "AP→" → "AP ✓".
