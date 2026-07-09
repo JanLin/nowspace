@@ -28,6 +28,16 @@ function nowMonth(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
+/** Flexible time input → "HH:MM" (colon optional: 1945, 945, 9:45); null if invalid */
+function normTime(raw: string): string | null {
+  const s = raw.trim().replace(".", ":");
+  const m = s.match(/^(\d{1,2}):(\d{2})$/) || s.match(/^(\d{1,2})(\d{2})$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10), mnt = parseInt(m[2], 10);
+  if (h > 23 || mnt > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(mnt).padStart(2, "0")}`;
+}
+
 export default function TimeTab() {
   const [month, setMonth] = useState(nowMonth());
   const [entries, setEntries] = useState<TimeEntry[]>([]);
@@ -169,8 +179,14 @@ export default function TimeTab() {
     entries.filter((x) => x.date === e.date).sort((a, b) => a.start.localeCompare(b.start)).indexOf(e);
 
   const saveEdit = async (e: TimeEntry) => {
+    const start = normTime(editStart);
+    const end = editEnd.trim() ? normTime(editEnd) : null;
+    if (!start || (editEnd.trim() && !end)) {
+      setError(`"${!start ? editStart : editEnd}" is not a time — use HH:MM or HHMM (e.g. 1945)`);
+      return;
+    }
     try {
-      await api.updateTimeEntry({ date: e.date, index: dayIndexOf(e), start: editStart, end: editEnd || null, text: editText });
+      await api.updateTimeEntry({ date: e.date, index: dayIndexOf(e), start, end, text: editText });
       setEditKey(null); load(); announce();
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to update"); }
   };
@@ -207,8 +223,36 @@ export default function TimeTab() {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             <span className="text-sm font-medium" style={{ color: "var(--text)" }}>{running.text}</span>
+            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>started</span>
+            <input
+              key={running.start}
+              defaultValue={running.start}
+              onKeyDown={async (ev) => {
+                if (ev.key !== "Enter") return;
+                const t = normTime((ev.target as HTMLInputElement).value);
+                if (!t) { setError("Start must be HH:MM or HHMM (e.g. 1945)"); return; }
+                try { await api.adjustTime(t); load(); announce(); }
+                catch (err) { setError(err instanceof Error ? err.message : "Failed to adjust"); }
+              }}
+              title="Started earlier? Type the real start time (1945 works) and press Enter"
+              className="w-16 px-1.5 py-0.5 rounded text-xs font-mono"
+              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+            />
+            {[-15, -30, -60].map((d) => (
+              <button key={d}
+                onClick={async () => {
+                  const [h, m] = running.start.split(":").map(Number);
+                  const t = Math.max(0, h * 60 + m + d);
+                  try { await api.adjustTime(`${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`); load(); announce(); }
+                  catch (err) { setError(err instanceof Error ? err.message : "Failed to adjust"); }
+                }}
+                title={`Started ${-d} minutes earlier than recorded`}
+                className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                {d}m
+              </button>
+            ))}
             <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-              {running.start} → now · {fmtH(running.minutes, false)}h
+              → now · {fmtH(running.minutes, false)}h
             </span>
             <button onClick={stopEntry} className="px-2 py-0.5 rounded bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200">■ Stop</button>
           </div>
