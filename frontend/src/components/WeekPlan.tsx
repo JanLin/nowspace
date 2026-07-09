@@ -478,8 +478,12 @@ export default function WeekPlan() {
       setDirty(true);
       // Immediate save for undo (don't wait for debounce)
       try {
-        await api.saveWeekPlan(entry.days, weekOffset);
-      } catch { /* auto-save will retry */ }
+        const res = await api.saveWeekPlan(entry.days, weekOffset, lastKnownMtime.current);
+        if (res.mtime) lastKnownMtime.current = res.mtime;
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
+        /* otherwise auto-save will retry */
+      }
     }
     if (entry.type === "goals" || entry.type === "both") {
       try {
@@ -506,8 +510,12 @@ export default function WeekPlan() {
     if (entry.type === "tasks" || entry.type === "both") {
       setDirty(true);
       try {
-        await api.saveWeekPlan(entry.days, weekOffset);
-      } catch { /* auto-save will retry */ }
+        const res = await api.saveWeekPlan(entry.days, weekOffset, lastKnownMtime.current);
+        if (res.mtime) lastKnownMtime.current = res.mtime;
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
+        /* otherwise auto-save will retry */
+      }
     }
     if (entry.type === "goals" || entry.type === "both") {
       try {
@@ -1005,16 +1013,23 @@ export default function WeekPlan() {
     if (!data || isArchive) return;
     setSaving(true);
     try {
-      await api.saveWeekPlan(data.days, weekOffset);
+      const res = await api.saveWeekPlan(data.days, weekOffset, lastKnownMtime.current);
       setSaved(true);
       setDirty(false);
       setExternalChange(false);
-      recordMtime();
+      if (res.mtime) lastKnownMtime.current = res.mtime; else recordMtime();
       setTimeout(() => setSaved(false), 2000);
       // Let read-only views (Habits tab) recompute from the saved file
       window.dispatchEvent(new CustomEvent("week-saved"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save");
+      const msg = e instanceof Error ? e.message : "Failed to save";
+      if (msg.includes("changed on disk")) {
+        // Another device (or Obsidian) changed the file — don't clobber.
+        // The banner offers Reload; auto-save stays paused until then.
+        setExternalChange(true);
+      } else {
+        setError(msg);
+      }
     } finally {
       setSaving(false);
     }
@@ -1026,7 +1041,7 @@ export default function WeekPlan() {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    if (dirty && !autoSavePaused && !saving && data && !isArchive) {
+    if (dirty && !autoSavePaused && !saving && data && !isArchive && !externalChange) {
       autoSaveTimerRef.current = setTimeout(() => {
         saveWeek();
       }, 2000);
@@ -1034,7 +1049,7 @@ export default function WeekPlan() {
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [dirty, autoSavePaused, saving, data]);
+  }, [dirty, autoSavePaused, saving, data, externalChange]);
 
   // Splitter drag for notes panel resize
   const onSplitterDown = (e: React.MouseEvent) => {
@@ -1425,12 +1440,13 @@ export default function WeekPlan() {
           const { group, label } = parseGroup(lastTask.text);
           if (group !== targetGroup) {
             lastTask.text = `${targetGroup}: ${label}`;
-            // Save the re-prefixed version
+            // Save the re-prefixed version (freshly fetched — no stale-write guard needed)
             await api.saveWeekPlan(weekResult.days, weekOffset);
           }
         }
       }
       setData(weekResult);
+      recordMtime();
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
     } catch (e) {

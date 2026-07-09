@@ -230,7 +230,13 @@ export default function Bucket() {
     });
     setData({ tasks: entry.tasks, pinned_groups: entry.pinned_groups });
     setUndoCount(undoStack.current.length);
-    try { await api.saveBucket(entry.tasks, entry.pinned_groups); recordMtime(); } catch { /* auto-save retry */ }
+    try {
+      const res = await api.saveBucket(entry.tasks, entry.pinned_groups, lastKnownMtime.current);
+      if (res.mtime) lastKnownMtime.current = res.mtime; else recordMtime();
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
+      /* otherwise auto-save will retry */
+    }
   };
 
   const performRedo = async () => {
@@ -242,7 +248,13 @@ export default function Bucket() {
     });
     setData({ tasks: entry.tasks, pinned_groups: entry.pinned_groups });
     setUndoCount(undoStack.current.length);
-    try { await api.saveBucket(entry.tasks, entry.pinned_groups); recordMtime(); } catch { /* auto-save retry */ }
+    try {
+      const res = await api.saveBucket(entry.tasks, entry.pinned_groups, lastKnownMtime.current);
+      if (res.mtime) lastKnownMtime.current = res.mtime; else recordMtime();
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
+      /* otherwise auto-save will retry */
+    }
   };
 
   // Ctrl+Z / Ctrl+Shift+Z keyboard listener
@@ -299,22 +311,26 @@ export default function Bucket() {
     if (!data) return;
     setSaving(true);
     try {
-      await api.saveBucket(data.tasks, data.pinned_groups);
+      const res = await api.saveBucket(data.tasks, data.pinned_groups, lastKnownMtime.current);
       setSaved(true); setDirty(false); setExternalChange(false);
-      recordMtime();
+      if (res.mtime) lastKnownMtime.current = res.mtime; else recordMtime();
       setTimeout(() => setSaved(false), 2000);
-    } catch (e) { setError(e instanceof Error ? e.message : "Failed to save"); }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to save";
+      // Changed on another device / in Obsidian — don't clobber; banner offers Reload
+      if (msg.includes("changed on disk")) setExternalChange(true); else setError(msg);
+    }
     finally { setSaving(false); }
   };
 
   // Auto-save: 2s debounce
   useEffect(() => {
     if (autoSaveTimerRef.current) { clearTimeout(autoSaveTimerRef.current); autoSaveTimerRef.current = null; }
-    if (dirty && !saving && data) {
+    if (dirty && !saving && data && !externalChange) {
       autoSaveTimerRef.current = setTimeout(saveBucket, 2000);
     }
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
-  }, [dirty, saving, data]);
+  }, [dirty, saving, data, externalChange]);
 
   useEffect(() => { fetchBucket(); }, []);
 

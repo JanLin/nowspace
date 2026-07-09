@@ -474,6 +474,15 @@ async def save_week_plan(req: SaveWeekRequest):
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail="Plan Week.md not found in vault")
 
+    # Sync guard: refuse to overwrite a file that changed since the client
+    # last read it (Obsidian edit, or a sync from another device landing).
+    if req.expected_mtime is not None:
+        if plan_file.stat().st_mtime > req.expected_mtime + 0.01:
+            raise HTTPException(
+                status_code=409,
+                detail="Week file changed on disk since it was loaded — reload before saving",
+            )
+
     original = plan_file.read_text(encoding="utf-8")
     lines = original.split("\n")
 
@@ -522,7 +531,7 @@ async def save_week_plan(req: SaveWeekRequest):
     new_lines = lines[:first_day_idx] + day_lines + [""] + lines[end_idx:]
     plan_file.write_text("\n".join(new_lines), encoding="utf-8")
 
-    return {"status": "saved", "days": len(req.days)}
+    return {"status": "saved", "days": len(req.days), "mtime": plan_file.stat().st_mtime}
 
 
 @router.post("/create-next-week")
@@ -1240,13 +1249,20 @@ async def get_bucket():
 async def save_bucket(req: BucketSaveRequest):
     """Write bucket tasks back to Bucket.md."""
     bucket = _bucket_path()
+    # Sync guard — see save_week_plan
+    if req.expected_mtime is not None and bucket.exists():
+        if bucket.stat().st_mtime > req.expected_mtime + 0.01:
+            raise HTTPException(
+                status_code=409,
+                detail="Bucket file changed on disk since it was loaded — reload before saving",
+            )
     # Inline group teaching: learn "wallet@w:"-style tags and clean them.
     # Stamp entered-week metadata on tasks that don't carry it yet (age hint).
     for task in req.tasks:
         task.text = _stamp_bucket_week(_learn_and_clean_group_tag(task.text))
     md = _format_bucket_tasks(req.tasks, req.pinned_groups)
     bucket.write_text(md, encoding="utf-8")
-    return {"status": "saved", "task_count": len(req.tasks)}
+    return {"status": "saved", "task_count": len(req.tasks), "mtime": bucket.stat().st_mtime}
 
 
 @router.post("/bucket/move")

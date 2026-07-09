@@ -90,6 +90,10 @@ class WeekPlanResponse(BaseModel):
 class SaveWeekRequest(BaseModel):
     days: List[DayTasks]
     offset: int = 0  # which week file to save to
+    # Sync guard: file mtime the client last saw. If the file on disk is
+    # newer (edited in Obsidian or synced in from another device), the save
+    # is refused with 409 instead of clobbering. None = no check.
+    expected_mtime: Optional[float] = None
 
 
 class BucketTask(BaseModel):
@@ -108,6 +112,7 @@ class BucketResponse(BaseModel):
 class BucketSaveRequest(BaseModel):
     tasks: List[BucketTask] = []
     pinned_groups: List[str] = []
+    expected_mtime: Optional[float] = None  # sync guard, same as SaveWeekRequest
 
 
 class BucketMoveRequest(BaseModel):
