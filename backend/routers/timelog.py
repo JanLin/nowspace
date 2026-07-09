@@ -29,6 +29,22 @@ DAY_RE = re.compile(r"^##\s*(\d{4}-\d{2}-\d{2})\s*$")
 ENTRY_RE = re.compile(r"^-\s*(\d{1,2}:\d{2})\s*[–-]\s*(\d{1,2}:\d{2})?\s*(.*)$")
 
 
+def _norm_time(raw: str) -> str:
+    """Normalize flexible time input to HH:MM — colon optional.
+
+    Accepts "19:45", "9:45", "1945", "945". Raises on anything else so a
+    typo becomes a visible error instead of a silently corrupted log line.
+    """
+    s = (raw or "").strip().replace(".", ":")
+    m = re.match(r"^(\d{1,2}):(\d{2})$", s) or re.match(r"^(\d{1,2})(\d{2})$", s)
+    if not m:
+        raise HTTPException(status_code=400, detail=f"Time must be HH:MM or HHMM, got '{raw}'")
+    h, mnt = int(m.group(1)), int(m.group(2))
+    if h > 23 or mnt > 59:
+        raise HTTPException(status_code=400, detail=f"Invalid time '{raw}'")
+    return f"{h:02d}:{mnt:02d}"
+
+
 def _month_path(month: str) -> Path:
     return config.vault_path / f"Time Log - {month}.md"
 
@@ -173,14 +189,13 @@ async def stop():
 @router.post("/adjust")
 async def adjust(req: AdjustRequest):
     """Fix the running entry's start time (forgot to press play)."""
-    if not re.match(r"^\d{1,2}:\d{2}$", req.start):
-        raise HTTPException(status_code=400, detail="start must be HH:MM")
+    start = _norm_time(req.start)
     month = _current_month()
     entries = _load(month)
     running = _find_running(entries)
     if not running:
         raise HTTPException(status_code=404, detail="No running entry")
-    running["start"] = req.start.zfill(5)
+    running["start"] = start
     _save(month, entries)
     return {"status": "adjusted", "running": _with_minutes(running)}
 
@@ -190,8 +205,8 @@ async def add(req: EntryRequest):
     """Manually add a completed entry (fully missed session)."""
     month = req.date[:7]
     entries = _load(month)
-    entries.append({"date": req.date, "start": req.start.zfill(5),
-                    "end": req.end.zfill(5) if req.end else None, "text": req.text.strip()})
+    entries.append({"date": req.date, "start": _norm_time(req.start),
+                    "end": _norm_time(req.end) if req.end else None, "text": req.text.strip()})
     _save(month, entries)
     return {"status": "added"}
 
@@ -207,7 +222,7 @@ async def update(req: UpdateRequest):
     target = day_entries[req.index]
     entries.remove(target)
     if not req.delete:
-        entries.append({"date": req.date, "start": req.start.zfill(5),
-                        "end": req.end.zfill(5) if req.end else None, "text": req.text.strip()})
+        entries.append({"date": req.date, "start": _norm_time(req.start),
+                        "end": _norm_time(req.end) if req.end else None, "text": req.text.strip()})
     _save(month, entries)
     return {"status": "deleted" if req.delete else "updated"}
