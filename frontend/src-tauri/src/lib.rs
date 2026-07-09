@@ -1,5 +1,6 @@
-use tauri::Manager;
-use tauri_plugin_shell::ShellExt;
+use std::sync::Mutex;
+use tauri::{Manager, RunEvent};
+use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -9,13 +10,33 @@ pub fn run() {
         .setup(|app| {
             // Launch the Python backend sidecar
             let sidecar = app.shell().sidecar("nowspace-server").unwrap();
-            let (mut _rx, _child) = sidecar.spawn().expect("Failed to spawn sidecar");
+            let (mut _rx, child) = sidecar.spawn().expect("Failed to spawn sidecar");
 
-            // Keep child handle alive so the process doesn't get killed
-            app.manage(_child);
+            // Keep the child handle so it can be killed on exit
+            app.manage(Mutex::new(Some(child)));
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let RunEvent::Exit = event {
+                // Stop the sidecar — otherwise it outlives the app and
+                // squats port 8000 (PyInstaller runs a bootloader whose
+                // python child ignores SIGKILL sent only to the parent,
+                // so ask nicely with SIGTERM first).
+                if let Some(state) = app_handle.try_state::<Mutex<Option<CommandChild>>>() {
+                    if let Some(child) = state.lock().unwrap().take() {
+                        #[cfg(unix)]
+                        {
+                            let _ = std::process::Command::new("kill")
+                                .arg(child.pid().to_string())
+                                .status();
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                        }
+                        let _ = child.kill();
+                    }
+                }
+            }
+        });
 }
