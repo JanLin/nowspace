@@ -205,7 +205,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."
-          className="w-full text-xs font-mono px-2 py-2 border border-gray-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 resize-none min-h-[80px]"
+          className="w-full text-xs font-mono px-2 py-2 border border-gray-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 resize-none min-h-[45vh]"
           style={{ height: "auto" }}
         />
       ) : (
@@ -216,7 +216,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
             setFocused(true);
             requestAnimationFrame(() => textareaRef.current?.focus());
           }}
-          className="w-full text-xs px-2 py-2 border border-gray-200 rounded-lg bg-white cursor-text min-h-[80px] hover:border-blue-300 transition-colors scratchpad-preview"
+          className="w-full text-xs px-2 py-2 border border-gray-200 rounded-lg bg-white cursor-text min-h-[45vh] hover:border-blue-300 transition-colors scratchpad-preview"
           data-color-mode="light"
         >
           {content ? (
@@ -226,6 +226,8 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
                   .replace(WIKI_LINK_RE, (_match, name: string, display?: string) =>
                     `<a class="wiki-link" href="#wiki:${encodeURIComponent(name.trim())}">${(display || name).trim()}</a>`
                   )
+                  // Single newlines are markdown hard breaks — typed lines stay lines
+                  .replace(/([^\n])\n(?!\n)/g, "$1  \n")
                   // Preserve blank lines as visible gaps in preview
                   .replace(/\n\n/g, "\n\n&#8203;\n\n")
                 }
@@ -373,9 +375,13 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
             <>
               {/* Create new note */}
               {!showCreate ? (
-                <button onClick={() => setShowCreate(true)}
-                  className="text-[10px] text-blue-500 hover:text-blue-700 mb-1 block">
-                  + New note
+                <button onClick={() => {
+                    setShowCreate(true);
+                    if (!newName) setNewName(`${new Date().toISOString().slice(0, 10)} `);
+                  }}
+                  className="text-[10px] text-blue-500 hover:text-blue-700 mb-1 block"
+                  title="Create a note here and link it into today's notes">
+                  + New note (links into today)
                 </button>
               ) : (
                 <div className="flex gap-1 mb-1">
@@ -405,13 +411,16 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
               ))}
 
               {/* Files */}
-              {recentFiles.map((f) => (
+              {recentFiles.map((f) => {
+                const touchedToday = f.modified && new Date(f.modified).toDateString() === new Date().toDateString();
+                return (
                 <div key={f.path} className="flex items-center gap-1 group/file">
                   <button onClick={() => handleFileClick(f)}
-                    className="flex-1 text-left flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded hover:bg-blue-50 hover:text-blue-700 text-gray-600 truncate min-w-0"
-                    title={`Insert [[${f.name}]] link`}>
+                    className={`flex-1 text-left flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded hover:bg-blue-50 hover:text-blue-700 truncate min-w-0 ${touchedToday ? "text-blue-700 bg-blue-50/60" : "text-gray-600"}`}
+                    title={`Insert [[${f.name}]] into today's notes${touchedToday ? " — touched today" : ""}`}>
                     <span className="text-[10px]">📄</span>
                     <span className="truncate flex-1">{f.name}</span>
+                    {touchedToday && <span className="text-[8px] font-semibold text-blue-500 shrink-0">today</span>}
                     <span className="text-[9px] text-gray-400 shrink-0">{relativeTime(f.modified)}</span>
                   </button>
                   {onOpenNote && (
@@ -422,7 +431,8 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
                     </button>
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {/* Show all toggle */}
               {!showAll && fileItems.length > 5 && (
