@@ -21,6 +21,7 @@ type HabitRow = {
   target: number;
   period: string;
   morning: boolean;
+  duration: number; // minutes per occurrence; 0 = untimed
 };
 
 export default function Habits() {
@@ -62,6 +63,7 @@ export default function Habits() {
     setRows(habits.map((h) => ({
       name: h.name, domain: h.domain, variants: h.variants.join(", "),
       target: h.period === "day" ? 1 : h.target, period: h.period, morning: h.morning,
+      duration: h.duration || 0,
     })));
     setEditing(true);
   };
@@ -77,6 +79,7 @@ export default function Habits() {
         target: Math.max(1, r.target),
         period: r.period === "day" ? "day" : "week",
         morning: r.morning,
+        duration: Math.max(0, r.duration || 0),
       })));
       setEditing(false);
       load();
@@ -179,6 +182,14 @@ export default function Habits() {
                       <input type="checkbox" checked={r.morning} onChange={(e) => update({ morning: e.target.checked })} />
                       morning
                     </label>
+                    <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                      <input type="number" min={0} step={5} value={r.duration}
+                        onChange={(e) => update({ duration: parseInt(e.target.value || "0", 10) })}
+                        className="w-14 px-1.5 py-1 rounded text-xs"
+                        style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+                        title="Minutes per occurrence — 0 means untimed" />
+                      min
+                    </label>
                     <button onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
                       className="text-xs px-1" style={{ color: "var(--text-tertiary)" }} title="Remove habit">
                       ✕
@@ -187,7 +198,7 @@ export default function Habits() {
                 );
               })}
               <button
-                onClick={() => setRows((prev) => [...prev, { name: "", domain: d, variants: "", target: 1, period: "week", morning: false }])}
+                onClick={() => setRows((prev) => [...prev, { name: "", domain: d, variants: "", target: 1, period: "week", morning: false, duration: 0 }])}
                 className="text-[10px] px-2 py-1 rounded"
                 style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
                 + Add {DOMAIN_TITLES[d] || d} habit
@@ -252,6 +263,7 @@ export default function Habits() {
                         </span>
                       )}
                       {h.morning && <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>morning</span>}
+                      {h.duration > 0 && <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>~{h.duration >= 60 ? `${Math.floor(h.duration / 60)}h${h.duration % 60 || ""}` : `${h.duration}min`}</span>}
                     </div>
                     {h.variants.length > 0 && (
                       <div className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>

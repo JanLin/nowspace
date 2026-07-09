@@ -4,7 +4,8 @@ import TaskLinkPopup from "./TaskLinkPopup";
 import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
-import HabitStrip from "./HabitStrip";
+import HabitStrip, { type HabitTime } from "./HabitStrip";
+import { shiftTime } from "../timefmt";
 import { markDone as markAPDone } from "../actionPoints";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
@@ -1182,7 +1183,7 @@ export default function WeekPlan() {
 
   // Log a habit completion: a checked Habit: task lands in today. The strip
   // only renders on the current week, so todayIdx is always the right target.
-  const logHabit = (habit: Habit, variant?: string) => {
+  const logHabit = (habit: Habit, variant?: string, time?: HabitTime) => {
     if (!data || weekOffset !== 0) return;
     const label = variant || habit.name;
     const newTask: Task = {
@@ -1194,6 +1195,16 @@ export default function WeekPlan() {
     setHabits((prev) => prev.map((h) => h.name === habit.name
       ? { ...h, week_count: h.week_count + 1, days_done: h.today_count === 0 ? h.days_done + 1 : h.days_done, today_count: h.today_count + 1 }
       : h));
+    // Timed habits also write a time-log entry, so intent (duration in the
+    // habit) can be compared against reality (the month log)
+    if (time) {
+      api.addTimeEntry({
+        date: new Date().toISOString().slice(0, 10),
+        start: time.start,
+        end: shiftTime(time.start, time.minutes),
+        text: label,
+      }).then(() => window.dispatchEvent(new CustomEvent("time-changed"))).catch(() => {});
+    }
   };
 
   // Drop the @pin marker from a task text — pins never survive a carry;

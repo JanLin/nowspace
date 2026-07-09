@@ -19,8 +19,10 @@ from backend.routers.plan import _list_archived_week_files
 
 router = APIRouter(prefix="/plan/habits", tags=["habits"])
 
-# "- name (variant | variant): 3x/week, morning"  /  "- name: daily"
-TARGET_RE = re.compile(r"^\s*(\d+)\s*x\s*/\s*week\s*(,\s*morning)?\s*$", re.IGNORECASE)
+# Target segment: comma-separated tokens after the last colon —
+# "3x/week", "daily", "morning", and an optional duration "30min" / "2h" / "1h30"
+FREQ_RE = re.compile(r"^(\d+)\s*x\s*/\s*week$", re.IGNORECASE)
+DUR_RE = re.compile(r"^(?:(\d+)\s*h(?:ours?)?\s*(\d+)?|(\d+)\s*m(?:in(?:utes)?)?)$", re.IGNORECASE)
 
 # A daily habit counts as a met week at 5+ days — gentle, not perfectionist
 DAILY_WEEK_MET = 5
@@ -66,18 +68,26 @@ def _parse_habits_file(content: str) -> list[dict]:
         if not name:
             continue
         morning = False
-        if target_part == "daily":
-            target, period = 7, "day"
-        else:
-            tm = TARGET_RE.match(target_part)
-            if not tm:
-                continue  # unparseable target — skip rather than guess
-            target, period = int(tm.group(1)), "week"
-            morning = bool(tm.group(2))
+        duration = 0  # minutes per occurrence; 0 = untimed
+        target, period = None, "week"
+        for token in (t.strip() for t in target_part.split(",")):
+            if not token:
+                continue
+            if token == "daily":
+                target, period = 7, "day"
+            elif token == "morning":
+                morning = True
+            elif FREQ_RE.match(token):
+                target, period = int(FREQ_RE.match(token).group(1)), "week"
+            elif DUR_RE.match(token):
+                dm = DUR_RE.match(token)
+                duration = (int(dm.group(1)) * 60 + int(dm.group(2) or 0)) if dm.group(1) else int(dm.group(3))
+        if target is None:
+            continue  # unparseable target — skip rather than guess
         habits.append({
             "name": name.lower(), "domain": domain or "body",
             "variants": variants, "target": target, "period": period,
-            "morning": morning,
+            "morning": morning, "duration": duration,
         })
     return habits
 
@@ -199,6 +209,7 @@ class HabitDef(BaseModel):
     target: int = 1
     period: str = "week"  # "week" | "day"
     morning: bool = False
+    duration: int = 0  # minutes per occurrence; 0 = untimed
 
 
 class SaveHabitsRequest(BaseModel):
@@ -225,7 +236,11 @@ def _format_habits_file(habits: list[HabitDef]) -> str:
             if not name:
                 continue
             variants = f" ({' | '.join(v.strip().lower() for v in h.variants if v.strip())})" if any(v.strip() for v in h.variants) else ""
-            target = "daily" if h.period == "day" else f"{max(1, h.target)}x/week" + (", morning" if h.morning else "")
+            target = "daily" if h.period == "day" else f"{max(1, h.target)}x/week"
+            if h.morning:
+                target += ", morning"
+            if h.duration > 0:
+                target += f", {h.duration // 60}h{h.duration % 60 or ''}" if h.duration >= 60 else f", {h.duration}min"
             lines.append(f"- {name}{variants}: {target}")
     lines.append("")
     return "\n".join(lines)
