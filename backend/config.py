@@ -110,10 +110,31 @@ class Config:
         plan = raw.get("plan", {})
         self.plan_week_file = plan.get("week_file", "Plan Week.md")
         self.plan_week_bucket_file = plan.get("bucket_file", "Plan Week Bucket.md")
+        self.plan_week_habits_file = plan.get("habits_file", "Plan Week Habits.md")
         self.plan_week_config_file = plan.get("config_file", "0-Inbox/Plan Week Configuration.md")
 
         # Reference links (group → vault folder path)
         self.reference_links: Dict[str, str] = raw.get("reference_links", {})
+
+        # Contexts: map of context name → list of group prefixes (lowercase).
+        # e.g. {"work": ["arratech", "wallet"], "volunteer": ["rotary"]}
+        # Groups not listed anywhere default to "personal". Empty dict = feature off.
+        raw_contexts = raw.get("contexts", {}) or {}
+        self.contexts: Dict[str, list] = {
+            str(name).lower(): [str(g).lower() for g in (groups or [])]
+            for name, groups in raw_contexts.items()
+        }
+
+        # Context tags: single-letter abbreviation → context name, used in
+        # task markup (@w, @f, …). Unknown letters seen in tasks are
+        # auto-created (name defaults to the letter; rename in Settings).
+        raw_tags = raw.get("context_tags", {}) or {}
+        self.context_tags: Dict[str, str] = {
+            str(k).lower(): str(v).lower() for k, v in raw_tags.items()
+            if len(str(k)) == 1 and str(k).isalpha()
+        }
+        for abbrev, name in {"w": "work", "v": "volunteer", "p": "personal"}.items():
+            self.context_tags.setdefault(abbrev, name)
 
         api = raw.get("api", {})
         self.model = api.get("model", "claude-sonnet-4-6")
@@ -140,6 +161,66 @@ class Config:
         with open(self._config_file) as f:
             raw = yaml.safe_load(f) or {}
         raw["reference_links"] = links
+        with open(self._config_file, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    def assign_group_context(self, group: str, context: str) -> bool:
+        """Assign a task group to a context (inline teaching: "wallet@w: task").
+
+        Latest teaching wins: the group is removed from every other context list.
+        Assigning to "personal" (the default) just removes explicit mappings.
+        Returns True if the config changed and was persisted.
+        """
+        group = group.strip().lower()
+        context = context.strip().lower()
+        if not group:
+            return False
+        changed = False
+        for ctx in list(self.contexts.keys()):
+            if ctx != context and group in self.contexts[ctx]:
+                self.contexts[ctx].remove(group)
+                changed = True
+        if context != "personal" and group not in self.contexts.get(context, []):
+            self.contexts.setdefault(context, []).append(group)
+            changed = True
+        if changed:
+            self._persist_contexts()
+        return changed
+
+    def ensure_context_tag(self, abbrev: str) -> bool:
+        """Auto-create a context tag for an unknown single-letter abbreviation.
+
+        The context name defaults to the letter itself; the user can rename
+        it (and reassign the abbreviation) in Settings. Returns True if a new
+        tag was created and persisted.
+        """
+        abbrev = abbrev.strip().lower()
+        if len(abbrev) != 1 or not abbrev.isalpha() or abbrev in self.context_tags:
+            return False
+        self.context_tags[abbrev] = abbrev
+        self.contexts.setdefault(abbrev, [])
+        self._persist_contexts()
+        return True
+
+    def save_context_settings(self, contexts: Dict[str, list], context_tags: Dict[str, str]) -> None:
+        """Replace the context configuration from the Settings tab."""
+        self.contexts = {
+            str(name).lower(): [str(g).lower() for g in (groups or [])]
+            for name, groups in (contexts or {}).items()
+        }
+        self.context_tags = {
+            str(k).lower(): str(v).lower() for k, v in (context_tags or {}).items()
+            if len(str(k)) == 1 and str(k).isalpha()
+        }
+        for abbrev, name in {"w": "work", "v": "volunteer", "p": "personal"}.items():
+            self.context_tags.setdefault(abbrev, name)
+        self._persist_contexts()
+
+    def _persist_contexts(self) -> None:
+        with open(self._config_file) as f:
+            raw = yaml.safe_load(f) or {}
+        raw["contexts"] = {k: v for k, v in self.contexts.items() if v}
+        raw["context_tags"] = self.context_tags
         with open(self._config_file, "w") as f:
             yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 

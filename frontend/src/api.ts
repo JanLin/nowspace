@@ -99,6 +99,28 @@ export interface BucketResponse {
   pinned_groups: string[];
 }
 
+export interface Habit {
+  name: string;
+  domain: string; // body | mind | soul | sleep | custom
+  variants: string[];
+  target: number;
+  period: "week" | "day";
+  morning: boolean;
+  week_count: number;
+  days_done: number;
+  today_count: number;
+  history: boolean[]; // oldest→newest, week-target met
+  established: boolean;
+}
+
+export interface TimeEntry {
+  date: string;   // YYYY-MM-DD
+  start: string;  // HH:MM
+  end: string | null; // null = running
+  text: string;
+  minutes: number;
+}
+
 export interface DayNotesResponse {
   day?: string;
   content?: string;
@@ -205,6 +227,12 @@ export const api = {
       `/plan/carry-forward?offset=${offset}`
     ),
 
+  resolveCarry: (text: string, sourceOffset: number, action: "done" | "delete") =>
+    request<{ status: string }>("/plan/carry-forward/resolve", {
+      method: "POST",
+      body: JSON.stringify({ text, source_offset: sourceOffset, action }),
+    }),
+
   carryForward: (tasks: { text: string; day: string; subtasks: { text: string; done: boolean }[]; focused: boolean; waiting: boolean; priority: string }[], offset: number = 0, sourceOffset?: number) =>
     request<{ status: string; count: number }>("/plan/carry-forward", {
       method: "POST",
@@ -294,7 +322,50 @@ export const api = {
       reference_links: Record<string, string>;
       vault_status: VaultStatus;
       api_key_status: ApiKeyStatus;
+      contexts: Record<string, string[]>;
+      context_tags: Record<string, string>;
     }>("/api/settings"),
+
+  // Habits
+  getHabits: () =>
+    request<{ found: boolean; habits: Habit[] }>("/plan/habits"),
+
+  initHabits: () =>
+    request<{ status: string }>("/plan/habits/init", { method: "POST" }),
+
+  saveHabits: (habits: { name: string; domain: string; variants: string[]; target: number; period: string; morning: boolean }[]) =>
+    request<{ status: string; count: number }>("/plan/habits/save", {
+      method: "POST",
+      body: JSON.stringify({ habits }),
+    }),
+
+  // Time tracking
+  getTimeLog: (month?: string) =>
+    request<{ month: string; entries: TimeEntry[]; running: TimeEntry | null }>(
+      month ? `/time/log?month=${month}` : "/time/log"),
+
+  startTime: (text: string) =>
+    request<{ status: string; running: TimeEntry }>("/time/start", {
+      method: "POST", body: JSON.stringify({ text }) }),
+
+  stopTime: () =>
+    request<{ status: string }>("/time/stop", { method: "POST" }),
+
+  adjustTime: (start: string) =>
+    request<{ status: string; running: TimeEntry }>("/time/adjust", {
+      method: "POST", body: JSON.stringify({ start }) }),
+
+  addTimeEntry: (entry: { date: string; start: string; end: string | null; text: string }) =>
+    request<{ status: string }>("/time/add", { method: "POST", body: JSON.stringify(entry) }),
+
+  updateTimeEntry: (u: { date: string; index: number; start: string; end: string | null; text: string; delete?: boolean }) =>
+    request<{ status: string }>("/time/update", { method: "POST", body: JSON.stringify(u) }),
+
+  saveContextSettings: (contexts: Record<string, string[]>, context_tags: Record<string, string>) =>
+    request<{ status: string; contexts: Record<string, string[]>; context_tags: Record<string, string> }>(
+      "/api/settings/contexts",
+      { method: "POST", body: JSON.stringify({ contexts, context_tags }) }
+    ),
 
   validateVault: (vault_path: string) =>
     request<{

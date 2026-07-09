@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import { api } from "../api";
+import { findOpenAPs, markHarvested, defaultSections, type FoundAP } from "../actionPoints";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -133,6 +134,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     try {
       await api.putNotes(dayName, text, weekOffset);
       setLastSaved(text);
+      window.dispatchEvent(new CustomEvent("notes-saved"));
     } catch { /* silent */ }
     finally { setSaving(false); }
   }, [dayName, weekOffset, lastSaved]);
@@ -205,7 +207,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."
-          className="w-full text-xs font-mono px-2 py-2 border border-gray-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 resize-none min-h-[80px]"
+          className="w-full text-xs font-mono px-2 py-2 border border-gray-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 resize-none min-h-[45vh]"
           style={{ height: "auto" }}
         />
       ) : (
@@ -216,7 +218,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
             setFocused(true);
             requestAnimationFrame(() => textareaRef.current?.focus());
           }}
-          className="w-full text-xs px-2 py-2 border border-gray-200 rounded-lg bg-white cursor-text min-h-[80px] hover:border-blue-300 transition-colors scratchpad-preview"
+          className="w-full text-xs px-2 py-2 border border-gray-200 rounded-lg bg-white cursor-text min-h-[45vh] hover:border-blue-300 transition-colors scratchpad-preview"
           data-color-mode="light"
         >
           {content ? (
@@ -226,6 +228,8 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
                   .replace(WIKI_LINK_RE, (_match, name: string, display?: string) =>
                     `<a class="wiki-link" href="#wiki:${encodeURIComponent(name.trim())}">${(display || name).trim()}</a>`
                   )
+                  // Single newlines are markdown hard breaks — typed lines stay lines
+                  .replace(/([^\n])\n(?!\n)/g, "$1  \n")
                   // Preserve blank lines as visible gaps in preview
                   .replace(/\n\n/g, "\n\n&#8203;\n\n")
                 }
@@ -260,15 +264,17 @@ interface ReferenceFolderProps {
   folderPath: string;
   onInsertLink: (name: string) => void;
   onOpenNote?: (path: string, name: string) => void;
+  onScanAPs?: (path: string, name: string) => void;
 }
 
-function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: ReferenceFolderProps) {
+function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote, onScanAPs }: ReferenceFolderProps) {
   const [expanded, setExpanded] = useState(false);
   const [files, setFiles] = useState<VaultFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [breadcrumbs, setBreadcrumbs] = useState<{ name: string; path: string }[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [createMode, setCreateMode] = useState<"note" | "call">("note");
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -311,11 +317,20 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
     if (!newName.trim() || creating) return;
     setCreating(true);
     try {
-      const res = await api.createNote(currentPath, newName.trim());
+      // Call notes live in the group's coms subfolder (created if missing);
+      // reuse an existing coms/comms folder's casing when present.
+      let target = currentPath;
+      if (createMode === "call") {
+        const existing = files.find((f) => f.type === "folder" && /^comm?s$/i.test(f.name));
+        target = existing ? existing.path : `${currentPath}/coms`;
+      }
+      const res = await api.createNote(target, newName.trim());
       onInsertLink(newName.trim());
       setShowCreate(false);
       setNewName("");
       loadFolder(currentPath);
+      // Jump straight into the editor to type the minutes
+      if (createMode === "call" && onOpenNote) onOpenNote(res.path, newName.trim());
     } catch { /* silent */ }
     finally { setCreating(false); }
   };
@@ -373,10 +388,26 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
             <>
               {/* Create new note */}
               {!showCreate ? (
-                <button onClick={() => setShowCreate(true)}
-                  className="text-[10px] text-blue-500 hover:text-blue-700 mb-1 block">
-                  + New note
-                </button>
+                <div className="flex items-center gap-2 mb-1">
+                  <button onClick={() => {
+                      setCreateMode("note");
+                      setShowCreate(true);
+                      if (!newName) setNewName(`${new Date().toISOString().slice(0, 10)} `);
+                    }}
+                    className="text-[10px] text-blue-500 hover:text-blue-700"
+                    title="Create a note here and link it into today's notes">
+                    + New note
+                  </button>
+                  <button onClick={() => {
+                      setCreateMode("call");
+                      setShowCreate(true);
+                      if (!newName) setNewName(`${new Date().toISOString().slice(0, 10)} call `);
+                    }}
+                    className="text-[10px] text-green-600 hover:text-green-800"
+                    title="Create call minutes in this group's coms folder, link into today's notes, and open the editor">
+                    📞 Call note
+                  </button>
+                </div>
               ) : (
                 <div className="flex gap-1 mb-1">
                   <input
@@ -405,15 +436,25 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
               ))}
 
               {/* Files */}
-              {recentFiles.map((f) => (
+              {recentFiles.map((f) => {
+                const touchedToday = f.modified && new Date(f.modified).toDateString() === new Date().toDateString();
+                return (
                 <div key={f.path} className="flex items-center gap-1 group/file">
                   <button onClick={() => handleFileClick(f)}
-                    className="flex-1 text-left flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded hover:bg-blue-50 hover:text-blue-700 text-gray-600 truncate min-w-0"
-                    title={`Insert [[${f.name}]] link`}>
+                    className={`flex-1 text-left flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded hover:bg-blue-50 hover:text-blue-700 truncate min-w-0 ${touchedToday ? "text-blue-700 bg-blue-50/60" : "text-gray-600"}`}
+                    title={`Insert [[${f.name}]] into today's notes${touchedToday ? " — touched today" : ""}`}>
                     <span className="text-[10px]">📄</span>
                     <span className="truncate flex-1">{f.name}</span>
+                    {touchedToday && <span className="text-[8px] font-semibold text-blue-500 shrink-0">today</span>}
                     <span className="text-[9px] text-gray-400 shrink-0">{relativeTime(f.modified)}</span>
                   </button>
+                  {onScanAPs && (
+                    <button onClick={() => onScanAPs(f.path, f.name)}
+                      className="text-[9px] text-gray-300 hover:text-amber-600 shrink-0 opacity-0 group-hover/file:opacity-100"
+                      title="Scan this file for AP action points">
+                      ⚡
+                    </button>
+                  )}
                   {onOpenNote && (
                     <button onClick={() => onOpenNote(f.path, f.name)}
                       className="text-[9px] text-gray-300 hover:text-blue-500 shrink-0 opacity-0 group-hover/file:opacity-100"
@@ -422,7 +463,8 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
                     </button>
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {/* Show all toggle */}
               {!showAll && fileItems.length > 5 && (
@@ -454,9 +496,10 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
 interface ReferenceBrowserProps {
   onInsertLink: (name: string) => void;
   onOpenNote?: (path: string, name: string) => void;
+  onScanAPs?: (path: string, name: string) => void;
 }
 
-function ReferenceBrowser({ onInsertLink, onOpenNote }: ReferenceBrowserProps) {
+function ReferenceBrowser({ onInsertLink, onOpenNote, onScanAPs }: ReferenceBrowserProps) {
   const [links, setLinks] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
@@ -487,8 +530,194 @@ function ReferenceBrowser({ onInsertLink, onOpenNote }: ReferenceBrowserProps) {
               folderPath={path}
               onInsertLink={onInsertLink}
               onOpenNote={onOpenNote}
+              onScanAPs={onScanAPs}
             />
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Action-point harvest (quiet hint) ────────────────────── */
+
+interface APFile { name: string; path: string; content: string; aps: FoundAP[]; group: string }
+
+function APHarvest({ dayName, weekOffset, manualFile }: {
+  dayName: string; weekOffset: number;
+  manualFile: { path: string; name: string; ts: number } | null;
+}) {
+  const [files, setFiles] = useState<APFile[]>([]);
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  // Pre-select only the newest call's APs per file — long histories stay opt-in
+  const applyDefaults = (found: APFile[]) => {
+    const sel = new Set<string>();
+    const expand = new Set<string>();
+    found.forEach((f) => {
+      const defaults = defaultSections(f.aps);
+      f.aps.forEach((a) => {
+        if (defaults.has(a.section)) {
+          sel.add(`${f.path}|${a.line}`);
+          expand.add(`${f.path}|${a.section}`);
+        }
+      });
+    });
+    setSelected(sel);
+    setExpandedSections(expand);
+  };
+
+  const scanFile = async (name: string, path: string, refLinks: Record<string, string>): Promise<APFile | null> => {
+    try {
+      const note = await api.readNote(path);
+      const aps = findOpenAPs(note.content);
+      if (aps.length === 0) return null;
+      const group = Object.entries(refLinks).find(([, folder]) => path.startsWith(folder))?.[0] || "";
+      return { name, path, content: note.content, aps, group };
+    } catch { return null; }
+  };
+
+  const scan = useCallback(async () => {
+    try {
+      const notes = await api.getNotes(dayName, weekOffset);
+      const linkNames = [...new Set(
+        [...(notes.content || "").matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)].map((m) => m[1].trim())
+      )];
+      const refLinks = await api.referenceLinks().then((r) => r.links).catch(() => ({} as Record<string, string>));
+      const found: APFile[] = [];
+      for (const name of linkNames) {
+        try {
+          const res = await api.vaultSearch(name, 1);
+          if (res.results.length === 0) continue;
+          const f = await scanFile(name, res.results[0].path, refLinks);
+          if (f) found.push(f);
+        } catch { /* skip unreadable */ }
+      }
+      // A manually requested file joins the list (dedup by path)
+      if (manualFile && !found.some((f) => f.path === manualFile.path)) {
+        const f = await scanFile(manualFile.name, manualFile.path, refLinks);
+        if (f) found.push(f);
+      }
+      setFiles(found);
+      applyDefaults(found);
+    } catch { setFiles([]); }
+  }, [dayName, weekOffset, manualFile]);
+
+  useEffect(() => {
+    scan();
+    window.addEventListener("notes-saved", scan);
+    window.addEventListener("focus", scan);
+    return () => {
+      window.removeEventListener("notes-saved", scan);
+      window.removeEventListener("focus", scan);
+    };
+  }, [scan]);
+
+  // A ⚡ click on a file opens the review directly
+  useEffect(() => { if (manualFile) setOpen(true); }, [manualFile]);
+
+  const total = files.reduce((n, f) => n + f.aps.length, 0);
+  if (total === 0) return null;
+
+  const toggle = (key: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  const harvest = async () => {
+    setBusy(true);
+    try {
+      const bucket = await api.getBucket();
+      const newTasks = [...bucket.tasks];
+      for (const f of files) {
+        const lines = f.aps.filter((a) => selected.has(`${f.path}|${a.line}`)).map((a) => a.line);
+        if (lines.length === 0) continue;
+        f.aps.filter((a) => lines.includes(a.line)).forEach((a) => {
+          newTasks.push({
+            text: `${f.group ? `${f.group}: ` : ""}${a.text} [[${f.name}]]`,
+            priority: "C", focused: false, waiting: false, subtasks: [],
+          });
+        });
+        await api.writeNote(f.path, markHarvested(f.content, lines));
+      }
+      await api.saveBucket(newTasks, bucket.pinned_groups);
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+      setOpen(false);
+      scan();
+    } catch { /* leave hint for retry */ }
+    setBusy(false);
+  };
+
+  return (
+    <div className="mt-2">
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors border border-amber-200">
+        <span>⚡</span>
+        <span className="flex-1 text-left">{total} action point{total !== 1 ? "s" : ""} in linked notes</span>
+        <span className="text-[9px]">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="mt-1 border border-amber-200 rounded-lg p-2 space-y-1.5 bg-white">
+          {files.map((f) => {
+            const sections = [...new Set(f.aps.map((a) => a.section))];
+            return (
+            <div key={f.path}>
+              <div className="text-[10px] font-medium text-gray-500 mb-0.5">
+                📄 {f.name}{f.group && <span className="ml-1 text-gray-400">→ {f.group}</span>}
+              </div>
+              {sections.map((sec) => {
+                const secKey = `${f.path}|${sec}`;
+                const secAPs = f.aps.filter((a) => a.section === sec);
+                const secSelected = secAPs.filter((a) => selected.has(`${f.path}|${a.line}`)).length;
+                const isExpanded = expandedSections.has(secKey);
+                return (
+                  <div key={secKey} className="mb-0.5">
+                    {sec && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                        <input type="checkbox"
+                          checked={secSelected === secAPs.length}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              secAPs.forEach((a) => { const k = `${f.path}|${a.line}`; if (on) next.add(k); else next.delete(k); });
+                              return next;
+                            });
+                            if (on) setExpandedSections((prev) => new Set(prev).add(secKey));
+                          }} />
+                        <button onClick={() => setExpandedSections((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(secKey)) next.delete(secKey); else next.add(secKey);
+                            return next;
+                          })}
+                          className="flex-1 text-left hover:text-gray-600 truncate">
+                          {isExpanded ? "▾" : "▸"} {sec} <span className="opacity-70">({secSelected}/{secAPs.length})</span>
+                        </button>
+                      </div>
+                    )}
+                    {(isExpanded || !sec) && secAPs.map((a) => {
+                      const key = `${f.path}|${a.line}`;
+                      return (
+                        <label key={key} className={`flex items-start gap-1.5 text-[11px] py-0.5 cursor-pointer text-gray-700 ${sec ? "ml-4" : ""}`}>
+                          <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} className="mt-0.5" />
+                          <span className="flex-1">{a.text}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            );
+          })}
+          <button onClick={harvest} disabled={busy || selected.size === 0}
+            className="w-full px-2 py-1 bg-amber-500 text-white rounded text-[10px] font-medium hover:bg-amber-600 disabled:opacity-50">
+            {busy ? "Creating…" : `🪣 ${selected.size} to Bucket (marks AP→ in the notes)`}
+          </button>
         </div>
       )}
     </div>
@@ -507,6 +736,8 @@ interface NotesPanelProps {
 export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote }: NotesPanelProps) {
   const insertRef = useRef<((text: string) => void) | null>(null);
   const dayLabel = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+  // ⚡ on a reference file: scan that file for APs (ts forces a rescan of the same file)
+  const [manualScan, setManualScan] = useState<{ path: string; name: string; ts: number } | null>(null);
 
   const handleInsertLink = (name: string) => {
     insertRef.current?.(`[[${name}]]`);
@@ -528,11 +759,15 @@ export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote 
         insertRef={insertRef}
       />
 
+      {/* Action points found in today's linked call notes (or a ⚡-scanned file) */}
+      {!isArchive && <APHarvest dayName={dayName} weekOffset={weekOffset} manualFile={manualScan} />}
+
       {/* Reference File Browser */}
       {!isArchive && (
         <ReferenceBrowser
           onInsertLink={handleInsertLink}
           onOpenNote={onOpenNote}
+          onScanAPs={(path, name) => setManualScan({ path, name, ts: Date.now() })}
         />
       )}
     </div>

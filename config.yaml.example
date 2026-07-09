@@ -16,6 +16,16 @@ plan:
   week_file: Plan Week.md
   bucket_file: Plan Week Bucket.md
 reference_links: {}
+# Contexts: separate work / volunteer / personal mentally.
+# Map context names to task group prefixes (case-insensitive).
+# Groups not listed anywhere count as "personal". Omit or leave empty
+# to disable the feature entirely (no context UI is shown).
+# Per-task overrides in markdown: trailing @w / @v / @p tokens.
+# A trailing @pin surfaces a personal/volunteer task in Work mode.
+# contexts:
+#   work: [acme, client-x]
+#   volunteer: [rotary]
+contexts: {}
 api:
   model: claude-sonnet-4-6
   max_tokens: 4096

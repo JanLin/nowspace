@@ -10,6 +10,23 @@ interface FolderEntry {
 type BrowseTarget = "vault" | "__new__" | string; // "vault" = vault path picker, "__new__" = new ref link, string = editing ref link key
 type BrowseMode = "system" | "vault"; // system = absolute paths, vault = relative to vault root
 
+// One editable row in the Contexts card (tag letter, name, group prefixes as CSV)
+type CtxRow = { abbrev: string; name: string; groups: string };
+
+function buildCtxRows(contexts: Record<string, string[]>, tags: Record<string, string>): CtxRow[] {
+  const abbrevOf: Record<string, string> = {};
+  Object.entries(tags).forEach(([a, n]) => { if (!(n in abbrevOf)) abbrevOf[n] = a; });
+  const names = ["work", "volunteer", "personal",
+    ...Object.keys(contexts).filter((n) => !["work", "volunteer", "personal"].includes(n)).sort(),
+    ...Object.values(tags).filter((n) => !["work", "volunteer", "personal"].includes(n) && !(n in contexts)).sort(),
+  ];
+  return [...new Set(names)].map((name) => ({
+    abbrev: abbrevOf[name] || "",
+    name,
+    groups: (contexts[name] || []).join(", "),
+  }));
+}
+
 export default function Settings({ onVaultReady }: { onVaultReady?: () => void }) {
   const [vaultPath, setVaultPath] = useState("");
   const [vaultRoot, setVaultRoot] = useState("");
@@ -50,10 +67,47 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editPath, setEditPath] = useState("");
 
+  // Contexts: one row per context (tag letter, name, group prefixes as CSV)
+  const [ctxRows, setCtxRows] = useState<CtxRow[]>([]);
+  const [ctxDirty, setCtxDirty] = useState(false);
+  const [ctxSaving, setCtxSaving] = useState(false);
+
   const flash = useCallback((type: "ok" | "err", text: string) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 4000);
   }, []);
+
+  const saveContexts = async (rows: CtxRow[]) => {
+    // Validate: single-letter unique abbreviations, non-empty names
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const a = r.abbrev.trim().toLowerCase();
+      const n = r.name.trim().toLowerCase();
+      if (!n) { flash("err", "Context name cannot be empty"); return; }
+      if (a && (a.length !== 1 || !/[a-z]/.test(a))) { flash("err", `Tag for "${n}" must be a single letter`); return; }
+      if (a && seen.has(a)) { flash("err", `Tag @${a} is used twice`); return; }
+      if (a) seen.add(a);
+    }
+    const contexts: Record<string, string[]> = {};
+    const tags: Record<string, string> = {};
+    rows.forEach((r) => {
+      const name = r.name.trim().toLowerCase();
+      const groups = r.groups.split(",").map((g) => g.trim().toLowerCase()).filter(Boolean);
+      if (groups.length) contexts[name] = groups;
+      if (r.abbrev.trim()) tags[r.abbrev.trim().toLowerCase()] = name;
+    });
+    setCtxSaving(true);
+    try {
+      const res = await api.saveContextSettings(contexts, tags);
+      setCtxRows(buildCtxRows(res.contexts, res.context_tags));
+      setCtxDirty(false);
+      window.dispatchEvent(new CustomEvent("ctx-config-changed"));
+      flash("ok", "Contexts saved");
+    } catch {
+      flash("err", "Failed to save contexts");
+    }
+    setCtxSaving(false);
+  };
 
   // ── Load initial settings ──────────────────────────────────────────
   useEffect(() => {
@@ -63,6 +117,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
       setReferenceLinks(s.reference_links);
       setVaultStatus(s.vault_status);
       setApiKeyStatus(s.api_key_status);
+      setCtxRows(buildCtxRows(s.contexts || {}, s.context_tags || {}));
       if (!s.api_key_status.configured) setShowApiKeyInput(true);
       setLoading(false);
     }).catch(() => {
@@ -719,6 +774,106 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
             + Add
           </button>
         </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* Contexts                                                         */}
+      {/* ================================================================ */}
+      <section
+        className="rounded-xl p-5 sm:p-6"
+        style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-base font-semibold flex items-center gap-2" style={{ color: "var(--text)" }}>
+            Contexts
+            {ctxDirty && <span className="text-[10px] font-normal text-orange-500">unsaved changes</span>}
+          </h2>
+          <button
+            onClick={() => saveContexts(ctxRows)}
+            disabled={ctxSaving || !ctxDirty}
+            className="px-3 py-1 rounded-lg text-xs font-medium text-white disabled:opacity-40"
+            style={{ backgroundColor: ctxDirty ? "var(--accent)" : "var(--bg-tertiary)" }}
+            title={ctxDirty ? "Save changes to config.yaml" : "No changes to save"}
+          >
+            {ctxSaving ? "Saving…" : "Save contexts"}
+          </button>
+        </div>
+        <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
+          Stored in <span className="font-mono">config.yaml</span>. Each context has a single-letter tag
+          (used as <span className="font-mono">@w</span> in task text) and a list of task group prefixes.
+          Unknown tags typed in tasks (e.g. <span className="font-mono">@f</span>) are created automatically —
+          rename them here. Work, volunteer and personal are built in; ungrouped tasks are personal.
+        </p>
+
+        <div className="space-y-2 mb-3">
+          <div className="flex items-center gap-2 px-3 text-[10px] uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>
+            <span className="w-10">Tag</span>
+            <span className="w-28">Name</span>
+            <span className="flex-1">Groups (comma-separated)</span>
+          </div>
+          {ctxRows.map((row, i) => {
+            const isCore = ["work", "volunteer", "personal"].includes(row.name);
+            const update = (patch: Partial<CtxRow>) => {
+              setCtxRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+              setCtxDirty(true);
+            };
+            return (
+              <div
+                key={i}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}
+              >
+                <div className="w-10 flex items-center">
+                  <span style={{ color: "var(--text-tertiary)" }} className="text-xs">@</span>
+                  <input
+                    type="text"
+                    value={row.abbrev}
+                    maxLength={1}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveContexts(ctxRows); }}
+                    onChange={(e) => update({ abbrev: e.target.value.toLowerCase() })}
+                    className="w-6 px-1 py-1 rounded text-xs font-mono text-center"
+                    style={{ backgroundColor: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
+                  />
+                </div>
+                <input
+                  type="text"
+                  value={row.name}
+                  disabled={isCore}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveContexts(ctxRows); }}
+                  onChange={(e) => update({ name: e.target.value.toLowerCase() })}
+                  className="w-28 px-2 py-1 rounded text-xs capitalize disabled:opacity-60"
+                  style={{ backgroundColor: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
+                />
+                <input
+                  type="text"
+                  value={row.groups}
+                  placeholder={row.name === "personal" ? "everything unmapped is personal" : "e.g. arratech, wallet"}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveContexts(ctxRows); }}
+                  onChange={(e) => update({ groups: e.target.value })}
+                  className="flex-1 px-2 py-1 rounded text-xs font-mono"
+                  style={{ backgroundColor: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
+                />
+                {!isCore && (
+                  <button
+                    onClick={() => { setCtxRows((prev) => prev.filter((_, j) => j !== i)); setCtxDirty(true); }}
+                    className="text-xs px-1"
+                    style={{ color: "var(--text-tertiary)" }}
+                    title="Remove context"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <button
+          onClick={() => { setCtxRows((prev) => [...prev, { abbrev: "", name: "", groups: "" }]); setCtxDirty(true); }}
+          className="text-xs px-3 py-1.5 rounded-lg"
+          style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+        >
+          + Add context
+        </button>
       </section>
 
       {/* ================================================================ */}

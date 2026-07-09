@@ -1,4 +1,4 @@
-type View = "week" | "bucket" | "goals" | "coaching" | "dashboard" | "settings";
+type View = "week" | "bucket" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function Nav({
   current,
@@ -10,6 +10,8 @@ export default function Nav({
   const tabs: { id: View; label: string; shortLabel: string }[] = [
     { id: "week", label: "Plan", shortLabel: "Plan" },
     { id: "bucket", label: "🪣 Bucket", shortLabel: "🪣" },
+    { id: "habits", label: "🌱 Habits", shortLabel: "🌱" },
+    { id: "time", label: "⏱ Time", shortLabel: "⏱" },
     { id: "coaching", label: "Coaching", shortLabel: "Coach" },
     { id: "dashboard", label: "Dashboard", shortLabel: "📊" },
     { id: "settings", label: "Settings", shortLabel: "⚙️" },

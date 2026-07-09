@@ -1,9 +1,17 @@
 import React, { useState, useRef, useMemo, useEffect } from "react";
-import { api, type WeekPlanResponse, type DayTasks, type Task, type TaskLink } from "../api";
+import { api, type WeekPlanResponse, type DayTasks, type Task, type TaskLink, type Habit, type TimeEntry } from "../api";
 import TaskLinkPopup from "./TaskLinkPopup";
 import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
+import HabitStrip from "./HabitStrip";
+import { markDone as markAPDone } from "../actionPoints";
+import {
+  type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
+  ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
+  stripCtxTokens, stripGroupCtxTag, stripBucketMeta, isPinnedText, resolveContext, ctxFeatureEnabled,
+  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
+} from "../contexts";
 
 const PRIORITY_BADGE: Record<string, string> = {
   A: "bg-red-100 text-red-700",
@@ -62,8 +70,10 @@ function renderLinkedText(text: string) {
   return <>{parts}</>;
 }
 
-/** Parse group prefix from task text. "Rotary: do X" => { group: "Rotary", label: "do X" } */
-function parseGroup(text: string): { group: string; label: string } {
+/** Parse group prefix from task text. "Rotary: do X" => { group: "Rotary", label: "do X" }.
+    Inline group teaching tags are transparent: "wallet@w: do X" groups as "wallet". */
+function parseGroup(rawText: string): { group: string; label: string } {
+  const text = stripGroupCtxTag(rawText);
   const idx = text.indexOf(":");
   if (idx > 1 && idx < 30) {
     const group = text.slice(0, idx).trim();
@@ -77,7 +87,7 @@ function parseGroup(text: string): { group: string; label: string } {
 function getDisplayText(task: Task): string {
   // clean_text has [[...]] stripped; fall back to parsing the label from group prefix
   const base = task.clean_text || task.text;
-  return parseGroup(base).label;
+  return stripCtxTokens(parseGroup(base).label);
 }
 
 /** Collect all unique group names across all days */
@@ -279,13 +289,79 @@ export default function WeekPlan() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
+  // Contexts: group→context mapping from config; empty = feature off
+  const [ctxMap, setCtxMap] = useState<CtxMap>({});
+  // Tag letters → context names (@w → work, plus user-defined like @f → fun)
+  const [ctxTags, setCtxTags] = useState<CtxTags>(DEFAULT_CTX_TAGS);
+  // Selection is a set of contexts (multi-select); empty = show everything
+  const [ctxSel, setCtxSelState] = useState<CtxSelection>(loadCtxSelection);
+  const ctxEnabled = ctxFeatureEnabled(ctxMap);
+  const setCtxSel = (sel: CtxSelection) => {
+    setCtxSelState(sel);
+    saveCtxSelection(sel);
+  };
+  // Functional update so rapid successive toggles never work from stale state
+  const toggleCtx = (name: CtxName) => {
+    setCtxSelState((prev) => {
+      const next = prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name];
+      saveCtxSelection(next);
+      return next;
+    });
+  };
+
+  // A task is visible when its context is selected (empty selection = all);
+  // pinned personal/volunteer tasks also surface while Work is selected
+  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxSelection(text, ctxSel, ctxMap, ctxTags);
+
+  // Habits: gentle chips above the day/grid (current week only)
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const refreshHabits = () => {
+    api.getHabits().then((r) => setHabits(r.found ? r.habits : [])).catch(() => {});
+  };
+
+  // Time tracking: one running entry, surfaced as a status-bar chip
+  const [runningTime, setRunningTime] = useState<TimeEntry | null>(null);
+  const [timeAdjustOpen, setTimeAdjustOpen] = useState(false);
+  const [timeAdjustVal, setTimeAdjustVal] = useState("");
+  const [, setTimeTick] = useState(0);
+  const refreshTime = () => {
+    api.getTimeLog().then((r) => setRunningTime(r.running)).catch(() => {});
+  };
+  const trackedTextOf = (task: Task): string => stripBucketMeta(stripCtxTokens(task.text));
+  const startTracking = async (task: Task) => {
+    try {
+      const r = await api.startTime(trackedTextOf(task));
+      setRunningTime(r.running);
+      window.dispatchEvent(new CustomEvent("time-changed"));
+    } catch { /* backend down — chip stays as-is */ }
+  };
+  const stopTracking = async () => {
+    try {
+      await api.stopTime();
+      setRunningTime(null);
+      setTimeAdjustOpen(false);
+      window.dispatchEvent(new CustomEvent("time-changed"));
+    } catch { /* ignore */ }
+  };
+  const adjustTracking = async (start: string) => {
+    try {
+      const r = await api.adjustTime(start);
+      setRunningTime(r.running);
+      setTimeAdjustOpen(false);
+      window.dispatchEvent(new CustomEvent("time-changed"));
+    } catch { /* invalid time — leave popover open */ }
+  };
+
   // Inline add state
   const [addingAt, setAddingAt] = useState<{ dayIdx: number; afterIdx: number; group?: string | null } | null>(null);
 
   // Drag state — supports both task and group dragging
   const dragRef = useRef<{ fromDay: number; fromIdx: number; group: string | null } | null>(null);
   const dragGroupRef = useRef<{ fromDay: number; groupName: string } | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ day: number; idx: number } | null>(null);
+  // zone disambiguates indicators that share the same raw index: "task" lights a
+  // row's top border, "gap" lights a standalone between-groups bar, "end" the
+  // end-of-list bar. Exactly one indicator may render for a given dropTarget.
+  const [dropTarget, setDropTarget] = useState<{ day: number; idx: number; zone?: "task" | "gap" | "end" } | null>(null);
   const [dropGroupTarget, setDropGroupTarget] = useState<{ day: number; groupName: string } | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
   const [groupPicker, setGroupPicker] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
@@ -596,7 +672,7 @@ export default function WeekPlan() {
       const dayName = data.days[dayIdx]?.day || "monday";
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
-        [{ text: task.text, day: dayName, subtasks: task.subtasks, focused: task.focused, waiting: task.waiting, priority: task.priority }],
+        [{ text: task.text.replace(/\s*@pin\b/gi, ""), day: dayName, subtasks: task.subtasks, focused: task.focused, waiting: task.waiting, priority: task.priority }],
         weekOffset, sourceOffset
       );
       setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
@@ -614,7 +690,7 @@ export default function WeekPlan() {
     try {
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
-        groupTasks.map((t) => ({ text: t.text, day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
+        groupTasks.map((t) => ({ text: t.text.replace(/\s*@pin\b/gi, ""), day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
         weekOffset, sourceOffset
       );
       setCarryTasks((prev) => prev.filter((t) => parseGroup(t.text).group !== groupName));
@@ -630,7 +706,7 @@ export default function WeekPlan() {
     try {
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
-        carryTasks.map((t) => ({ text: t.text, day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
+        carryTasks.map((t) => ({ text: t.text.replace(/\s*@pin\b/gi, ""), day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
         weekOffset, sourceOffset
       );
       setCarryTasks([]);
@@ -666,6 +742,20 @@ export default function WeekPlan() {
       setError(e instanceof Error ? e.message : "Failed to move to bucket");
     }
     setCarryLoading(false);
+  };
+
+  // Resolve a carry item in place: "done" = it actually happened last week
+  // (forgot to tick), "delete" = no longer relevant. Both write to the
+  // source week file and drop the item from the panel.
+  const resolveCarryItem = async (carryIdx: number, action: "done" | "delete") => {
+    const task = carryTasks[carryIdx];
+    if (!task) return;
+    try {
+      await api.resolveCarry(task.text, weekOffset - 1, action);
+      setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update task");
+    }
   };
 
   const carrySingleToBucket = async (carryIdx: number) => {
@@ -708,6 +798,44 @@ export default function WeekPlan() {
     return () => {
       window.removeEventListener("week-changed", handleWeekChanged);
       window.removeEventListener("bucket-changed", refresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    refreshHabits();
+    refreshTime();
+    // Refetch on focus and after edits elsewhere, so a Habits.md created or
+    // edited after page load (Habits tab, Obsidian) shows up without a reload
+    window.addEventListener("week-changed", refreshHabits);
+    window.addEventListener("habits-changed", refreshHabits);
+    window.addEventListener("focus", refreshHabits);
+    window.addEventListener("time-changed", refreshTime);
+    window.addEventListener("focus", refreshTime);
+    const timeTicker = setInterval(() => setTimeTick((x) => x + 1), 30000);
+    return () => {
+      window.removeEventListener("week-changed", refreshHabits);
+      window.removeEventListener("habits-changed", refreshHabits);
+      window.removeEventListener("focus", refreshHabits);
+      window.removeEventListener("time-changed", refreshTime);
+      window.removeEventListener("focus", refreshTime);
+      clearInterval(timeTicker);
+    };
+  }, []);
+
+  // Load context mapping + tag table from config (feature off when empty).
+  // Re-fetch on window focus so tags auto-created by the backend (e.g. a new
+  // @f typed in Obsidian) and Settings-tab edits show up without a reload.
+  useEffect(() => {
+    const load = () => api.getSettings().then((s) => {
+      setCtxMap(s.contexts || {});
+      setCtxTags({ ...DEFAULT_CTX_TAGS, ...(s.context_tags || {}) });
+    }).catch(() => {});
+    load();
+    window.addEventListener("focus", load);
+    window.addEventListener("ctx-config-changed", load);
+    return () => {
+      window.removeEventListener("focus", load);
+      window.removeEventListener("ctx-config-changed", load);
     };
   }, []);
 
@@ -882,6 +1010,8 @@ export default function WeekPlan() {
       setExternalChange(false);
       recordMtime();
       setTimeout(() => setSaved(false), 2000);
+      // Let read-only views (Habits tab) recompute from the saved file
+      window.dispatchEvent(new CustomEvent("week-saved"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -975,6 +1105,11 @@ export default function WeekPlan() {
   }, [pomodoroState, pomodoroStartedAt]);
 
   const startPomodoro = (dayIdx: number, taskIdx: number, taskText: string, minutes: number) => {
+    // A pomodoro means "I'm working on this now" — start time tracking too
+    api.startTime(stripBucketMeta(stripCtxTokens(taskText))).then((r) => {
+      setRunningTime(r.running);
+      window.dispatchEvent(new CustomEvent("time-changed"));
+    }).catch(() => {});
     setPomodoro({
       taskIdx, dayIdx, taskText,
       duration: minutes * 60,
@@ -1025,7 +1160,13 @@ export default function WeekPlan() {
 
   const addTask = (dayIdx: number, afterIdx: number, text: string, group?: string | null) => {
     if (!data) return;
-    const fullText = group ? `${group}: ${text}` : text;
+    let fullText = group ? `${group}: ${text}` : text;
+    // Task added while a context filter is active must stay visible in it:
+    // if it wouldn't resolve into the selection, tag it with the first
+    // selected context so it doesn't vanish from the current view.
+    if (ctxEnabled && ctxSel.length > 0 && !ctxSel.includes(resolveContext(fullText, ctxMap, ctxTags))) {
+      fullText = `${fullText} ${ctxTokenOf(ctxSel[0], ctxTags)}`;
+    }
     const newTask: Task = {
       text: fullText, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
     };
@@ -1039,28 +1180,111 @@ export default function WeekPlan() {
     setAddingAt({ dayIdx, afterIdx: afterIdx + 1 });
   };
 
+  // Log a habit completion: a checked Habit: task lands in today. The strip
+  // only renders on the current week, so todayIdx is always the right target.
+  const logHabit = (habit: Habit, variant?: string) => {
+    if (!data || weekOffset !== 0) return;
+    const label = variant || habit.name;
+    const newTask: Task = {
+      text: `Habit: ${label}`, done: true, source_file: "Plan Week.md", context: "", tags: [],
+      priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
+    };
+    const days = data.days.map((d, di) => (di === todayIdx ? { ...d, tasks: [...d.tasks, newTask] } : d));
+    applyTaskChange(days);
+    setHabits((prev) => prev.map((h) => h.name === habit.name
+      ? { ...h, week_count: h.week_count + 1, days_done: h.today_count === 0 ? h.days_done + 1 : h.days_done, today_count: h.today_count + 1 }
+      : h));
+  };
+
+  // Drop the @pin marker from a task text — pins never survive a carry;
+  // surfacing an errand during work hours is a per-day decision.
+  const unpinText = (t: Task): Task =>
+    isPinnedText(t.text) ? { ...t, text: t.text.replace(/\s*@pin\b/gi, ""), clean_text: "" } : t;
+
   // Move a task from a previous day to the current day (daily carry-over)
   const moveTaskToDay = (fromDayIdx: number, fromTaskIdx: number, toDayIdx: number) => {
     if (!data || fromDayIdx === toDayIdx) return;
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
     const [moved] = days[fromDayIdx].tasks.splice(fromTaskIdx, 1);
-    days[toDayIdx].tasks.push(moved);
+    days[toDayIdx].tasks.push(unpinText(moved));
     applyTaskChange(days);
   };
 
-  // Move all open tasks from previous days to today
+  // Resolve an earlier-day task in place: mark done (did it, forgot to tick)
+  // or delete (no longer relevant). Used by the daily-carry panel.
+  const resolveDayTask = (dayIdx: number, taskIdx: number, action: "done" | "delete") => {
+    if (!data) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      if (action === "delete") tasks.splice(taskIdx, 1);
+      else tasks[taskIdx] = unpinText({ ...tasks[taskIdx], done: true });
+      return { ...d, tasks };
+    });
+    applyTaskChange(days);
+  };
+
+  // Send all mode-visible open tasks from days before today to the bucket
+  const earlierDaysToBucket = async (beforeDayIdx: number) => {
+    if (!data) return;
+    const moved: Task[] = [];
+    const days = data.days.map((d, di) => {
+      if (di >= beforeDayIdx) return d;
+      const open = d.tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
+      if (open.length === 0) return d;
+      moved.push(...open);
+      return { ...d, tasks: d.tasks.filter((t) => t.done || !taskVisibleInMode(t.text)) };
+    });
+    if (moved.length === 0) return;
+    try {
+      const currentBucket = await api.getBucket();
+      const newTasks = [
+        ...currentBucket.tasks,
+        ...moved.map((t) => ({ text: t.text, priority: t.priority || "C", focused: t.focused, waiting: t.waiting, subtasks: t.subtasks })),
+      ];
+      await api.saveBucket(newTasks, currentBucket.pinned_groups);
+      applyTaskChange(days);
+      refreshBucket();
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to move to bucket");
+    }
+  };
+
+  // Move all open tasks from previous days to today.
+  // Bulk moves only touch tasks visible in the active context mode — what the
+  // panel shows is exactly what moves; hidden contexts stay put.
   const carryAllFromPreviousDays = (toDayIdx: number) => {
     if (!data) return;
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
     const moved: Task[] = [];
     for (let di = 0; di < toDayIdx; di++) {
-      const openTasks = days[di].tasks.filter((t) => !t.done);
-      const remaining = days[di].tasks.filter((t) => t.done);
-      moved.push(...openTasks);
+      const openTasks = days[di].tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
+      const remaining = days[di].tasks.filter((t) => t.done || !taskVisibleInMode(t.text));
+      moved.push(...openTasks.map(unpinText));
       days[di] = { ...days[di], tasks: remaining };
     }
     days[toDayIdx] = { ...days[toDayIdx], tasks: [...days[toDayIdx].tasks, ...moved] };
     applyTaskChange(days);
+  };
+
+  // A completed task that came from a call note flips its AP line to "AP ✓"
+  // in the source file, so the call log itself shows the action is done.
+  const syncAPDone = (task: Task) => {
+    const links = [...task.text.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)].map((m) => m[1].trim());
+    if (links.length === 0) return;
+    const label = stripBucketMeta(stripCtxTokens(parseGroup(task.text).label))
+      .replace(/\[\[[^\]]+\]\]/g, "").trim();
+    links.forEach(async (name) => {
+      try {
+        const res = await api.vaultSearch(name, 1);
+        if (res.results.length === 0) return;
+        const { path } = res.results[0];
+        const note = await api.readNote(path);
+        const updated = markAPDone(note.content, label);
+        if (updated) await api.writeNote(path, updated);
+      } catch { /* cosmetic sync — never block completion */ }
+    });
   };
 
   const toggleDone = (dayIdx: number, taskIdx: number) => {
@@ -1073,6 +1297,23 @@ export default function WeekPlan() {
         ? tasks[taskIdx].subtasks.map((s) => ({ ...s, done: true }))
         : tasks[taskIdx].subtasks;
       tasks[taskIdx] = { ...tasks[taskIdx], done: newDone, subtasks };
+      // Completing a pinned exception clears the pin
+      if (newDone) tasks[taskIdx] = unpinText(tasks[taskIdx]);
+      if (newDone) syncAPDone(tasks[taskIdx]);
+      return { ...d, tasks };
+    });
+    applyTaskChange(days);
+  };
+
+  const togglePinned = (dayIdx: number, taskIdx: number) => {
+    if (!data) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      const t = tasks[taskIdx];
+      tasks[taskIdx] = isPinnedText(t.text)
+        ? { ...t, text: t.text.replace(/\s*@pin\b/gi, ""), clean_text: "" }
+        : { ...t, text: `${t.text.trimEnd()} @pin`, clean_text: "" };
       return { ...d, tasks };
     });
     applyTaskChange(days);
@@ -1203,13 +1444,22 @@ export default function WeekPlan() {
 
   const editTask = (dayIdx: number, taskIdx: number, newText: string) => {
     if (!data) return;
-    const trimmed = newText.trim();
+    let trimmed = newText.trim();
     if (!trimmed) return; // don't allow empty — use delete instead
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
       const tasks = [...d.tasks];
-      // Preserve group prefix if the task had one and user edited only the label
-      tasks[taskIdx] = { ...tasks[taskIdx], text: trimmed };
+      // The edit input shows the label with @tokens stripped — re-append the
+      // original tokens unless the user typed their own into the new text.
+      if (!/@(w|v|p|pin)\b/i.test(trimmed)) {
+        const oldTokens = tasks[taskIdx].text.match(CTX_TOKEN_RE);
+        if (oldTokens) trimmed = `${trimmed} ${oldTokens.map((t) => t.trim()).join(" ")}`;
+      }
+      // Preserve group prefix if the task had one and user edited only the label.
+      // Clear clean_text so getDisplayText reads from the updated text instead of
+      // the now-stale server-side clean version (otherwise the rendered label
+      // reverts to what the server originally parsed, making the edit look lost).
+      tasks[taskIdx] = { ...tasks[taskIdx], text: trimmed, clean_text: "" };
       return { ...d, tasks };
     });
     applyTaskChange(days);
@@ -1370,7 +1620,7 @@ export default function WeekPlan() {
     }
   };
 
-  const handleDragOver = (e: React.DragEvent, dayIdx: number, taskIdx: number, _group: string | null = null) => {
+  const handleDragOver = (e: React.DragEvent, dayIdx: number, taskIdx: number, _group: string | null = null, nextIdx?: number) => {
     // Accept individual task drags, group drags, and subtask-to-task promotions
     const dominated = dragGroupRef.current || dragRef.current ||
       e.dataTransfer.types.includes("subtask") || e.dataTransfer.types.includes("bucket-task") ||
@@ -1378,18 +1628,25 @@ export default function WeekPlan() {
     if (!dominated) return;
     if (dragGroupRef.current && dragGroupRef.current.fromDay !== dayIdx) return;
     e.preventDefault();
+    // Keep the container-level "drop at end" fallback from overwriting the row indicator
+    e.stopPropagation();
 
-    // Use mouse Y position relative to the element to decide above vs below
+    // A row indicator replaces any group-header highlight from a group drag
+    setDropGroupTarget(null);
+
+    // Use mouse Y position relative to the element to decide above vs below.
+    // In priority-sorted views the row below is not taskIdx + 1 in the stored
+    // array — callers pass the next *displayed* row's index as nextIdx.
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
-    const insertIdx = e.clientY < midY ? taskIdx : taskIdx + 1;
-    setDropTarget({ day: dayIdx, idx: insertIdx });
+    const insertIdx = e.clientY < midY ? taskIdx : (nextIdx ?? taskIdx + 1);
+    setDropTarget({ day: dayIdx, idx: insertIdx, zone: "task" });
   };
 
   const handleDayDragOver = (e: React.DragEvent, dayIdx: number) => {
     e.preventDefault();
     if (!data) return;
-    setDropTarget({ day: dayIdx, idx: data.days[dayIdx].tasks.length });
+    setDropTarget({ day: dayIdx, idx: data.days[dayIdx].tasks.length, zone: "end" });
   };
 
   const handleDrop = (dayIdx: number, taskIdx: number, e?: React.DragEvent, targetGroup?: string | null) => {
@@ -1507,8 +1764,13 @@ export default function WeekPlan() {
 
     if (!dragRef.current) return;
     const { fromDay, fromIdx } = dragRef.current;
+
+    // Land where the indicator showed: dropTarget holds the midpoint-adjusted
+    // insert index from the last dragOver; taskIdx alone is just the hovered row.
+    const rawTarget = dropTarget && dropTarget.day === dayIdx ? dropTarget.idx : taskIdx;
+
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
-    const [movedTask] = days[fromDay].tasks.splice(fromIdx, 1);
+    let [movedTask] = days[fromDay].tasks.splice(fromIdx, 1);
 
     // Re-prefix task if moving between groups
     if (targetGroup !== undefined) {
@@ -1517,8 +1779,28 @@ export default function WeekPlan() {
       movedTask.text = newText;
     }
 
-    let insertIdx = taskIdx;
-    if (fromDay === dayIdx && fromIdx < taskIdx) insertIdx = Math.max(0, insertIdx - 1);
+    // Dragging to another day is a carry — pins never survive a carry
+    if (fromDay !== dayIdx) movedTask = unpinText(movedTask);
+
+    // Flat views display priority-sorted, so the card only stays where it was
+    // dropped if its priority matches that position — adopt the anchor's band.
+    if (!groupView) {
+      const origTasks = data.days[dayIdx].tasks;
+      let anchor: Task | undefined;
+      if (rawTarget < origTasks.length) {
+        anchor = origTasks[rawTarget];
+      } else {
+        // End-of-list drop: anchor on the visually last active task (worst band)
+        const actives = origTasks.filter((t) => !t.done && t !== movedTask);
+        anchor = actives.reduce<Task | undefined>((worst, t) =>
+          !worst || (PRIORITY_ORDER_MAP[t.priority] ?? 4) >= (PRIORITY_ORDER_MAP[worst.priority] ?? 4) ? t : worst
+        , undefined);
+      }
+      if (anchor && anchor !== movedTask && anchor.priority) movedTask.priority = anchor.priority;
+    }
+
+    let insertIdx = rawTarget;
+    if (fromDay === dayIdx && fromIdx < rawTarget) insertIdx = Math.max(0, insertIdx - 1);
     insertIdx = Math.min(insertIdx, days[dayIdx].tasks.length);
 
     days[dayIdx].tasks.splice(insertIdx, 0, movedTask);
@@ -1543,6 +1825,8 @@ export default function WeekPlan() {
   const handleGroupDragOver = (e: React.DragEvent, dayIdx: number, groupName: string) => {
     if (!dragGroupRef.current) return;
     e.preventDefault();
+    // A group-header highlight replaces any stale row indicator
+    setDropTarget(null);
     setDropGroupTarget({ day: dayIdx, groupName });
   };
 
@@ -1593,7 +1877,7 @@ export default function WeekPlan() {
   const gridCols = viewMode === "3day" ? "grid-cols-3" : viewMode === "weekend" ? "grid-cols-2" : viewMode === "5day" ? "grid-cols-5" : "grid-cols-7";
 
   const getFilteredTasks = (tasks: Task[]): Task[] => {
-    let filtered = tasks;
+    let filtered = tasks.filter((t) => taskVisibleInMode(t.text));
     if (filterGroup) {
       filtered = filtered.filter((t) => parseGroup(t.text).group === filterGroup);
     }
@@ -1611,6 +1895,7 @@ export default function WeekPlan() {
     tasks.forEach((task, idx) => {
       const { group } = parseGroup(task.text);
       const label = getDisplayText(task);
+      if (!taskVisibleInMode(task.text)) return;
       if (filterGroup && group !== filterGroup) return;
       if (!showCompleted && task.done && !(task.subtasks?.some((s) => !s.done))) return;
       const last = sections[sections.length - 1];
@@ -1803,26 +2088,36 @@ export default function WeekPlan() {
   };
 
   // --- Compact task item for grid views (5day, 7day, weekend) ---
-  const renderCompactTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, group: string | null, seqLabel: string = "") => (
+  const renderCompactTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, group: string | null, seqLabel: string = "", nextIdx?: number) => {
+    const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap, ctxTags) : null;
+    const pinned = ctxEnabled && isPinnedText(task.text);
+    // Exception = visible only because it's pinned while Work is selected
+    const isException = pinned && taskCtx !== null && ctxSel.includes("work") && !ctxSel.includes(taskCtx);
+    // Edges help whenever more than one context is on screen
+    const showEdge = taskCtx !== null && (ctxSel.length === 0 || ctxSel.length > 1 || isException);
+    return (
     <div
       key={`${task.text}-${taskIdx}`}
       draggable={!task.done}
       onDragStart={(e) => handleDragStart(dayIdx, taskIdx, group, e)}
-      onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group)}
+      onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group, nextIdx)}
       onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx, e); }}
       onDragEnd={handleDragEnd}
       onDoubleClick={(e) => {
         e.stopPropagation();
         setAddingAt({ dayIdx, afterIdx: taskIdx, group });
       }}
+      style={showEdge ? { boxShadow: `inset 2px 0 0 ${ctxEdgeColor(taskCtx!)}` } : undefined}
       className={`group flex items-start gap-1 py-0.5 px-1 rounded text-[11px] leading-tight select-none ${
-        dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx
+        dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
           ? "border-t-2 border-blue-400"
           : "border-t-2 border-transparent"
       } ${
         task.done
           ? "opacity-40"
-          : "cursor-grab active:cursor-grabbing hover:bg-white/80"
+          : isException
+            ? "opacity-75 cursor-grab active:cursor-grabbing hover:bg-white/80"
+            : "cursor-grab active:cursor-grabbing hover:bg-white/80"
       }`}
     >
       <button
@@ -1893,6 +2188,26 @@ export default function WeekPlan() {
           ⏳
         </button>
       )}
+      {/* Start time tracking (auto-pauses whatever was running) */}
+      {!task.done && (
+        <button
+          onClick={(e) => { e.stopPropagation(); startTracking(task); }}
+          className="shrink-0 text-[10px] transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
+          title="Track time on this task"
+        >
+          ▶
+        </button>
+      )}
+      {/* Pin toggle — personal/volunteer tasks only: surface during Work mode */}
+      {ctxEnabled && !task.done && taskCtx !== "work" && (
+        <button
+          onClick={(e) => { e.stopPropagation(); togglePinned(dayIdx, taskIdx); }}
+          className={`shrink-0 text-[10px] transition-opacity ${pinned ? "opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
+          title={pinned ? "Unpin — stop showing during Work mode" : "Pin — show during Work mode"}
+        >
+          📌
+        </button>
+      )}
       {/* Focus horn icon */}
       {!task.done && (
         <button
@@ -1948,26 +2263,38 @@ export default function WeekPlan() {
         &times;
       </button>
     </div>
-  );
+    );
+  };
 
   // --- Full-size task item for Day view ---
-  const renderDayTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, seqLabel: string, group: string | null) => (
+  const renderDayTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, seqLabel: string, group: string | null, nextIdx?: number) => {
+    const taskCtx = ctxEnabled ? resolveContext(task.text, ctxMap, ctxTags) : null;
+    const pinned = ctxEnabled && isPinnedText(task.text);
+    // A pinned personal/volunteer task shown inside Work mode = the exception
+    // Exception = visible only because it's pinned while Work is selected
+    const isException = pinned && taskCtx !== null && ctxSel.includes("work") && !ctxSel.includes(taskCtx);
+    // Edges help whenever more than one context is on screen
+    const showEdge = taskCtx !== null && (ctxSel.length === 0 || ctxSel.length > 1 || isException);
+    return (
     <div key={`day-${taskIdx}`}>
       <div
         draggable={!task.done}
         onDragStart={!task.done ? (e) => handleDragStart(dayIdx, taskIdx, group, e) : undefined}
-        onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group)}
+        onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group, nextIdx)}
         onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, taskIdx, e); }}
         onDragEnd={handleDragEnd}
         onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx, group }); }}
+        style={showEdge ? { boxShadow: `inset 2px 0 0 ${ctxEdgeColor(taskCtx!)}` } : undefined}
         className={`group flex items-center gap-2 py-1 px-2 rounded text-sm select-none ${
-          dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx
+          dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
             ? "border-t-2 border-blue-400"
             : "border-t-2 border-transparent"
         } ${
           task.done
             ? "opacity-50"
-            : "cursor-grab active:cursor-grabbing hover:bg-gray-50"
+            : isException
+              ? "opacity-75 cursor-grab active:cursor-grabbing hover:bg-gray-50"
+              : "cursor-grab active:cursor-grabbing hover:bg-gray-50"
         }`}
       >
         <button
@@ -2042,6 +2369,26 @@ export default function WeekPlan() {
             title="Mark as waiting"
           >
             ⏳
+          </button>
+        )}
+        {/* Start time tracking (auto-pauses whatever was running) */}
+        {!task.done && (
+          <button
+            onClick={(e) => { e.stopPropagation(); startTracking(task); }}
+            className="shrink-0 text-sm transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
+            title="Track time on this task"
+          >
+            ▶
+          </button>
+        )}
+        {/* Pin toggle — personal/volunteer tasks only: surface during Work mode */}
+        {ctxEnabled && !task.done && taskCtx !== "work" && (
+          <button
+            onClick={(e) => { e.stopPropagation(); togglePinned(dayIdx, taskIdx); }}
+            className={`shrink-0 text-sm transition-opacity ${pinned ? "opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
+            title={pinned ? "Unpin — stop showing during Work mode" : "Pin — show during Work mode"}
+          >
+            📌
           </button>
         )}
         {/* Focus horn icon */}
@@ -2151,7 +2498,8 @@ export default function WeekPlan() {
         </button>
       </div>
     </div>
-  );
+    );
+  };
 
   const renderAddInput = (dayIdx: number, afterIdx: number) => {
     if (!addingAt || addingAt.dayIdx !== dayIdx || addingAt.afterIdx !== afterIdx) return null;
@@ -2168,12 +2516,13 @@ export default function WeekPlan() {
 
   // Count completed across visible days for the toggle label
   const completedCount = data
-    ? visibleDays.reduce((sum, di) => sum + data.days[di].tasks.filter((t) => t.done).length, 0)
+    ? visibleDays.reduce((sum, di) => sum + data.days[di].tasks.filter((t) => t.done && taskVisibleInMode(t.text)).length, 0)
     : 0;
 
-  // Daily carry count: open tasks from days before today (current week only)
+  // Daily carry count: open tasks from days before today (current week only),
+  // counting only tasks visible in the active context mode
   const dailyCarryCount = data && weekOffset === 0 && todayIdx > 0
-    ? data.days.slice(0, todayIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done).length, 0)
+    ? data.days.slice(0, todayIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done && taskVisibleInMode(t.text)).length, 0)
     : 0;
 
   // --- Day view renderer ---
@@ -2196,7 +2545,7 @@ export default function WeekPlan() {
         if (!prevDay) continue;
         const dayLabel = DAY_LABELS[prevDay.day] || prevDay.day;
         prevDay.tasks.forEach((t, ti) => {
-          if (!t.done) dailyCarryTasks.push({ dayIdx: di, dayName: dayLabel, task: t, taskIdx: ti });
+          if (!t.done && taskVisibleInMode(t.text)) dailyCarryTasks.push({ dayIdx: di, dayName: dayLabel, task: t, taskIdx: ti });
         });
       }
     }
@@ -2206,6 +2555,10 @@ export default function WeekPlan() {
       {/* Left column — Tasks */}
       <div className={`space-y-2 ${showNotesPanel ? "min-w-0" : "w-full max-w-lg mx-auto"}`}
         style={showNotesPanel ? { width: `${100 - notesPanelPct}%` } : undefined}>
+        {/* Habit chips — current week only, shrink as the week goes well */}
+        {weekOffset === 0 && habits.length > 0 && (
+          <HabitStrip habits={habits} onLog={logHabit} />
+        )}
         {/* Day info bar */}
         <div className="flex items-center gap-3 text-sm" style={{ color: "var(--text-secondary)" }}>
           <span className="font-medium" style={{ color: "var(--text)" }}>
@@ -2235,15 +2588,17 @@ export default function WeekPlan() {
           return (
           <div
             className="space-y-0.5"
-            onDragOver={(e) => { if (dragGroupRef.current) return; e.preventDefault(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length }); }}
+            onDragOver={(e) => { if (dragGroupRef.current) return; e.preventDefault(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length, zone: "end" }); }}
             onDrop={(e) => handleDrop(selectedDayIdx, day.tasks.length, e)}
           >
             {sortedTasks.map((task, fi) => {
               const originalIdx = day.tasks.indexOf(task);
+              // Raw index of the next *displayed* row, for below-midpoint drops
+              const nextIdx = fi + 1 < sortedTasks.length ? day.tasks.indexOf(sortedTasks[fi + 1]) : day.tasks.length;
               const seq = seqNumbers.get(filteredTasks.indexOf(task)) ?? "";
               return (
                 <div key={`flat-${originalIdx}`}>
-                  {renderDayTaskItem(task, selectedDayIdx, originalIdx, getDisplayText(task), String(seq), null)}
+                  {renderDayTaskItem(task, selectedDayIdx, originalIdx, getDisplayText(task), String(seq), null, nextIdx)}
                   {renderSubtasks(selectedDayIdx, originalIdx, task, false)}
                 </div>
               );
@@ -2288,7 +2643,7 @@ export default function WeekPlan() {
                   return;
                 }
                 e.preventDefault(); e.stopPropagation();
-                setDropTarget({ day: selectedDayIdx, idx: 0 });
+                setDropTarget({ day: selectedDayIdx, idx: 0, zone: "gap" });
               }}
               onDrop={(e) => {
                 if (dragGroupRef.current) {
@@ -2301,13 +2656,12 @@ export default function WeekPlan() {
               className={`rounded transition-all ${
                 dropGroupTarget?.day === selectedDayIdx && dropGroupTarget?.groupName === "__start__"
                   ? "h-3 bg-blue-400"
-                  : dropTarget?.day === selectedDayIdx && dropTarget?.idx === 0
+                  : dropTarget?.day === selectedDayIdx && dropTarget?.idx === 0 && dropTarget?.zone === "gap"
                     ? "h-3 bg-blue-400" : dropTarget || dropGroupTarget ? "h-4" : "h-1"
               }`}
             />
             {groups.map((section, sectionIdx) => {
               const firstOrigIdx = section.items[0]?.originalIdx ?? 0;
-              const lastOrigIdx = section.items[section.items.length - 1]?.originalIdx ?? 0;
               const sectionKey = section.name ? `${section.name}-${firstOrigIdx}` : `ungrouped-${firstOrigIdx}`;
               const isCollapsed = section.name ? collapsedGroups.has(section.name) : false;
               const doneInSection = section.items.filter((e) => e.task.done).length;
@@ -2323,14 +2677,14 @@ export default function WeekPlan() {
                           return;
                         }
                         e.preventDefault(); e.stopPropagation();
-                        setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx });
+                        setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx, zone: "gap" });
                       }}
                       onDrop={(e) => {
                         if (dragGroupRef.current) return;
                         e.stopPropagation(); handleDrop(selectedDayIdx, firstOrigIdx, e);
                       }}
                       className={`rounded transition-all ${
-                        dropTarget?.day === selectedDayIdx && dropTarget?.idx === firstOrigIdx
+                        dropTarget?.day === selectedDayIdx && dropTarget?.idx === firstOrigIdx && dropTarget?.zone === "gap"
                           ? "h-3 bg-blue-400" : dropTarget ? "h-4" : "h-1"
                       }`}
                     />
@@ -2346,9 +2700,9 @@ export default function WeekPlan() {
                           // Group drag — use group drag handler
                           handleGroupDragOver(e, selectedDayIdx, section.name);
                         } else if (dragRef.current) {
-                          // Task drag — insert before this group
+                          // Task drag — insert before this group; light the gap bar above the header
                           e.preventDefault(); e.stopPropagation();
-                          setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx });
+                          setDropTarget({ day: selectedDayIdx, idx: firstOrigIdx, zone: "gap" });
                         }
                       }}
                       onDrop={(e) => {
@@ -2392,10 +2746,6 @@ export default function WeekPlan() {
                           </div>
                         );
                       })}
-                      {/* Bottom-of-section drop indicator */}
-                      {dropTarget?.day === selectedDayIdx && dropTarget?.idx === lastOrigIdx + 1 && (
-                        <div className="h-1 bg-blue-400 rounded -my-0.5" />
-                      )}
                     </div>
                   )}
                 </div>
@@ -2411,7 +2761,7 @@ export default function WeekPlan() {
                   return;
                 }
                 e.preventDefault(); e.stopPropagation();
-                setDropTarget({ day: selectedDayIdx, idx: day.tasks.length });
+                setDropTarget({ day: selectedDayIdx, idx: day.tasks.length, zone: "end" });
               }}
               onDrop={(e) => {
                 if (dragGroupRef.current) {
@@ -2462,9 +2812,10 @@ export default function WeekPlan() {
         </div>
       )}
 
-      {/* Right column — Notes Panel */}
+      {/* Right column — Notes Panel. Sticky + viewport-fitted so its own
+          scrollbar reaches the bottom without scrolling the page. */}
       {showNotesPanel && (
-        <div className="min-w-0 pl-2 max-h-[calc(100vh-220px)] overflow-y-auto"
+        <div className="min-w-0 pl-2 max-h-[calc(100vh-260px)] overflow-y-auto sticky top-[80px] self-start"
           style={{ width: `${notesPanelPct}%` }}>
           <NotesPanel
             dayName={day.day}
@@ -2483,6 +2834,11 @@ export default function WeekPlan() {
     if (!data) return null;
     return (
       <>
+        {weekOffset === 0 && habits.length > 0 && (
+          <div className="mb-2">
+            <HabitStrip habits={habits} onLog={logHabit} compact />
+          </div>
+        )}
         <div className={`grid ${gridCols} gap-2`}>
           {visibleDays.map((dayIdx) => {
             const day = data.days[dayIdx];
@@ -2534,10 +2890,12 @@ export default function WeekPlan() {
                     {sortedTasks.length > 0 ? (
                       sortedTasks.map((task, fi) => {
                         const originalIdx = day.tasks.indexOf(task);
+                        // Raw index of the next *displayed* row, for below-midpoint drops
+                        const nextIdx = fi + 1 < sortedTasks.length ? day.tasks.indexOf(sortedTasks[fi + 1]) : day.tasks.length;
                         const seq = seqNumbers.get(filteredTasks.indexOf(task)) ?? "";
                         return (
                           <div key={`wrap-${originalIdx}`}>
-                            {renderCompactTaskItem(task, dayIdx, originalIdx, getDisplayText(task), null, String(seq))}
+                            {renderCompactTaskItem(task, dayIdx, originalIdx, getDisplayText(task), null, String(seq), nextIdx)}
                             {renderSubtasks(dayIdx, originalIdx, task, true)}
                             {renderAddInput(dayIdx, originalIdx)}
                           </div>
@@ -2562,15 +2920,14 @@ export default function WeekPlan() {
                   >
                     {/* Top drop zone for ungrouped tasks above first group */}
                     <div
-                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: 0 }); }}
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: 0, zone: "gap" }); }}
                       onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, 0, e, null); }}
                       className={`h-0.5 rounded transition-colors ${
-                        dropTarget?.day === dayIdx && dropTarget?.idx === 0 ? "bg-blue-400" : "bg-transparent"
+                        dropTarget?.day === dayIdx && dropTarget?.idx === 0 && dropTarget?.zone === "gap" ? "bg-blue-400" : "bg-transparent"
                       }`}
                     />
                     {buildDayGroups(day.tasks).map((section) => {
                       const firstOrigIdx = section.items[0]?.originalIdx ?? 0;
-                      const lastOrigIdx = section.items[section.items.length - 1]?.originalIdx ?? 0;
                       const sectionKey = section.name ? `${section.name}-${firstOrigIdx}` : `ungrouped-${firstOrigIdx}`;
                       const isCollapsed = section.name ? collapsedGroups.has(section.name) : false;
                       const doneInSection = section.items.filter((e) => e.task.done).length;
@@ -2580,10 +2937,10 @@ export default function WeekPlan() {
                           {/* Drop zone before group — insert above this group */}
                           {section.name && (
                             <div
-                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: firstOrigIdx }); }}
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ day: dayIdx, idx: firstOrigIdx, zone: "gap" }); }}
                               onDrop={(e) => { e.stopPropagation(); handleDrop(dayIdx, firstOrigIdx, e); }}
                               className={`rounded transition-all ${
-                                dropTarget?.day === dayIdx && dropTarget?.idx === firstOrigIdx ? "h-1.5 bg-blue-400" : dropTarget ? "h-2" : "h-0.5"
+                                dropTarget?.day === dayIdx && dropTarget?.idx === firstOrigIdx && dropTarget?.zone === "gap" ? "h-1.5 bg-blue-400" : dropTarget ? "h-2" : "h-0.5"
                               }`}
                             />
                           )}
@@ -2596,7 +2953,7 @@ export default function WeekPlan() {
                               onDragOver={(e) => {
                                 if (dragRef.current && !dragGroupRef.current) {
                                   e.preventDefault(); e.stopPropagation();
-                                  setDropTarget({ day: dayIdx, idx: firstOrigIdx });
+                                  setDropTarget({ day: dayIdx, idx: firstOrigIdx, zone: "gap" });
                                 }
                               }}
                               onDrop={(e) => {
@@ -2633,10 +2990,6 @@ export default function WeekPlan() {
                                   </div>
                                 );
                               })}
-                              {/* Bottom-of-section drop indicator */}
-                              {dropTarget?.day === dayIdx && dropTarget?.idx === lastOrigIdx + 1 && (
-                                <div className="h-0.5 bg-blue-400 rounded" />
-                              )}
                             </div>
                           )}
                         </div>
@@ -2736,6 +3089,39 @@ export default function WeekPlan() {
               </button>
             </div>
             <div className="flex gap-1 items-center flex-wrap justify-end">
+              {/* Context filter — toggleable chips, combine freely; only when contexts are configured.
+                  Core three always show; custom contexts only when present in this week or selected. */}
+              {ctxEnabled && (
+                <>
+                  {allContextNames(ctxMap, ctxTags).filter((name) => {
+                    if (["work", "volunteer", "personal"].includes(name)) return true;
+                    if (ctxSel.includes(name)) return true;
+                    return (data?.days || []).some((d) => d.tasks.some((t) => resolveContext(t.text, ctxMap, ctxTags) === name));
+                  }).map((name) => {
+                    const active = ctxSel.includes(name);
+                    return (
+                      <button
+                        key={name}
+                        onClick={() => toggleCtx(name)}
+                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${active ? ctxChipClass(name) : "hover:opacity-80"}`}
+                        style={!active ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+                        title={`${active ? "Hide" : "Show"} ${name} tasks${name === "work" ? " (Work also surfaces pinned exceptions)" : ""} — combine chips freely`}
+                      >
+                        {name.charAt(0).toUpperCase() + name.slice(1)}
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => setCtxSel([])}
+                    className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${ctxSel.length === 0 ? "bg-gray-200 text-gray-700" : "hover:opacity-80"}`}
+                    style={ctxSel.length !== 0 ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+                    title="Show every context"
+                  >
+                    All
+                  </button>
+                  <span className="w-px h-4 bg-gray-200" />
+                </>
+              )}
               {/* Group toggle */}
               <button
                 onClick={() => setGroupView(!groupView)}
@@ -2848,9 +3234,9 @@ export default function WeekPlan() {
                       <span className={`text-[10px] ${
                         isSelected ? "text-blue-100"
                           : isVisible ? "text-blue-400"
-                          : d.tasks.filter(t => !t.done).length > 0 ? "text-gray-500" : "text-gray-300"
+                          : d.tasks.filter(t => !t.done && taskVisibleInMode(t.text)).length > 0 ? "text-gray-500" : "text-gray-300"
                       }`}>
-                        {d.tasks.filter(t => !t.done).length}
+                        {d.tasks.filter(t => !t.done && taskVisibleInMode(t.text)).length}
                       </span>
                     </button>
                   );
@@ -3177,7 +3563,9 @@ export default function WeekPlan() {
 
     {/* Bucket & Carry icons — above status bar, togglable */}
     {data && showBottomBar && (
-      <div className="fixed bottom-8 right-6 z-40 flex items-end gap-2">
+      <div className={`fixed bottom-8 z-40 flex items-end gap-2 right-6 ${
+        (bucketOpen || carryForwardOpen || dailyCarryOpen) ? "md:right-[max(19.5rem,calc(50vw-16.5rem))]" : ""
+      }`}>
         {/* Daily carry — open tasks from days before today */}
         {dailyCarryCount > 0 && (
           <div
@@ -3199,10 +3587,10 @@ export default function WeekPlan() {
         )}
 
         {/* Weekly carry forward — only on current week, only when today or a later day is visible */}
-        {weekOffset === 0 && carryTasks.length > 0 && visibleDays.some(d => d >= todayIdx) && (
+        {weekOffset === 0 && carryTasks.filter((t) => taskVisibleInMode(t.text)).length > 0 && visibleDays.some(d => d >= todayIdx) && (
           <div
             className={`relative cursor-pointer transition-all duration-200 ${carryHighlight ? "scale-110" : "hover:scale-105"}`}
-            title={`⏩ Carry Forward (${carryTasks.length} tasks)`}
+            title={`⏩ Carry Forward (${carryTasks.filter((t) => taskVisibleInMode(t.text)).length} tasks)`}
             onClick={() => {
               if (carryForwardOpen) { setCarryForwardOpen(false); }
               else { setBucketOpen(false); setCarryForwardOpen(true); setDailyCarryOpen(false); }
@@ -3212,7 +3600,7 @@ export default function WeekPlan() {
               carryForwardOpen ? "bg-purple-200 border-purple-500" : carryHighlight ? "bg-purple-100 border-purple-400" : "bg-white border-gray-200 hover:border-purple-300"
             }`}>⏩</div>
             <span className="absolute -top-1 -right-1 bg-purple-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-              {carryTasks.length > 99 ? "99+" : carryTasks.length}
+              {(() => { const n = carryTasks.filter((t) => taskVisibleInMode(t.text)).length; return n > 99 ? "99+" : n; })()}
             </span>
           </div>
         )}
@@ -3319,6 +3707,41 @@ export default function WeekPlan() {
               <button onClick={() => setExternalChange(false)} className="text-blue-400">✕</button>
             </div>
           )}
+          {runningTime && (() => {
+            const [sh, sm] = runningTime.start.split(":").map(Number);
+            const now = new Date();
+            const elapsed = Math.max(0, now.getHours() * 60 + now.getMinutes() - (sh * 60 + sm));
+            const shiftStart = (delta: number) => {
+              const t = Math.max(0, sh * 60 + sm + delta);
+              return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+            };
+            return (
+              <div className="relative flex items-center gap-1">
+                <button
+                  onClick={() => { setTimeAdjustVal(runningTime.start); setTimeAdjustOpen(!timeAdjustOpen); }}
+                  className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 hover:bg-green-200 max-w-[16rem] truncate"
+                  title={`Tracking since ${runningTime.start} — click to adjust the start time`}
+                >
+                  ⏱ {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")} · {runningTime.text}
+                </button>
+                <button onClick={stopTracking} className="px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-600 hover:bg-red-200" title="Stop tracking">■</button>
+                {timeAdjustOpen && (
+                  <div className="absolute bottom-7 left-0 z-50 rounded-lg shadow-xl border p-2 flex items-center gap-1.5"
+                    style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}>
+                    <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>started</span>
+                    <input value={timeAdjustVal} onChange={(e) => setTimeAdjustVal(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") adjustTracking(timeAdjustVal); if (e.key === "Escape") setTimeAdjustOpen(false); }}
+                      className="w-14 px-1 py-0.5 rounded text-[10px] font-mono border" style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
+                    {[-5, -15, -30].map((d) => (
+                      <button key={d} onClick={() => adjustTracking(shiftStart(d))}
+                        className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600 hover:bg-gray-200">{d}m</button>
+                    ))}
+                    <button onClick={() => adjustTracking(timeAdjustVal)} className="px-1.5 py-0.5 rounded text-[10px] bg-blue-600 text-white">Set</button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div className="flex-1" />
           <button
             onClick={() => setShowBottomBar(!showBottomBar)}
@@ -3335,7 +3758,7 @@ export default function WeekPlan() {
 
     {/* Bucket side panel */}
     {bucketOpen && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-260px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>🪣 Bucket ({bucketTasks.length})</h3>
           <button onClick={() => setBucketOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
@@ -3349,7 +3772,8 @@ export default function WeekPlan() {
             type BucketSection = { name: string; items: { task: import("../api").BucketTask; idx: number; label: string }[] };
             const byGroup = new Map<string, BucketSection>();
             bucketTasks.forEach((task, idx) => {
-              const { group, label } = parseGroup(task.text);
+              if (!taskVisibleInMode(task.text)) return;
+              const { group, label } = parseGroup(stripBucketMeta(stripCtxTokens(task.text)));
               let section = byGroup.get(group);
               if (!section) {
                 section = { name: group, items: [] };
@@ -3418,10 +3842,10 @@ export default function WeekPlan() {
     )}
     {/* Carry Forward side panel (right, matching bucket style) */}
     {carryForwardOpen && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-260px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
-            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({carryTasks.length})</h3>
+            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({carryTasks.filter((t) => taskVisibleInMode(t.text)).length})</h3>
             <p className="text-[10px] text-gray-500">From week {carryLabel.replace(/^\d{4}-wk0?/, "")}</p>
           </div>
           <button onClick={() => setCarryForwardOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
@@ -3434,7 +3858,8 @@ export default function WeekPlan() {
             // Build grouped sections matching bucket style
             const sections: { name: string; items: { task: typeof carryTasks[0]; idx: number; label: string }[] }[] = [];
             carryTasks.forEach((task, idx) => {
-              const { group, label } = parseGroup(task.text);
+              if (!taskVisibleInMode(task.text)) return;
+              const { group, label } = parseGroup(stripCtxTokens(task.text));
               const last = sections[sections.length - 1];
               if (last && last.name === group) {
                 last.items.push({ task, idx, label });
@@ -3475,7 +3900,20 @@ export default function WeekPlan() {
                   {label}
                 </span>
                 <span className="text-[9px] text-gray-300 shrink-0">{task.from_day.slice(0, 3)}</span>
-                <span className="text-[10px] text-gray-300 opacity-0 group-hover/ct:opacity-100 shrink-0">drag →</span>
+                <button
+                  onClick={() => resolveCarryItem(idx, "done")}
+                  title="It was actually done — mark completed in last week's file"
+                  className="shrink-0 text-green-500 hover:text-green-700 opacity-0 group-hover/ct:opacity-100 transition-opacity"
+                >
+                  ✓
+                </button>
+                <button
+                  onClick={() => resolveCarryItem(idx, "delete")}
+                  title="No longer relevant — remove from last week's file"
+                  className="shrink-0 text-gray-400 hover:text-red-500 opacity-0 group-hover/ct:opacity-100 transition-opacity"
+                >
+                  ✕
+                </button>
               </div>
             );
 
@@ -3516,9 +3954,9 @@ export default function WeekPlan() {
             });
           })()}
         </div>
-        {/* Bottom actions */}
+        {/* Bottom actions — sticky so they're visible without scrolling the list */}
         {carryTasks.length > 0 && (
-          <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5">
+          <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5 sticky bottom-0" style={{ backgroundColor: "var(--bg-secondary)" }}>
             <div className="flex gap-1">
               <select
                 id="carry-target-day"
@@ -3557,7 +3995,7 @@ export default function WeekPlan() {
     )}
     {/* Daily carry side panel (right, matching carry-forward style) */}
     {dailyCarryOpen && data && weekOffset === 0 && todayIdx > 0 && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-260px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
             <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Before Today ({dailyCarryCount})</h3>
@@ -3577,8 +4015,8 @@ export default function WeekPlan() {
               if (!prevDay) continue;
               const dayLabel = DAY_LABELS[prevDay.day] || prevDay.day;
               prevDay.tasks.forEach((t, ti) => {
-                if (!t.done) {
-                  const { group, label } = parseGroup(t.text);
+                if (!t.done && taskVisibleInMode(t.text)) {
+                  const { group, label } = parseGroup(stripCtxTokens(t.text));
                   items.push({ dayIdx: di, dayName: dayLabel, taskIdx: ti, task: t, group, label });
                 }
               });
@@ -3606,11 +4044,11 @@ export default function WeekPlan() {
                   <span className="text-[10px] text-gray-400">({dayItems.length})</span>
                   <button
                     onClick={() => {
-                      // Move all open from this day to today
+                      // Move this day's open tasks (only those visible in the mode) to today
                       const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
-                      const open = days[di].tasks.filter((t) => !t.done);
-                      days[di] = { ...days[di], tasks: days[di].tasks.filter((t) => t.done) };
-                      days[todayIdx] = { ...days[todayIdx], tasks: [...days[todayIdx].tasks, ...open] };
+                      const open = days[di].tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
+                      days[di] = { ...days[di], tasks: days[di].tasks.filter((t) => t.done || !taskVisibleInMode(t.text)) };
+                      days[todayIdx] = { ...days[todayIdx], tasks: [...days[todayIdx].tasks, ...open.map(unpinText)] };
                       applyTaskChange(days);
                     }}
                     className="ml-auto text-[9px] text-purple-400 hover:text-purple-700 transition-colors"
@@ -3629,6 +4067,20 @@ export default function WeekPlan() {
                       {it.label}
                     </span>
                     <button
+                      onClick={() => resolveDayTask(it.dayIdx, it.taskIdx, "done")}
+                      className="text-[11px] text-green-500 hover:text-green-700 opacity-0 group-hover/dc:opacity-100 shrink-0 transition-opacity"
+                      title="It was actually done — mark completed on that day"
+                    >
+                      ✓
+                    </button>
+                    <button
+                      onClick={() => resolveDayTask(it.dayIdx, it.taskIdx, "delete")}
+                      className="text-[11px] text-gray-400 hover:text-red-500 opacity-0 group-hover/dc:opacity-100 shrink-0 transition-opacity"
+                      title="No longer relevant — delete"
+                    >
+                      ✕
+                    </button>
+                    <button
                       onClick={() => moveTaskToDay(it.dayIdx, it.taskIdx, todayIdx)}
                       className="text-[10px] text-purple-400 hover:text-purple-700 opacity-0 group-hover/dc:opacity-100 shrink-0 transition-opacity"
                       title={`Move to ${targetDayName}`}
@@ -3641,19 +4093,27 @@ export default function WeekPlan() {
             ));
           })()}
         </div>
-        {/* Bottom action: move all */}
+        {/* Bottom actions — sticky so they're visible without scrolling the list */}
         {dailyCarryCount > 0 && (
-          <div className="p-2 border-t border-gray-200">
+          <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5 sticky bottom-0" style={{ backgroundColor: "var(--bg-secondary)" }}>
             <button
               onClick={() => { carryAllFromPreviousDays(todayIdx); setDailyCarryOpen(false); }}
               className="w-full px-2 py-1.5 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 transition-colors"
             >
               Move all to {DAY_LABELS[data.days[todayIdx]?.day] || "today"} →
             </button>
+            <button
+              onClick={() => { earlierDaysToBucket(todayIdx); setDailyCarryOpen(false); }}
+              className="w-full px-2 py-1 bg-amber-500 text-white rounded text-[10px] font-medium hover:bg-amber-600 transition-colors"
+            >
+              🪣 All to Bucket
+            </button>
           </div>
         )}
       </div>
     )}
+
+
     {/* Task link popup */}
     {linkPopup && (
       <TaskLinkPopup

@@ -2,6 +2,13 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import NoteFilePicker from "./NoteFilePicker";
+import {
+  type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
+  ctxChipClass, ctxEdgeColor, allContextNames, resolveContext,
+  stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
+  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
+  stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, setMonthHorizon,
+} from "../contexts";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -14,7 +21,8 @@ function obsidianUri(path: string): string {
 
 /* ── helpers ────────────────────────────────────────────────── */
 
-function parseGroup(text: string): { group: string; label: string } {
+function parseGroup(rawText: string): { group: string; label: string } {
+  const text = stripGroupCtxTag(rawText);
   const idx = text.indexOf(":");
   if (idx > 1 && idx < 30) {
     const group = text.slice(0, idx).trim();
@@ -136,6 +144,45 @@ export default function Bucket() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
+
+  // Context filter — follows the selection set in the week view (shared via localStorage)
+  const [ctxMap, setCtxMap] = useState<CtxMap>({});
+  const [ctxTags, setCtxTags] = useState<CtxTags>(DEFAULT_CTX_TAGS);
+  const [ctxSel, setCtxSelState] = useState<CtxSelection>(loadCtxSelection);
+  const ctxEnabled = ctxFeatureEnabled(ctxMap);
+  const setCtxSel = (sel: CtxSelection) => { setCtxSelState(sel); saveCtxSelection(sel); };
+  // Functional update so rapid successive toggles never work from stale state
+  const toggleCtx = (name: CtxName) => {
+    setCtxSelState((prev) => {
+      const next = prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name];
+      saveCtxSelection(next);
+      return next;
+    });
+  };
+  useEffect(() => {
+    const load = () => api.getSettings().then((s) => {
+      setCtxMap(s.contexts || {});
+      setCtxTags({ ...DEFAULT_CTX_TAGS, ...(s.context_tags || {}) });
+    }).catch(() => {});
+    load();
+    const sync = () => setCtxSelState(loadCtxSelection());
+    window.addEventListener("ctx-mode-changed", sync);
+    window.addEventListener("ctx-config-changed", load);
+    return () => {
+      window.removeEventListener("ctx-mode-changed", sync);
+      window.removeEventListener("ctx-config-changed", load);
+    };
+  }, []);
+  const taskVisibleInMode = (text: string): boolean => taskVisibleInCtxSelection(text, ctxSel, ctxMap, ctxTags);
+
+  // GTD board view: file bucket tasks into This week / Next week / This month / Backlog
+  const [boardView, setBoardView] = useState(() => localStorage.getItem("nowspace-bucket-board") === "1");
+  const toggleBoardView = () => {
+    setBoardView((v) => { localStorage.setItem("nowspace-bucket-board", v ? "0" : "1"); return !v; });
+  };
+  // Tasks filed to a week this session (labels only, for visible progress)
+  const [filedWeek, setFiledWeek] = useState<string[]>([]);
+  const [filedNext, setFiledNext] = useState<string[]>([]);
   const [pinFilters, setPinFilters] = useState(true);
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
   const [editingTask, setEditingTask] = useState<number | null>(null);
@@ -321,7 +368,14 @@ export default function Bucket() {
     const next = [...tasks];
     const old = next[idx];
     const { group } = parseGroup(old.text);
-    next[idx] = { ...old, text: group ? `${group}: ${newText}` : newText };
+    // The edit input shows the label with @tokens stripped — re-append the
+    // original tokens unless the user typed their own into the new text.
+    let text = newText;
+    if (!/@(w|v|p|pin)\b/i.test(text)) {
+      const oldTokens = old.text.match(/\s*@(w|v|p|pin)\b/gi);
+      if (oldTokens) text = `${text} ${oldTokens.map((t) => t.trim()).join(" ")}`;
+    }
+    next[idx] = { ...old, text: group ? `${group}: ${text}` : text };
     updateTasks(next);
     setEditingTask(null);
   };
@@ -534,8 +588,11 @@ export default function Bucket() {
 
   /* ── build groups ────────────────────────────────────── */
 
+  const visibleTaskCount = tasks.filter((t) => taskVisibleInMode(t.text)).length;
+
   const allGroups = new Map<string, number>();
   tasks.forEach((t) => {
+    if (!taskVisibleInMode(t.text)) return;
     const { group } = parseGroup(t.text);
     if (group) allGroups.set(group, (allGroups.get(group) || 0) + 1);
   });
@@ -563,9 +620,11 @@ export default function Bucket() {
 
   const buildSections = (): Section[] => {
     const byGroup = new Map<string, Section>();
-    const filtered = filterGroup
-      ? tasks.map((t, i) => ({ task: t, originalIdx: i })).filter(({ task }) => parseGroup(task.text).group === filterGroup)
-      : tasks.map((t, i) => ({ task: t, originalIdx: i }));
+    let filtered = tasks.map((t, i) => ({ task: t, originalIdx: i }))
+      .filter(({ task }) => taskVisibleInMode(task.text));
+    if (filterGroup) {
+      filtered = filtered.filter(({ task }) => parseGroup(task.text).group === filterGroup);
+    }
 
     filtered.forEach(({ task, originalIdx }) => {
       const { group, label } = parseGroup(task.text);
@@ -580,6 +639,54 @@ export default function Bucket() {
   };
 
   const sections = buildSections();
+
+  /* ── GTD board: actions + duplicate sweep ─────────────── */
+
+  const todayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
+
+  // File a bucket task into this week (offset 0, today) or next week (offset 1, Monday).
+  // Flush any unsaved local edits first so the server-side move sees current state.
+  const fileToWeek = async (idx: number, offset: 0 | 1) => {
+    const label = stripBucketMeta(stripCtxTokens(parseGroup(tasks[idx]?.text || "").label));
+    try {
+      if (dirty) await saveBucket();
+      if (offset === 1) { try { await api.createNextWeek(); } catch { /* already exists */ } }
+      await api.moveFromBucket(idx, offset === 0 ? todayIdx : 0, offset);
+      if (offset === 0) setFiledWeek((p) => [...p, label]); else setFiledNext((p) => [...p, label]);
+      await fetchBucket();
+      window.dispatchEvent(new CustomEvent("week-changed"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to file task");
+    }
+  };
+
+  const setHorizon = (idx: number, month: boolean) => {
+    const next = [...tasks];
+    next[idx] = { ...next[idx], text: setMonthHorizon(next[idx].text, month) };
+    updateTasks(next);
+  };
+
+  // Duplicate sweep: same normalized text (group + label, tokens stripped)
+  const dupeGroups = (() => {
+    const byNorm = new Map<string, number[]>();
+    tasks.forEach((t, i) => {
+      if (!taskVisibleInMode(t.text)) return;
+      const norm = stripBucketMeta(stripCtxTokens(t.text)).toLowerCase().replace(/\s+/g, " ").trim();
+      if (!norm) return;
+      byNorm.set(norm, [...(byNorm.get(norm) || []), i]);
+    });
+    return [...byNorm.values()].filter((idxs) => idxs.length > 1);
+  })();
+
+  // Keep the oldest copy of each duplicate set, delete the rest
+  const mergeDupes = () => {
+    const drop = new Set<number>();
+    dupeGroups.forEach((idxs) => {
+      const keep = [...idxs].sort((a, b) => bucketAgeKey(tasks[a].text) - bucketAgeKey(tasks[b].text))[0];
+      idxs.forEach((i) => { if (i !== keep) drop.add(i); });
+    });
+    updateTasks(tasks.filter((_, i) => !drop.has(i)));
+  };
   const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 
@@ -591,10 +698,39 @@ export default function Bucket() {
 
       <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-4 px-4 border-b" : ""}`} style={pinFilters ? { background: 'var(--bg)', borderColor: 'var(--border)' } : undefined}>
       <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-        <span>{tasks.length} task{tasks.length !== 1 ? "s" : ""} in bucket</span>
+        <span>{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""} in bucket{ctxEnabled && ctxSel.length > 0 ? ` (${ctxSel.join(" + ")})` : ""}</span>
+        {ctxEnabled && (
+          <span className="flex gap-0.5">
+            {allContextNames(ctxMap, ctxTags).filter((name) => {
+              if (["work", "volunteer", "personal"].includes(name)) return true;
+              if (ctxSel.includes(name)) return true;
+              return tasks.some((t) => resolveContext(t.text, ctxMap, ctxTags) === name);
+            }).map((name) => {
+              const active = ctxSel.includes(name);
+              return (
+                <button key={name} onClick={() => toggleCtx(name)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${active ? ctxChipClass(name) : ""}`}
+                  style={!active ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
+                  {name.charAt(0).toUpperCase() + name.slice(1)}
+                </button>
+              );
+            })}
+            <button onClick={() => setCtxSel([])}
+              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${ctxSel.length === 0 ? "bg-gray-200 text-gray-700" : ""}`}
+              style={ctxSel.length !== 0 ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
+              All
+            </button>
+          </span>
+        )}
         <button onClick={allCollapsed ? expandAll : collapseAll}
           className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
           {allCollapsed ? "Expand all" : "Collapse all"}
+        </button>
+        <button onClick={toggleBoardView}
+          className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${boardView ? "bg-blue-100 text-blue-700" : ""}`}
+          style={!boardView ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}
+          title="GTD board: file tasks into This week / Next week / This month / Backlog">
+          {boardView ? "List" : "Board"}
         </button>
       </div>
 
@@ -630,8 +766,105 @@ export default function Bucket() {
       </button>
       </div>
 
+      {/* GTD board — file each task into a horizon, one decision per card */}
+      {boardView && (
+        <div className="space-y-3">
+          {dupeGroups.length > 0 && (
+            <div className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs"
+              style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border-strong)" }}>
+              <span style={{ color: "var(--text)" }}>
+                🔁 {dupeGroups.length} duplicate {dupeGroups.length === 1 ? "set" : "sets"} found
+                ({dupeGroups.reduce((n, g) => n + g.length - 1, 0)} redundant cop{dupeGroups.reduce((n, g) => n + g.length - 1, 0) === 1 ? "y" : "ies"})
+              </span>
+              <button onClick={mergeDupes}
+                className="px-2 py-0.5 rounded bg-amber-500 text-white text-[10px] font-medium hover:bg-amber-600">
+                Merge — keep oldest of each
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 items-start">
+            {(() => {
+              const visible = tasks.map((t, i) => ({ t, i }))
+                .filter(({ t }) => taskVisibleInMode(t.text))
+                .filter(({ t }) => !filterGroup || parseGroup(t.text).group === filterGroup)
+                .sort((a, b) => bucketAgeKey(a.t.text) - bucketAgeKey(b.t.text));
+              const backlog = visible.filter(({ t }) => !isMonthHorizon(t.text));
+              const month = visible.filter(({ t }) => isMonthHorizon(t.text));
+
+              const card = ({ t, i }: { t: BucketTask; i: number }) => {
+                const { group, label } = parseGroup(stripBucketMeta(stripCtxTokens(t.text)));
+                const entered = bucketEnteredWeek(t.text);
+                const ctx = ctxEnabled ? resolveContext(t.text, ctxMap, ctxTags) : null;
+                const inMonth = isMonthHorizon(t.text);
+                return (
+                  <div key={`bc-${i}`} className="rounded-lg p-2 text-xs space-y-1"
+                    style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)",
+                      boxShadow: ctx ? `inset 2px 0 0 ${ctxEdgeColor(ctx)}` : undefined }}>
+                    <div className="flex items-start gap-1">
+                      <span className="flex-1 leading-snug" style={{ color: "var(--text)" }}>{label}</span>
+                      <button onClick={() => deleteTask(i)} title="Drop — delete this task"
+                        className="shrink-0 text-gray-300 hover:text-red-500">✕</button>
+                    </div>
+                    <div className="flex items-center gap-1 text-[9px]" style={{ color: "var(--text-tertiary)" }}>
+                      {group && <span className="font-medium">{group}</span>}
+                      {entered && <span>wk{entered.week}</span>}
+                      {t.waiting && <span>⏳</span>}
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => fileToWeek(i, 0)} title="Move into this week (today)"
+                        className="flex-1 px-1 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 text-[9px] font-medium">Week</button>
+                      <button onClick={() => fileToWeek(i, 1)} title="Move into next week (Monday)"
+                        className="flex-1 px-1 py-0.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[9px] font-medium">Next</button>
+                      <button onClick={() => setHorizon(i, !inMonth)}
+                        title={inMonth ? "Send back to Backlog" : "Do within this month"}
+                        className="flex-1 px-1 py-0.5 rounded bg-amber-50 text-amber-600 hover:bg-amber-100 text-[9px] font-medium">
+                        {inMonth ? "Backlog" : "Month"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              };
+
+              const column = (title: string, count: number, hint: string, body: React.ReactNode) => (
+                <div className="rounded-lg p-2 space-y-2 min-h-[120px]"
+                  style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                  <div className="flex items-center gap-1 px-1">
+                    <span className="text-[11px] font-semibold" style={{ color: "var(--text)" }}>{title}</span>
+                    <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>({count})</span>
+                  </div>
+                  {body}
+                  {count === 0 && <p className="text-[9px] text-center py-3" style={{ color: "var(--text-tertiary)" }}>{hint}</p>}
+                </div>
+              );
+
+              return (
+                <>
+                  {column("This week", filedWeek.length, "File cards here with the Week button",
+                    <>{filedWeek.map((l, j) => (
+                      <div key={`fw-${j}`} className="rounded px-2 py-1 text-[10px] opacity-60 line-through"
+                        style={{ backgroundColor: "var(--bg)", color: "var(--text-secondary)" }}>{l}</div>
+                    ))}</>)}
+                  {column("Next week", filedNext.length, "File cards here with the Next button",
+                    <>{filedNext.map((l, j) => (
+                      <div key={`fn-${j}`} className="rounded px-2 py-1 text-[10px] opacity-60 line-through"
+                        style={{ backgroundColor: "var(--bg)", color: "var(--text-secondary)" }}>{l}</div>
+                    ))}</>)}
+                  {column("This month", month.length, "Mark cards with the Month button",
+                    <>{month.map(card)}</>)}
+                  {column("Backlog", backlog.length, "Everything else lives here, oldest first",
+                    <>{backlog.map(card)}</>)}
+                </>
+              );
+            })()}
+          </div>
+          <p className="text-[10px] text-center" style={{ color: "var(--text-tertiary)" }}>
+            Week files to today · Next files to Monday — reshuffle the exact day in the week view · Filed cards reset when you leave
+          </p>
+        </div>
+      )}
+
       {/* Task list */}
-      <div className="space-y-2 max-w-2xl">
+      <div className={`space-y-2 max-w-2xl ${boardView ? "hidden" : ""}`}>
         {sections.map((section, si) => {
           const displayName = section.name || "Un-grouped";
           const hasMultipleSections = sections.length > 1;
@@ -659,7 +892,7 @@ export default function Bucket() {
                 const hasSubtasks = task.subtasks && task.subtasks.length > 0;
                 const isExpanded = expandedSubtasks.has(originalIdx);
                 // Strip wiki links from display label
-                const displayLabel = label.replace(WIKI_LINK_RE, "").trim();
+                const displayLabel = stripBucketMeta(stripCtxTokens(label.replace(WIKI_LINK_RE, "").trim()));
 
                 return (
                   <div key={originalIdx}>

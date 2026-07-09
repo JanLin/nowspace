@@ -48,6 +48,75 @@ def _archive_path() -> Path:
     return _vault_root() / "4-Archive" / "a0-Inbox"
 
 
+# Inline group teaching: "wallet@w: task" assigns group wallet → the context
+# behind tag w, persists the mapping to config.yaml, and the tag is cleaned
+# from the text. Any single letter works; unknown letters auto-create a new
+# context named after the letter (rename it in Settings).
+GROUP_CTX_TAG_RE = re.compile(r"^([^:@\[\]]{2,29}?)@([a-z])(\s*:)", re.IGNORECASE)
+# Trailing per-task tags: "task text @f" — learned (auto-created) but never cleaned
+TASK_CTX_TAG_RE = re.compile(r"\s@([a-z])\b(?!\w)", re.IGNORECASE)
+
+
+# Bucket metadata tokens (tilde family, hidden from UI labels):
+#   ~w2628 = entered the bucket in ISO week 28 of 2026 (YYWW) — age hint
+#   ~m     = "this month" GTD horizon on the bucket board
+BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m)\b", re.IGNORECASE)
+
+
+def _strip_bucket_meta(text: str) -> str:
+    return BUCKET_META_RE.sub("", text or "").strip()
+
+
+def _stamp_bucket_week(text: str) -> str:
+    """Append the entered-week stamp if the task doesn't have one yet."""
+    if re.search(r"~w\d{4}\b", text or "", re.IGNORECASE):
+        return text
+    iso = date.today().isocalendar()
+    return f"{(text or '').rstrip()} ~w{iso[0] % 100:02d}{iso[1]:02d}"
+
+
+def _context_for_tag(tag: str) -> str:
+    """Resolve a tag letter to its context name, auto-creating unknown tags."""
+    tag = tag.lower()
+    config.ensure_context_tag(tag)
+    return config.context_tags.get(tag, tag)
+
+
+def _learn_and_clean_group_tag(text: str) -> str:
+    """Learn context mappings from a task line.
+
+    - Leading group tag ("wallet@w: task"): assign the group, clean the tag.
+    - Trailing task tags ("task @f"): auto-create unknown tags, keep the tag.
+    """
+    for tm in TASK_CTX_TAG_RE.finditer(text or ""):
+        config.ensure_context_tag(tm.group(1))
+    m = GROUP_CTX_TAG_RE.match(text or "")
+    if not m:
+        return text
+    group, tag, colon = m.group(1), m.group(2).lower(), m.group(3)
+    config.assign_group_context(group, _context_for_tag(tag))
+    return f"{group}{colon}{text[m.end():]}"
+
+
+def _learn_and_clean_parsed_days(result: dict) -> None:
+    """Apply inline-group-tag learning/cleaning to a parsed week result in place."""
+    for day_data in result.get("days", []):
+        tasks = day_data.tasks if hasattr(day_data, "tasks") else day_data["tasks"]
+        for task in tasks:
+            if hasattr(task, "text"):
+                cleaned = _learn_and_clean_group_tag(task.text)
+                if cleaned != task.text:
+                    task.text = cleaned
+                    if hasattr(task, "clean_text") and task.clean_text:
+                        task.clean_text = _learn_and_clean_group_tag(task.clean_text)
+            else:
+                cleaned = _learn_and_clean_group_tag(task.get("text", ""))
+                if cleaned != task.get("text"):
+                    task["text"] = cleaned
+                    if task.get("clean_text"):
+                        task["clean_text"] = _learn_and_clean_group_tag(task["clean_text"])
+
+
 def _find_archived_week(year: int, week: int) -> Optional[Path]:
     """Find an archived week file, handling both zero-padded and non-padded names."""
     archive = _archive_path()
@@ -381,6 +450,9 @@ async def get_week_plan(offset: int = 0):
 
     content = plan_file.read_text(encoding="utf-8")
     result = parse_week_plan(content, plan_file.name)
+    # Learn inline group tags (also covers tags typed directly in Obsidian);
+    # the cleaned text reaches the file on the next save.
+    _learn_and_clean_parsed_days(result)
     resp = WeekPlanResponse(**result)
     # Add offset and read-only info
     resp.offset = offset
@@ -440,6 +512,9 @@ async def save_week_plan(req: SaveWeekRequest):
     day_lines: list[str] = []
     for day_data in req.days:
         day_lines.append(day_data.heading or f"##### {day_data.day.capitalize()}")
+        # Inline group teaching: learn "wallet@w:"-style tags and clean them
+        for task in day_data.tasks:
+            task.text = _learn_and_clean_group_tag(task.text)
         day_lines.extend(_format_tasks_grouped(day_data.tasks))
         # No blank line between days — matches original format
 
@@ -641,6 +716,65 @@ async def carry_forward_tasks(req: CarryForwardRequest):
         _remove_carried_tasks_from_source(req.source_offset, req.tasks)
 
     return {"status": "ok", "count": len(req.tasks)}
+
+
+class ResolveCarryRequest(BaseModel):
+    text: str
+    source_offset: int = -1
+    action: str  # "done" (was completed, forgot to tick) | "delete" (dropped)
+
+
+def _source_week_file(source_offset: int) -> Optional[Path]:
+    if source_offset == 0:
+        f = config.vault_path / config.plan_week_file
+        return f if f.exists() else None
+    year, week = _week_info_for_offset(source_offset)
+    if source_offset > 0:
+        f = _next_week_file(year, week)
+        return f if f.exists() else None
+    return _find_archived_week_or_earlier(year, week)
+
+
+@router.post("/carry-forward/resolve")
+async def resolve_carry_task(req: ResolveCarryRequest):
+    """Resolve a carry-forward item without carrying it.
+
+    "done": the task actually happened that week — mark it completed in the
+    source file so history stays honest. "delete": it's no longer relevant.
+    """
+    if req.action not in ("done", "delete"):
+        raise HTTPException(status_code=400, detail="action must be 'done' or 'delete'")
+    source_file = _source_week_file(req.source_offset)
+    if not source_file:
+        raise HTTPException(status_code=404, detail="Source week file not found")
+
+    original = source_file.read_text(encoding="utf-8")
+    result = parse_week_plan(original, source_file.name)
+    wanted = req.text.strip().lower()
+    resolved = False
+    for day_data in result["days"]:
+        tasks = day_data.tasks if hasattr(day_data, "tasks") else day_data["tasks"]
+        kept = []
+        for task in tasks:
+            t_text = task.text if hasattr(task, "text") else task.get("text", "")
+            t_done = task.done if hasattr(task, "done") else task.get("done", False)
+            if not resolved and not t_done and t_text.strip().lower() == wanted:
+                resolved = True
+                if req.action == "delete":
+                    continue  # drop the line
+                if hasattr(task, "done"):
+                    task.done = True
+                else:
+                    task["done"] = True
+            kept.append(task)
+        if hasattr(day_data, "tasks"):
+            day_data.tasks = kept
+        else:
+            day_data["tasks"] = kept
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Task not found in source week")
+    _rewrite_week_file(source_file, original, result)
+    return {"status": req.action}
 
 
 def _remove_carried_tasks_from_source(source_offset: int, carried_tasks: list[CarryForwardItem]):
@@ -1096,6 +1230,9 @@ async def get_bucket():
 
     content = bucket.read_text(encoding="utf-8")
     tasks, pinned = _parse_bucket_file(content)
+    # Learn inline group tags typed directly into the bucket file
+    for task in tasks:
+        task.text = _learn_and_clean_group_tag(task.text)
     return BucketResponse(tasks=tasks, pinned_groups=pinned)
 
 
@@ -1103,6 +1240,10 @@ async def get_bucket():
 async def save_bucket(req: BucketSaveRequest):
     """Write bucket tasks back to Bucket.md."""
     bucket = _bucket_path()
+    # Inline group teaching: learn "wallet@w:"-style tags and clean them.
+    # Stamp entered-week metadata on tasks that don't carry it yet (age hint).
+    for task in req.tasks:
+        task.text = _stamp_bucket_week(_learn_and_clean_group_tag(task.text))
     md = _format_bucket_tasks(req.tasks, req.pinned_groups)
     bucket.write_text(md, encoding="utf-8")
     return {"status": "saved", "task_count": len(req.tasks)}
@@ -1142,7 +1283,7 @@ async def move_bucket_task(req: BucketMoveRequest):
 
         task = day.tasks.pop(req.task_index)
         new_bucket_task = BucketTask(
-            text=task.text,
+            text=_stamp_bucket_week(task.text),
             priority=task.priority or "C",
             focused=task.focused,
             waiting=task.waiting,
@@ -1168,7 +1309,7 @@ async def move_bucket_task(req: BucketMoveRequest):
 
         btask = bucket_tasks.pop(req.task_index)
         new_task = Task(
-            text=btask.text,
+            text=_strip_bucket_meta(btask.text),
             priority=btask.priority,
             focused=btask.focused,
             waiting=btask.waiting,
