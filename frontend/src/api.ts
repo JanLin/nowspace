@@ -133,6 +133,8 @@ export interface DayNotesResponse {
 }
 
 export const api = {
+  health: () => request<{ status: string }>("/health"),
+
   getPlan: (targetDate?: string) =>
     request<PlanResponse>(targetDate ? `/plan?target_date=${targetDate}` : "/plan"),
 

@@ -17,9 +17,33 @@ type View = "week" | "bucket" | "habits" | "time" | "goals" | "coaching" | "dash
 export default function App() {
   const [view, setView] = useState<View>("week");
   const [vaultReady, setVaultReady] = useState<boolean | null>(null); // null = checking
+  const [backendUp, setBackendUp] = useState(false);
+  const [slowStart, setSlowStart] = useState(false);
 
-  // On mount, check if vault is configured and valid
+  // Wait for the backend before mounting anything that fetches. The desktop
+  // app boots its bundled backend at launch, which can take ~15s to unpack —
+  // without this gate every initial fetch fails once and never retries.
   useEffect(() => {
+    let cancelled = false;
+    const started = Date.now();
+    (async () => {
+      while (!cancelled) {
+        try {
+          await api.health();
+          if (!cancelled) setBackendUp(true);
+          return;
+        } catch {
+          if (Date.now() - started > 15000) setSlowStart(true);
+          await new Promise((r) => setTimeout(r, 800));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Once the backend is up, check if vault is configured and valid
+  useEffect(() => {
+    if (!backendUp) return;
     api.getSettings().then((s) => {
       if (s.vault_status.exists && s.vault_status.has_para && s.api_key_status.configured) {
         setVaultReady(true);
@@ -31,10 +55,25 @@ export default function App() {
       setVaultReady(false);
       setView("settings");
     });
-  }, []);
+  }, [backendUp]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [planTasks, setPlanTasks] = useState<Task[]>([]);
   const { theme, setTheme } = useTheme();
+
+  if (!backendUp) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center gap-3" style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
+        <img src="/nowspace-compass-icon.svg" alt="Nowspace" className="w-12 h-12 animate-pulse" />
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Starting Nowspace…</p>
+        {slowStart && (
+          <p className="text-xs max-w-xs text-center" style={{ color: "var(--text-secondary)" }}>
+            Still waiting for the backend on port 8000. The desktop app starts
+            its own — first launch can take a little while.
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col" style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
