@@ -1183,6 +1183,11 @@ def _format_bucket_tasks(tasks: list, pinned_groups: list[str]) -> str:
 
     Priority saved as prefix (A:, B:, C:) — letter only, no sequence number.
     Groups use '- GroupName:' with indented sub-items.
+
+    Tasks are consolidated so each group appears exactly once, in order of
+    first appearance, with the first-seen casing ("Rotary" absorbs a later
+    "rotary"). Repeated same-name sections and case-variant twins otherwise
+    accumulate as tasks are added over time.
     """
     lines = ["# Planning Bucket", ""]
 
@@ -1191,28 +1196,33 @@ def _format_bucket_tasks(tasks: list, pinned_groups: list[str]) -> str:
         lines.append(", ".join(pinned_groups))
         lines.append("")
 
-    current_group: str | None = None
+    order: list[str] = []  # lowercase group keys, first-appearance order ("" = ungrouped)
+    display: dict[str, str] = {}
+    by_group: dict[str, list] = {}
     for task in tasks:
         group, label = _parse_group(task.text)
-        p = getattr(task, "priority", "C") or "C"
-        display = label
-        if getattr(task, "focused", False):
-            display = f"**{display}**"
-        if getattr(task, "waiting", False):
-            display = f"WAIT: {display}"
+        key = group.lower()
+        if key not in by_group:
+            order.append(key)
+            by_group[key] = []
+            display[key] = group
+        by_group[key].append((task, label))
 
-        prio_prefix = f"{p}: " if p else ""
+    for key in order:
+        group = display[key]
         if group:
-            if group != current_group:
-                lines.append(f"- {group}:")
-            lines.append(f"\t- {prio_prefix}{display}")
+            lines.append(f"- {group}:")
+        for task, label in by_group[key]:
+            p = getattr(task, "priority", "C") or "C"
+            item = label
+            if getattr(task, "focused", False):
+                item = f"**{item}**"
+            if getattr(task, "waiting", False):
+                item = f"WAIT: {item}"
+            indent = "\t" if group else ""
+            lines.append(f"{indent}- {p}: {item}")
             for sub in getattr(task, "subtasks", []) or []:
-                lines.append(f"\t\t- {sub.text}")
-        else:
-            lines.append(f"- {prio_prefix}{display}")
-            for sub in getattr(task, "subtasks", []) or []:
-                lines.append(f"\t- {sub.text}")
-        current_group = group
+                lines.append(f"{indent}\t- {sub.text}")
 
     lines.append("")
     return "\n".join(lines)
