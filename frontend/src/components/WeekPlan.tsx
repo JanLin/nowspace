@@ -1209,6 +1209,47 @@ export default function WeekPlan() {
     applyTaskChange(days);
   };
 
+  // Resolve an earlier-day task in place: mark done (did it, forgot to tick)
+  // or delete (no longer relevant). Used by the daily-carry panel.
+  const resolveDayTask = (dayIdx: number, taskIdx: number, action: "done" | "delete") => {
+    if (!data) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      if (action === "delete") tasks.splice(taskIdx, 1);
+      else tasks[taskIdx] = unpinText({ ...tasks[taskIdx], done: true });
+      return { ...d, tasks };
+    });
+    applyTaskChange(days);
+  };
+
+  // Send all mode-visible open tasks from days before today to the bucket
+  const earlierDaysToBucket = async (beforeDayIdx: number) => {
+    if (!data) return;
+    const moved: Task[] = [];
+    const days = data.days.map((d, di) => {
+      if (di >= beforeDayIdx) return d;
+      const open = d.tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
+      if (open.length === 0) return d;
+      moved.push(...open);
+      return { ...d, tasks: d.tasks.filter((t) => t.done || !taskVisibleInMode(t.text)) };
+    });
+    if (moved.length === 0) return;
+    try {
+      const currentBucket = await api.getBucket();
+      const newTasks = [
+        ...currentBucket.tasks,
+        ...moved.map((t) => ({ text: t.text, priority: t.priority || "C", focused: t.focused, waiting: t.waiting, subtasks: t.subtasks })),
+      ];
+      await api.saveBucket(newTasks, currentBucket.pinned_groups);
+      applyTaskChange(days);
+      refreshBucket();
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to move to bucket");
+    }
+  };
+
   // Move all open tasks from previous days to today.
   // Bulk moves only touch tasks visible in the active context mode — what the
   // panel shows is exactly what moves; hidden contexts stay put.
@@ -3695,7 +3736,7 @@ export default function WeekPlan() {
 
     {/* Bucket side panel */}
     {bucketOpen && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-260px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>🪣 Bucket ({bucketTasks.length})</h3>
           <button onClick={() => setBucketOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
@@ -3779,7 +3820,7 @@ export default function WeekPlan() {
     )}
     {/* Carry Forward side panel (right, matching bucket style) */}
     {carryForwardOpen && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-260px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
             <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({carryTasks.filter((t) => taskVisibleInMode(t.text)).length})</h3>
@@ -3932,7 +3973,7 @@ export default function WeekPlan() {
     )}
     {/* Daily carry side panel (right, matching carry-forward style) */}
     {dailyCarryOpen && data && weekOffset === 0 && todayIdx > 0 && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-120px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-260px)] sticky top-24 self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
             <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Before Today ({dailyCarryCount})</h3>
@@ -4004,6 +4045,20 @@ export default function WeekPlan() {
                       {it.label}
                     </span>
                     <button
+                      onClick={() => resolveDayTask(it.dayIdx, it.taskIdx, "done")}
+                      className="text-[11px] text-green-500 hover:text-green-700 opacity-0 group-hover/dc:opacity-100 shrink-0 transition-opacity"
+                      title="It was actually done — mark completed on that day"
+                    >
+                      ✓
+                    </button>
+                    <button
+                      onClick={() => resolveDayTask(it.dayIdx, it.taskIdx, "delete")}
+                      className="text-[11px] text-gray-400 hover:text-red-500 opacity-0 group-hover/dc:opacity-100 shrink-0 transition-opacity"
+                      title="No longer relevant — delete"
+                    >
+                      ✕
+                    </button>
+                    <button
                       onClick={() => moveTaskToDay(it.dayIdx, it.taskIdx, todayIdx)}
                       className="text-[10px] text-purple-400 hover:text-purple-700 opacity-0 group-hover/dc:opacity-100 shrink-0 transition-opacity"
                       title={`Move to ${targetDayName}`}
@@ -4016,19 +4071,26 @@ export default function WeekPlan() {
             ));
           })()}
         </div>
-        {/* Bottom action: move all */}
+        {/* Bottom actions — sticky so they're visible without scrolling the list */}
         {dailyCarryCount > 0 && (
-          <div className="p-2 border-t border-gray-200">
+          <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5 sticky bottom-0" style={{ backgroundColor: "var(--bg-secondary)" }}>
             <button
               onClick={() => { carryAllFromPreviousDays(todayIdx); setDailyCarryOpen(false); }}
               className="w-full px-2 py-1.5 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 transition-colors"
             >
               Move all to {DAY_LABELS[data.days[todayIdx]?.day] || "today"} →
             </button>
+            <button
+              onClick={() => { earlierDaysToBucket(todayIdx); setDailyCarryOpen(false); }}
+              className="w-full px-2 py-1 bg-amber-500 text-white rounded text-[10px] font-medium hover:bg-amber-600 transition-colors"
+            >
+              🪣 All to Bucket
+            </button>
           </div>
         )}
       </div>
     )}
+
 
     {/* Task link popup */}
     {linkPopup && (
