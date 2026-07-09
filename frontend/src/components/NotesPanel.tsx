@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import { api } from "../api";
-import { findOpenAPs, markHarvested, type FoundAP } from "../actionPoints";
+import { findOpenAPs, markHarvested, defaultSections, type FoundAP } from "../actionPoints";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -264,9 +264,10 @@ interface ReferenceFolderProps {
   folderPath: string;
   onInsertLink: (name: string) => void;
   onOpenNote?: (path: string, name: string) => void;
+  onScanAPs?: (path: string, name: string) => void;
 }
 
-function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: ReferenceFolderProps) {
+function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote, onScanAPs }: ReferenceFolderProps) {
   const [expanded, setExpanded] = useState(false);
   const [files, setFiles] = useState<VaultFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -447,6 +448,13 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
                     {touchedToday && <span className="text-[8px] font-semibold text-blue-500 shrink-0">today</span>}
                     <span className="text-[9px] text-gray-400 shrink-0">{relativeTime(f.modified)}</span>
                   </button>
+                  {onScanAPs && (
+                    <button onClick={() => onScanAPs(f.path, f.name)}
+                      className="text-[9px] text-gray-300 hover:text-amber-600 shrink-0 opacity-0 group-hover/file:opacity-100"
+                      title="Scan this file for AP action points">
+                      ⚡
+                    </button>
+                  )}
                   {onOpenNote && (
                     <button onClick={() => onOpenNote(f.path, f.name)}
                       className="text-[9px] text-gray-300 hover:text-blue-500 shrink-0 opacity-0 group-hover/file:opacity-100"
@@ -488,9 +496,10 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
 interface ReferenceBrowserProps {
   onInsertLink: (name: string) => void;
   onOpenNote?: (path: string, name: string) => void;
+  onScanAPs?: (path: string, name: string) => void;
 }
 
-function ReferenceBrowser({ onInsertLink, onOpenNote }: ReferenceBrowserProps) {
+function ReferenceBrowser({ onInsertLink, onOpenNote, onScanAPs }: ReferenceBrowserProps) {
   const [links, setLinks] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
@@ -521,6 +530,7 @@ function ReferenceBrowser({ onInsertLink, onOpenNote }: ReferenceBrowserProps) {
               folderPath={path}
               onInsertLink={onInsertLink}
               onOpenNote={onOpenNote}
+              onScanAPs={onScanAPs}
             />
           ))}
         </div>
@@ -533,11 +543,42 @@ function ReferenceBrowser({ onInsertLink, onOpenNote }: ReferenceBrowserProps) {
 
 interface APFile { name: string; path: string; content: string; aps: FoundAP[]; group: string }
 
-function APHarvest({ dayName, weekOffset }: { dayName: string; weekOffset: number }) {
+function APHarvest({ dayName, weekOffset, manualFile }: {
+  dayName: string; weekOffset: number;
+  manualFile: { path: string; name: string; ts: number } | null;
+}) {
   const [files, setFiles] = useState<APFile[]>([]);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+
+  // Pre-select only the newest call's APs per file — long histories stay opt-in
+  const applyDefaults = (found: APFile[]) => {
+    const sel = new Set<string>();
+    const expand = new Set<string>();
+    found.forEach((f) => {
+      const defaults = defaultSections(f.aps);
+      f.aps.forEach((a) => {
+        if (defaults.has(a.section)) {
+          sel.add(`${f.path}|${a.line}`);
+          expand.add(`${f.path}|${a.section}`);
+        }
+      });
+    });
+    setSelected(sel);
+    setExpandedSections(expand);
+  };
+
+  const scanFile = async (name: string, path: string, refLinks: Record<string, string>): Promise<APFile | null> => {
+    try {
+      const note = await api.readNote(path);
+      const aps = findOpenAPs(note.content);
+      if (aps.length === 0) return null;
+      const group = Object.entries(refLinks).find(([, folder]) => path.startsWith(folder))?.[0] || "";
+      return { name, path, content: note.content, aps, group };
+    } catch { return null; }
+  };
 
   const scan = useCallback(async () => {
     try {
@@ -545,26 +586,25 @@ function APHarvest({ dayName, weekOffset }: { dayName: string; weekOffset: numbe
       const linkNames = [...new Set(
         [...(notes.content || "").matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)].map((m) => m[1].trim())
       )];
-      if (linkNames.length === 0) { setFiles([]); return; }
       const refLinks = await api.referenceLinks().then((r) => r.links).catch(() => ({} as Record<string, string>));
       const found: APFile[] = [];
       for (const name of linkNames) {
         try {
           const res = await api.vaultSearch(name, 1);
           if (res.results.length === 0) continue;
-          const { path } = res.results[0];
-          const note = await api.readNote(path);
-          const aps = findOpenAPs(note.content);
-          if (aps.length === 0) continue;
-          // Infer the customer group from which reference folder holds the file
-          const group = Object.entries(refLinks).find(([, folder]) => path.startsWith(folder))?.[0] || "";
-          found.push({ name, path, content: note.content, aps, group });
+          const f = await scanFile(name, res.results[0].path, refLinks);
+          if (f) found.push(f);
         } catch { /* skip unreadable */ }
       }
+      // A manually requested file joins the list (dedup by path)
+      if (manualFile && !found.some((f) => f.path === manualFile.path)) {
+        const f = await scanFile(manualFile.name, manualFile.path, refLinks);
+        if (f) found.push(f);
+      }
       setFiles(found);
-      setSelected(new Set(found.flatMap((f) => f.aps.map((a) => `${f.path}|${a.line}`))));
+      applyDefaults(found);
     } catch { setFiles([]); }
-  }, [dayName, weekOffset]);
+  }, [dayName, weekOffset, manualFile]);
 
   useEffect(() => {
     scan();
@@ -575,6 +615,9 @@ function APHarvest({ dayName, weekOffset }: { dayName: string; weekOffset: numbe
       window.removeEventListener("focus", scan);
     };
   }, [scan]);
+
+  // A ⚡ click on a file opens the review directly
+  useEffect(() => { if (manualFile) setOpen(true); }, [manualFile]);
 
   const total = files.reduce((n, f) => n + f.aps.length, 0);
   if (total === 0) return null;
@@ -619,22 +662,58 @@ function APHarvest({ dayName, weekOffset }: { dayName: string; weekOffset: numbe
       </button>
       {open && (
         <div className="mt-1 border border-amber-200 rounded-lg p-2 space-y-1.5 bg-white">
-          {files.map((f) => (
+          {files.map((f) => {
+            const sections = [...new Set(f.aps.map((a) => a.section))];
+            return (
             <div key={f.path}>
               <div className="text-[10px] font-medium text-gray-500 mb-0.5">
                 📄 {f.name}{f.group && <span className="ml-1 text-gray-400">→ {f.group}</span>}
               </div>
-              {f.aps.map((a) => {
-                const key = `${f.path}|${a.line}`;
+              {sections.map((sec) => {
+                const secKey = `${f.path}|${sec}`;
+                const secAPs = f.aps.filter((a) => a.section === sec);
+                const secSelected = secAPs.filter((a) => selected.has(`${f.path}|${a.line}`)).length;
+                const isExpanded = expandedSections.has(secKey);
                 return (
-                  <label key={key} className="flex items-start gap-1.5 text-[11px] py-0.5 cursor-pointer text-gray-700">
-                    <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} className="mt-0.5" />
-                    <span className="flex-1">{a.text}</span>
-                  </label>
+                  <div key={secKey} className="mb-0.5">
+                    {sec && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                        <input type="checkbox"
+                          checked={secSelected === secAPs.length}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              secAPs.forEach((a) => { const k = `${f.path}|${a.line}`; if (on) next.add(k); else next.delete(k); });
+                              return next;
+                            });
+                            if (on) setExpandedSections((prev) => new Set(prev).add(secKey));
+                          }} />
+                        <button onClick={() => setExpandedSections((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(secKey)) next.delete(secKey); else next.add(secKey);
+                            return next;
+                          })}
+                          className="flex-1 text-left hover:text-gray-600 truncate">
+                          {isExpanded ? "▾" : "▸"} {sec} <span className="opacity-70">({secSelected}/{secAPs.length})</span>
+                        </button>
+                      </div>
+                    )}
+                    {(isExpanded || !sec) && secAPs.map((a) => {
+                      const key = `${f.path}|${a.line}`;
+                      return (
+                        <label key={key} className={`flex items-start gap-1.5 text-[11px] py-0.5 cursor-pointer text-gray-700 ${sec ? "ml-4" : ""}`}>
+                          <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} className="mt-0.5" />
+                          <span className="flex-1">{a.text}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </div>
-          ))}
+            );
+          })}
           <button onClick={harvest} disabled={busy || selected.size === 0}
             className="w-full px-2 py-1 bg-amber-500 text-white rounded text-[10px] font-medium hover:bg-amber-600 disabled:opacity-50">
             {busy ? "Creating…" : `🪣 ${selected.size} to Bucket (marks AP→ in the notes)`}
@@ -657,6 +736,8 @@ interface NotesPanelProps {
 export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote }: NotesPanelProps) {
   const insertRef = useRef<((text: string) => void) | null>(null);
   const dayLabel = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+  // ⚡ on a reference file: scan that file for APs (ts forces a rescan of the same file)
+  const [manualScan, setManualScan] = useState<{ path: string; name: string; ts: number } | null>(null);
 
   const handleInsertLink = (name: string) => {
     insertRef.current?.(`[[${name}]]`);
@@ -678,14 +759,15 @@ export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote 
         insertRef={insertRef}
       />
 
-      {/* Action points found in today's linked call notes */}
-      {!isArchive && <APHarvest dayName={dayName} weekOffset={weekOffset} />}
+      {/* Action points found in today's linked call notes (or a ⚡-scanned file) */}
+      {!isArchive && <APHarvest dayName={dayName} weekOffset={weekOffset} manualFile={manualScan} />}
 
       {/* Reference File Browser */}
       {!isArchive && (
         <ReferenceBrowser
           onInsertLink={handleInsertLink}
           onOpenNote={onOpenNote}
+          onScanAPs={(path, name) => setManualScan({ path, name, ts: Date.now() })}
         />
       )}
     </div>
