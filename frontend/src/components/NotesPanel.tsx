@@ -271,6 +271,7 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
   const [showAll, setShowAll] = useState(false);
   const [breadcrumbs, setBreadcrumbs] = useState<{ name: string; path: string }[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [createMode, setCreateMode] = useState<"note" | "call">("note");
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -313,11 +314,20 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
     if (!newName.trim() || creating) return;
     setCreating(true);
     try {
-      const res = await api.createNote(currentPath, newName.trim());
+      // Call notes live in the group's coms subfolder (created if missing);
+      // reuse an existing coms/comms folder's casing when present.
+      let target = currentPath;
+      if (createMode === "call") {
+        const existing = files.find((f) => f.type === "folder" && /^comm?s$/i.test(f.name));
+        target = existing ? existing.path : `${currentPath}/coms`;
+      }
+      const res = await api.createNote(target, newName.trim());
       onInsertLink(newName.trim());
       setShowCreate(false);
       setNewName("");
       loadFolder(currentPath);
+      // Jump straight into the editor to type the minutes
+      if (createMode === "call" && onOpenNote) onOpenNote(res.path, newName.trim());
     } catch { /* silent */ }
     finally { setCreating(false); }
   };
@@ -375,14 +385,26 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
             <>
               {/* Create new note */}
               {!showCreate ? (
-                <button onClick={() => {
-                    setShowCreate(true);
-                    if (!newName) setNewName(`${new Date().toISOString().slice(0, 10)} `);
-                  }}
-                  className="text-[10px] text-blue-500 hover:text-blue-700 mb-1 block"
-                  title="Create a note here and link it into today's notes">
-                  + New note (links into today)
-                </button>
+                <div className="flex items-center gap-2 mb-1">
+                  <button onClick={() => {
+                      setCreateMode("note");
+                      setShowCreate(true);
+                      if (!newName) setNewName(`${new Date().toISOString().slice(0, 10)} `);
+                    }}
+                    className="text-[10px] text-blue-500 hover:text-blue-700"
+                    title="Create a note here and link it into today's notes">
+                    + New note
+                  </button>
+                  <button onClick={() => {
+                      setCreateMode("call");
+                      setShowCreate(true);
+                      if (!newName) setNewName(`${new Date().toISOString().slice(0, 10)} call `);
+                    }}
+                    className="text-[10px] text-green-600 hover:text-green-800"
+                    title="Create call minutes in this group's coms folder, link into today's notes, and open the editor">
+                    📞 Call note
+                  </button>
+                </div>
               ) : (
                 <div className="flex gap-1 mb-1">
                   <input
