@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import { api } from "../api";
-import { findOpenAPs, markHarvested, defaultSections, type FoundAP } from "../actionPoints";
+import { findOpenAPs, markHarvested, defaultSections, canonicalGroup, type FoundAP } from "../actionPoints";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -632,13 +632,15 @@ function APHarvest({ dayName, weekOffset, manualFile }: {
     setBusy(true);
     try {
       const bucket = await api.getBucket();
+      const bucketTexts = bucket.tasks.map((t) => t.text);
       const newTasks = [...bucket.tasks];
       for (const f of files) {
         const lines = f.aps.filter((a) => selected.has(`${f.path}|${a.line}`)).map((a) => a.line);
         if (lines.length === 0) continue;
+        const group = canonicalGroup(f.group, bucketTexts);
         f.aps.filter((a) => lines.includes(a.line)).forEach((a) => {
           newTasks.push({
-            text: `${f.group ? `${f.group}: ` : ""}${a.text} [[${f.name}]]`,
+            text: `${group ? `${group}: ` : ""}${a.text} [[${f.name}]]`,
             priority: "C", focused: false, waiting: false, subtasks: [],
           });
         });

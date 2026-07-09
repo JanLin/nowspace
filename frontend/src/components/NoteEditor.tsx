@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import { api } from "../api";
-import { findOpenAPs, markHarvested, defaultSections } from "../actionPoints";
+import { findOpenAPs, markHarvested, defaultSections, canonicalGroup } from "../actionPoints";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -121,8 +121,9 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
     if (picked.length === 0) return;
     setApBusy(true);
     try {
-      const group = Object.entries(refLinks).find(([, folder]) => currentPath.startsWith(folder))?.[0] || "";
       const bucket = await api.getBucket();
+      const rawGroup = Object.entries(refLinks).find(([, folder]) => currentPath.startsWith(folder))?.[0] || "";
+      const group = canonicalGroup(rawGroup, bucket.tasks.map((t) => t.text));
       const newTasks = [...bucket.tasks];
       picked.forEach((a) => {
         newTasks.push({
