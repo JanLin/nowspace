@@ -176,10 +176,10 @@ export const api = {
   getWeekModified: (offset: number = 0) =>
     request<{ mtime: number | null }>(`/plan/week-modified?offset=${offset}`),
 
-  saveWeekPlan: (days: DayTasks[], offset: number = 0) =>
-    request<{ status: string }>("/plan/save-week", {
+  saveWeekPlan: (days: DayTasks[], offset: number = 0, expectedMtime?: number | null) =>
+    request<{ status: string; mtime?: number }>("/plan/save-week", {
       method: "POST",
-      body: JSON.stringify({ days, offset }),
+      body: JSON.stringify({ days, offset, expected_mtime: expectedMtime ?? null }),
     }),
 
   createNextWeek: () =>
@@ -204,10 +204,10 @@ export const api = {
   getBucketModified: () =>
     request<{ mtime: number | null }>("/plan/bucket-modified"),
 
-  saveBucket: (tasks: BucketTask[], pinned_groups: string[]) =>
-    request<{ status: string }>("/plan/bucket/save", {
+  saveBucket: (tasks: BucketTask[], pinned_groups: string[], expectedMtime?: number | null) =>
+    request<{ status: string; mtime?: number }>("/plan/bucket/save", {
       method: "POST",
-      body: JSON.stringify({ tasks, pinned_groups }),
+      body: JSON.stringify({ tasks, pinned_groups, expected_mtime: expectedMtime ?? null }),
     }),
 
   moveToBucket: (task_index: number, day_idx: number, week_offset: number = 0) =>
