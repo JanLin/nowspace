@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import { api } from "../api";
+import { findOpenAPs, markHarvested, type FoundAP } from "../actionPoints";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -133,6 +134,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     try {
       await api.putNotes(dayName, text, weekOffset);
       setLastSaved(text);
+      window.dispatchEvent(new CustomEvent("notes-saved"));
     } catch { /* silent */ }
     finally { setSaving(false); }
   }, [dayName, weekOffset, lastSaved]);
@@ -527,6 +529,122 @@ function ReferenceBrowser({ onInsertLink, onOpenNote }: ReferenceBrowserProps) {
   );
 }
 
+/* ── Action-point harvest (quiet hint) ────────────────────── */
+
+interface APFile { name: string; path: string; content: string; aps: FoundAP[]; group: string }
+
+function APHarvest({ dayName, weekOffset }: { dayName: string; weekOffset: number }) {
+  const [files, setFiles] = useState<APFile[]>([]);
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  const scan = useCallback(async () => {
+    try {
+      const notes = await api.getNotes(dayName, weekOffset);
+      const linkNames = [...new Set(
+        [...(notes.content || "").matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)].map((m) => m[1].trim())
+      )];
+      if (linkNames.length === 0) { setFiles([]); return; }
+      const refLinks = await api.referenceLinks().then((r) => r.links).catch(() => ({} as Record<string, string>));
+      const found: APFile[] = [];
+      for (const name of linkNames) {
+        try {
+          const res = await api.vaultSearch(name, 1);
+          if (res.results.length === 0) continue;
+          const { path } = res.results[0];
+          const note = await api.readNote(path);
+          const aps = findOpenAPs(note.content);
+          if (aps.length === 0) continue;
+          // Infer the customer group from which reference folder holds the file
+          const group = Object.entries(refLinks).find(([, folder]) => path.startsWith(folder))?.[0] || "";
+          found.push({ name, path, content: note.content, aps, group });
+        } catch { /* skip unreadable */ }
+      }
+      setFiles(found);
+      setSelected(new Set(found.flatMap((f) => f.aps.map((a) => `${f.path}|${a.line}`))));
+    } catch { setFiles([]); }
+  }, [dayName, weekOffset]);
+
+  useEffect(() => {
+    scan();
+    window.addEventListener("notes-saved", scan);
+    window.addEventListener("focus", scan);
+    return () => {
+      window.removeEventListener("notes-saved", scan);
+      window.removeEventListener("focus", scan);
+    };
+  }, [scan]);
+
+  const total = files.reduce((n, f) => n + f.aps.length, 0);
+  if (total === 0) return null;
+
+  const toggle = (key: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  const harvest = async () => {
+    setBusy(true);
+    try {
+      const bucket = await api.getBucket();
+      const newTasks = [...bucket.tasks];
+      for (const f of files) {
+        const lines = f.aps.filter((a) => selected.has(`${f.path}|${a.line}`)).map((a) => a.line);
+        if (lines.length === 0) continue;
+        f.aps.filter((a) => lines.includes(a.line)).forEach((a) => {
+          newTasks.push({
+            text: `${f.group ? `${f.group}: ` : ""}${a.text} [[${f.name}]]`,
+            priority: "C", focused: false, waiting: false, subtasks: [],
+          });
+        });
+        await api.writeNote(f.path, markHarvested(f.content, lines));
+      }
+      await api.saveBucket(newTasks, bucket.pinned_groups);
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+      setOpen(false);
+      scan();
+    } catch { /* leave hint for retry */ }
+    setBusy(false);
+  };
+
+  return (
+    <div className="mt-2">
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors border border-amber-200">
+        <span>⚡</span>
+        <span className="flex-1 text-left">{total} action point{total !== 1 ? "s" : ""} in linked notes</span>
+        <span className="text-[9px]">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="mt-1 border border-amber-200 rounded-lg p-2 space-y-1.5 bg-white">
+          {files.map((f) => (
+            <div key={f.path}>
+              <div className="text-[10px] font-medium text-gray-500 mb-0.5">
+                📄 {f.name}{f.group && <span className="ml-1 text-gray-400">→ {f.group}</span>}
+              </div>
+              {f.aps.map((a) => {
+                const key = `${f.path}|${a.line}`;
+                return (
+                  <label key={key} className="flex items-start gap-1.5 text-[11px] py-0.5 cursor-pointer text-gray-700">
+                    <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} className="mt-0.5" />
+                    <span className="flex-1">{a.text}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ))}
+          <button onClick={harvest} disabled={busy || selected.size === 0}
+            className="w-full px-2 py-1 bg-amber-500 text-white rounded text-[10px] font-medium hover:bg-amber-600 disabled:opacity-50">
+            {busy ? "Creating…" : `🪣 ${selected.size} to Bucket (marks AP→ in the notes)`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main NotesPanel ──────────────────────────────────────── */
 
 interface NotesPanelProps {
@@ -559,6 +677,9 @@ export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote 
         onOpenNote={onOpenNote}
         insertRef={insertRef}
       />
+
+      {/* Action points found in today's linked call notes */}
+      {!isArchive && <APHarvest dayName={dayName} weekOffset={weekOffset} />}
 
       {/* Reference File Browser */}
       {!isArchive && (

@@ -5,6 +5,7 @@ import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import HabitStrip from "./HabitStrip";
+import { markDone as markAPDone } from "../actionPoints";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
   ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
@@ -1267,6 +1268,25 @@ export default function WeekPlan() {
     applyTaskChange(days);
   };
 
+  // A completed task that came from a call note flips its AP line to "AP ✓"
+  // in the source file, so the call log itself shows the action is done.
+  const syncAPDone = (task: Task) => {
+    const links = [...task.text.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)].map((m) => m[1].trim());
+    if (links.length === 0) return;
+    const label = stripBucketMeta(stripCtxTokens(parseGroup(task.text).label))
+      .replace(/\[\[[^\]]+\]\]/g, "").trim();
+    links.forEach(async (name) => {
+      try {
+        const res = await api.vaultSearch(name, 1);
+        if (res.results.length === 0) return;
+        const { path } = res.results[0];
+        const note = await api.readNote(path);
+        const updated = markAPDone(note.content, label);
+        if (updated) await api.writeNote(path, updated);
+      } catch { /* cosmetic sync — never block completion */ }
+    });
+  };
+
   const toggleDone = (dayIdx: number, taskIdx: number) => {
     if (!data) return;
     const days = data.days.map((d, di) => {
@@ -1279,6 +1299,7 @@ export default function WeekPlan() {
       tasks[taskIdx] = { ...tasks[taskIdx], done: newDone, subtasks };
       // Completing a pinned exception clears the pin
       if (newDone) tasks[taskIdx] = unpinText(tasks[taskIdx]);
+      if (newDone) syncAPDone(tasks[taskIdx]);
       return { ...d, tasks };
     });
     applyTaskChange(days);
