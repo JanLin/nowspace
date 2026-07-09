@@ -2812,9 +2812,10 @@ export default function WeekPlan() {
         </div>
       )}
 
-      {/* Right column — Notes Panel */}
+      {/* Right column — Notes Panel. Sticky + viewport-fitted so its own
+          scrollbar reaches the bottom without scrolling the page. */}
       {showNotesPanel && (
-        <div className="min-w-0 pl-2 max-h-[calc(100vh-220px)] overflow-y-auto"
+        <div className="min-w-0 pl-2 max-h-[calc(100vh-260px)] overflow-y-auto sticky top-[80px] self-start"
           style={{ width: `${notesPanelPct}%` }}>
           <NotesPanel
             dayName={day.day}
