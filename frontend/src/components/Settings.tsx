@@ -791,8 +791,10 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
           <button
             onClick={() => saveContexts(ctxRows)}
             disabled={ctxSaving || !ctxDirty}
-            className="px-3 py-1 rounded-lg text-xs font-medium text-white disabled:opacity-40"
-            style={{ backgroundColor: ctxDirty ? "var(--accent)" : "var(--bg-tertiary)" }}
+            className="px-3 py-1 rounded-lg text-xs font-medium"
+            style={ctxDirty
+              ? { backgroundColor: "var(--accent)", color: "white" }
+              : { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
             title={ctxDirty ? "Save changes to config.yaml" : "No changes to save"}
           >
             {ctxSaving ? "Saving…" : "Save contexts"}
