@@ -350,12 +350,12 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
         </p>
 
         {/* Input + Browse + Save row */}
-        <div className="flex gap-2 mb-3">
+        <div className="flex flex-wrap gap-2 mb-3">
           <input
             type="text"
             value={vaultPath}
             onChange={(e) => handleVaultPathChange(e.target.value)}
-            className="flex-1 px-3 py-2.5 rounded-lg text-sm font-mono"
+            className="flex-1 min-w-0 px-3 py-2.5 rounded-lg text-sm font-mono"
             style={{
               backgroundColor: "var(--bg)",
               color: "var(--text)",
@@ -523,7 +523,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
             >
               <span style={{ color: "var(--accent)" }}>✓</span>
               <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>Configured</span>
-              <span className="flex-1 text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+              <span className="flex-1 min-w-0 break-all text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
                 {apiKeyStatus.masked}
               </span>
               <button
@@ -652,7 +652,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
                     type="text"
                     value={editPath}
                     onChange={(e) => setEditPath(e.target.value)}
-                    className="flex-1 px-2 py-1 rounded text-xs font-mono"
+                    className="flex-1 min-w-0 px-2 py-1 rounded text-xs font-mono"
                     style={{
                       backgroundColor: "var(--bg-secondary)",
                       color: "var(--text)",
@@ -726,7 +726,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
 
         {/* Add new link */}
         <div
-          className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
+          className="flex items-center flex-wrap gap-2 px-3 py-2.5 rounded-lg"
           style={{ backgroundColor: "var(--bg)", border: "1px dashed var(--border)" }}
         >
           <input
@@ -746,7 +746,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
             value={newPath}
             onChange={(e) => setNewPath(e.target.value)}
             placeholder="Vault folder path (e.g. 2-Areas/Project)"
-            className="flex-1 px-2 py-1.5 rounded text-xs font-mono"
+            className="flex-1 min-w-0 px-2 py-1.5 rounded text-xs font-mono"
             style={{
               backgroundColor: "var(--bg-secondary)",
               color: "var(--text)",
@@ -852,7 +852,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
                   placeholder={row.name === "personal" ? "everything unmapped is personal" : "e.g. arratech, wallet"}
                   onKeyDown={(e) => { if (e.key === "Enter") saveContexts(ctxRows); }}
                   onChange={(e) => update({ groups: e.target.value })}
-                  className="flex-1 px-2 py-1 rounded text-xs font-mono"
+                  className="flex-1 min-w-0 px-2 py-1 rounded text-xs font-mono"
                   style={{ backgroundColor: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
                 />
                 {!isCore && (
