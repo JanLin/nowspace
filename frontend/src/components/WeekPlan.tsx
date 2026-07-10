@@ -1249,6 +1249,16 @@ export default function WeekPlan() {
     applyTaskChange(days);
   };
 
+  // Move ALL of a day's open (and context-visible) tasks to another day
+  const moveOpenTasksToDay = (fromDayIdx: number, toDayIdx: number) => {
+    if (!data || fromDayIdx === toDayIdx) return;
+    const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+    const open = days[fromDayIdx].tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
+    days[fromDayIdx] = { ...days[fromDayIdx], tasks: days[fromDayIdx].tasks.filter((t) => t.done || !taskVisibleInMode(t.text)) };
+    days[toDayIdx] = { ...days[toDayIdx], tasks: [...days[toDayIdx].tasks, ...open.map(unpinText)] };
+    applyTaskChange(days);
+  };
+
   // Resolve an earlier-day task in place: mark done (did it, forgot to tick)
   // or delete (no longer relevant). Used by the daily-carry panel.
   const resolveDayTask = (dayIdx: number, taskIdx: number, action: "done" | "delete") => {
@@ -1665,7 +1675,8 @@ export default function WeekPlan() {
     // Accept individual task drags, group drags, and subtask-to-task promotions
     const dominated = dragGroupRef.current || dragRef.current ||
       e.dataTransfer.types.includes("subtask") || e.dataTransfer.types.includes("bucket-task") ||
-      e.dataTransfer.types.includes("carry-task") || e.dataTransfer.types.includes("carry-group");
+      e.dataTransfer.types.includes("carry-task") || e.dataTransfer.types.includes("carry-group") ||
+      e.dataTransfer.types.includes("daily-carry-task") || e.dataTransfer.types.includes("daily-carry-day");
     if (!dominated) return;
     if (dragGroupRef.current && dragGroupRef.current.fromDay !== dayIdx) return;
     e.preventDefault();
@@ -1717,6 +1728,32 @@ export default function WeekPlan() {
           return;
         }
       } catch { /* not a carry group drop */ }
+    }
+
+    // Handle a "Before Today" task dropped into a day
+    if (e && e.dataTransfer.types.includes("daily-carry-task")) {
+      try {
+        const raw = e.dataTransfer.getData("daily-carry-task");
+        if (raw) {
+          const { dayIdx: fromDay, taskIdx: fromTask } = JSON.parse(raw);
+          moveTaskToDay(fromDay, fromTask, dayIdx);
+          setDropTarget(null);
+          return;
+        }
+      } catch { /* not a daily-carry drop */ }
+    }
+
+    // Handle a whole "Before Today" day section dropped into a day
+    if (e && e.dataTransfer.types.includes("daily-carry-day")) {
+      try {
+        const raw = e.dataTransfer.getData("daily-carry-day");
+        if (raw) {
+          const { dayIdx: fromDay } = JSON.parse(raw);
+          moveOpenTasksToDay(fromDay, dayIdx);
+          setDropTarget(null);
+          return;
+        }
+      } catch { /* not a daily-carry-day drop */ }
     }
 
     // Handle bucket task dropped into day/grid view
@@ -2598,11 +2635,11 @@ export default function WeekPlan() {
         style={showNotesPanel ? ({ "--tasks-w": `${100 - notesPanelPct}%` } as React.CSSProperties) : undefined}
         onDragOver={(e) => {
           const types = e.dataTransfer.types;
-          if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task")) e.preventDefault();
+          if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task") || types.includes("daily-carry-task") || types.includes("daily-carry-day")) e.preventDefault();
         }}
         onDrop={(e) => {
           const types = e.dataTransfer.types;
-          if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task")) handleDrop(selectedDayIdx, day.tasks.length, e);
+          if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task") || types.includes("daily-carry-task") || types.includes("daily-carry-day")) handleDrop(selectedDayIdx, day.tasks.length, e);
         }}>
         {/* Habit chips — current week only, shrink as the week goes well */}
         {weekOffset === 0 && habits.length > 0 && (
@@ -3276,7 +3313,7 @@ export default function WeekPlan() {
                         // Day buttons accept carry/bucket drops — carry to THAT day,
                         // regardless of which day is being viewed
                         const types = e.dataTransfer.types;
-                        if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task")) {
+                        if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task") || types.includes("daily-carry-task") || types.includes("daily-carry-day")) {
                           e.preventDefault();
                           e.stopPropagation();
                           setDayNavDropTarget(i);
@@ -3294,6 +3331,12 @@ export default function WeekPlan() {
                         }
                         if (e.dataTransfer.types.includes("bucket-task")) {
                           try { const { bucketIdx } = JSON.parse(e.dataTransfer.getData("bucket-task")); pullFromBucket(bucketIdx, i); return; } catch { /* ignore */ }
+                        }
+                        if (e.dataTransfer.types.includes("daily-carry-task")) {
+                          try { const { dayIdx: fromDay, taskIdx: fromTask } = JSON.parse(e.dataTransfer.getData("daily-carry-task")); moveTaskToDay(fromDay, fromTask, i); return; } catch { /* ignore */ }
+                        }
+                        if (e.dataTransfer.types.includes("daily-carry-day")) {
+                          try { const { dayIdx: fromDay } = JSON.parse(e.dataTransfer.getData("daily-carry-day")); moveOpenTasksToDay(fromDay, i); return; } catch { /* ignore */ }
                         }
                       }}
                       className={`flex flex-col items-center px-1 sm:px-2 py-1 rounded text-xs font-medium transition-colors min-w-[34px] sm:min-w-[40px] ${
@@ -4132,19 +4175,18 @@ export default function WeekPlan() {
 
             return Array.from(byDay.entries()).map(([di, dayItems]) => (
               <div key={`dc-${di}`} className="mb-1">
-                <div className="flex items-center gap-1 py-1 px-2">
+                <div
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("daily-carry-day", JSON.stringify({ dayIdx: di }));
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  className="flex items-center gap-1 py-1 px-2 cursor-grab active:cursor-grabbing"
+                >
                   <span className="text-[10px] font-medium text-purple-500">{dayItems[0].dayName}</span>
                   <span className="text-[10px] text-gray-400">({dayItems.length})</span>
                   <button
-                    onClick={() => {
-                      // Move this day's open tasks (only those visible in the mode) to the carry target
-                      if (di === carryTargetIdx) return;
-                      const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
-                      const open = days[di].tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
-                      days[di] = { ...days[di], tasks: days[di].tasks.filter((t) => t.done || !taskVisibleInMode(t.text)) };
-                      days[carryTargetIdx] = { ...days[carryTargetIdx], tasks: [...days[carryTargetIdx].tasks, ...open.map(unpinText)] };
-                      applyTaskChange(days);
-                    }}
+                    onClick={() => moveOpenTasksToDay(di, carryTargetIdx)}
                     className="ml-auto text-[9px] text-purple-400 hover:text-purple-700 transition-colors"
                   >
                     Move all →
@@ -4153,7 +4195,12 @@ export default function WeekPlan() {
                 {dayItems.map((it) => (
                   <div
                     key={`dc-${it.dayIdx}-${it.taskIdx}`}
-                    className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs group/dc transition-colors"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("daily-carry-task", JSON.stringify({ dayIdx: it.dayIdx, taskIdx: it.taskIdx }));
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs group/dc transition-colors cursor-grab active:cursor-grabbing"
                   >
                     {prioBadge(it.task.priority || "C")}
                     <span className={`flex-1 truncate ${it.task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }} title={it.label}>
