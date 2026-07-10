@@ -423,6 +423,8 @@ export default function WeekPlan() {
   const dailyCarryRef = useRef<HTMLDivElement>(null);
   const carryDragRef = useRef<{ carryIdx: number } | null>(null);
   const carryGroupDragRef = useRef<{ groupName: string } | null>(null);
+  // Day-nav buttons double as drop targets (carry/bucket → that day)
+  const [dayNavDropTarget, setDayNavDropTarget] = useState<number | null>(null);
   const [carryHighlight, setCarryHighlight] = useState(false);
 
   // Bottom bar visibility
@@ -3250,7 +3252,33 @@ export default function WeekPlan() {
                     <button
                       key={d.day}
                       onClick={() => setSelectedDayIdx(i)}
+                      onDragOver={(e) => {
+                        // Day buttons accept carry/bucket drops — carry to THAT day,
+                        // regardless of which day is being viewed
+                        const types = e.dataTransfer.types;
+                        if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task")) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDayNavDropTarget(i);
+                        }
+                      }}
+                      onDragLeave={() => setDayNavDropTarget((prev) => (prev === i ? null : prev))}
+                      onDrop={(e) => {
+                        setDayNavDropTarget(null);
+                        e.stopPropagation();
+                        if (e.dataTransfer.types.includes("carry-task")) {
+                          try { const { carryIdx } = JSON.parse(e.dataTransfer.getData("carry-task")); pullFromCarry(carryIdx, i); return; } catch { /* ignore */ }
+                        }
+                        if (e.dataTransfer.types.includes("carry-group")) {
+                          try { const { groupName } = JSON.parse(e.dataTransfer.getData("carry-group")); pullCarryGroup(groupName, i); return; } catch { /* ignore */ }
+                        }
+                        if (e.dataTransfer.types.includes("bucket-task")) {
+                          try { const { bucketIdx } = JSON.parse(e.dataTransfer.getData("bucket-task")); pullFromBucket(bucketIdx, i); return; } catch { /* ignore */ }
+                        }
+                      }}
                       className={`flex flex-col items-center px-1 sm:px-2 py-1 rounded text-xs font-medium transition-colors min-w-[34px] sm:min-w-[40px] ${
+                        dayNavDropTarget === i ? "ring-2 ring-purple-400 " : ""
+                      }${
                         isSelected
                           ? "bg-blue-600 text-white"
                           : isVisible
@@ -3618,7 +3646,9 @@ export default function WeekPlan() {
         )}
 
         {/* Weekly carry forward — only on current week, only when today or a later day is visible */}
-        {weekOffset === 0 && carryTasks.filter((t) => taskVisibleInMode(t.text)).length > 0 && visibleDays.some(d => d >= todayIdx) && (
+        {/* Available anywhere in the current week — in day view the visible day
+            is often a past day being reviewed, and carrying must still work. */}
+        {weekOffset === 0 && carryTasks.filter((t) => taskVisibleInMode(t.text)).length > 0 && (
           <div
             className={`relative cursor-pointer transition-all duration-200 ${carryHighlight ? "scale-110" : "hover:scale-105"}`}
             title={`⏩ Carry Forward (${carryTasks.filter((t) => taskVisibleInMode(t.text)).length} tasks)`}
@@ -3991,7 +4021,7 @@ export default function WeekPlan() {
             <div className="flex gap-1">
               <select
                 id="carry-target-day"
-                defaultValue="monday"
+                defaultValue={data?.days[todayIdx]?.day || "monday"}
                 className="flex-1 text-[10px] border border-gray-200 rounded px-1.5 py-1 bg-white text-gray-600"
               >
                 <option value="monday">Monday</option>
