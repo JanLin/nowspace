@@ -425,6 +425,8 @@ export default function WeekPlan() {
   const carryGroupDragRef = useRef<{ groupName: string } | null>(null);
   // Day-nav buttons double as drop targets (carry/bucket → that day)
   const [dayNavDropTarget, setDayNavDropTarget] = useState<number | null>(null);
+  // "Carry all" destination — follows the viewed day, still user-overridable
+  const [carryDaySel, setCarryDaySel] = useState("monday");
   const [carryHighlight, setCarryHighlight] = useState(false);
 
   // Bottom bar visibility
@@ -1013,6 +1015,10 @@ export default function WeekPlan() {
   // today in week views.
   const carryTargetIdx = viewMode === "day" ? selectedDayIdx : todayIdx;
   const carryTargetLabel = DAY_LABELS[data?.days[carryTargetIdx]?.day || ""] || "today";
+  useEffect(() => {
+    const d = data?.days[carryTargetIdx]?.day;
+    if (d) setCarryDaySel(d);
+  }, [carryTargetIdx, data]);
 
   const isArchive = weekOffset < 0;
 
@@ -1287,11 +1293,12 @@ export default function WeekPlan() {
   // Move all open tasks from previous days to today.
   // Bulk moves only touch tasks visible in the active context mode — what the
   // panel shows is exactly what moves; hidden contexts stay put.
-  const carryAllFromPreviousDays = (toDayIdx: number) => {
+  const carryAllFromPreviousDays = (uptoIdx: number, toDayIdx: number) => {
     if (!data) return;
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
     const moved: Task[] = [];
-    for (let di = 0; di < toDayIdx; di++) {
+    for (let di = 0; di < uptoIdx; di++) {
+      if (di === toDayIdx) continue;
       const openTasks = days[di].tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
       const remaining = days[di].tasks.filter((t) => t.done || !taskVisibleInMode(t.text));
       moved.push(...openTasks.map(unpinText));
@@ -4048,8 +4055,8 @@ export default function WeekPlan() {
           <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5 sticky bottom-0" style={{ backgroundColor: "var(--bg-secondary)" }}>
             <div className="flex gap-1">
               <select
-                id="carry-target-day"
-                defaultValue={data?.days[carryTargetIdx]?.day || "monday"}
+                value={carryDaySel}
+                onChange={(e) => setCarryDaySel(e.target.value)}
                 className="flex-1 text-[10px] border border-gray-200 rounded px-1.5 py-1 bg-white text-gray-600"
               >
                 <option value="monday">Monday</option>
@@ -4061,10 +4068,7 @@ export default function WeekPlan() {
                 <option value="sunday">Sunday</option>
               </select>
               <button
-                onClick={() => {
-                  const sel = (document.getElementById("carry-target-day") as HTMLSelectElement)?.value || "monday";
-                  carryAllToDay(sel);
-                }}
+                onClick={() => carryAllToDay(carryDaySel)}
                 disabled={carryLoading}
                 className="px-2 py-1 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 disabled:opacity-50 transition-colors whitespace-nowrap"
               >
@@ -4124,7 +4128,7 @@ export default function WeekPlan() {
               }`}>{p}</span>
             );
 
-            const targetDayName = DAY_LABELS[data.days[todayIdx]?.day] || "today";
+            const targetDayName = carryTargetLabel;
 
             return Array.from(byDay.entries()).map(([di, dayItems]) => (
               <div key={`dc-${di}`} className="mb-1">
@@ -4133,11 +4137,12 @@ export default function WeekPlan() {
                   <span className="text-[10px] text-gray-400">({dayItems.length})</span>
                   <button
                     onClick={() => {
-                      // Move this day's open tasks (only those visible in the mode) to today
+                      // Move this day's open tasks (only those visible in the mode) to the carry target
+                      if (di === carryTargetIdx) return;
                       const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
                       const open = days[di].tasks.filter((t) => !t.done && taskVisibleInMode(t.text));
                       days[di] = { ...days[di], tasks: days[di].tasks.filter((t) => t.done || !taskVisibleInMode(t.text)) };
-                      days[todayIdx] = { ...days[todayIdx], tasks: [...days[todayIdx].tasks, ...open.map(unpinText)] };
+                      days[carryTargetIdx] = { ...days[carryTargetIdx], tasks: [...days[carryTargetIdx].tasks, ...open.map(unpinText)] };
                       applyTaskChange(days);
                     }}
                     className="ml-auto text-[9px] text-purple-400 hover:text-purple-700 transition-colors"
@@ -4170,7 +4175,7 @@ export default function WeekPlan() {
                       ✕
                     </button>
                     <button
-                      onClick={() => moveTaskToDay(it.dayIdx, it.taskIdx, todayIdx)}
+                      onClick={() => moveTaskToDay(it.dayIdx, it.taskIdx, carryTargetIdx)}
                       className="text-[10px] text-purple-400 hover:text-purple-700 opacity-0 group-hover/dc:opacity-100 shrink-0 transition-opacity"
                       title={`Move to ${targetDayName}`}
                     >
@@ -4186,10 +4191,10 @@ export default function WeekPlan() {
         {dailyCarryCount > 0 && (
           <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5 sticky bottom-0" style={{ backgroundColor: "var(--bg-secondary)" }}>
             <button
-              onClick={() => { carryAllFromPreviousDays(todayIdx); setDailyCarryOpen(false); }}
+              onClick={() => { carryAllFromPreviousDays(todayIdx, carryTargetIdx); setDailyCarryOpen(false); }}
               className="w-full px-2 py-1.5 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 transition-colors"
             >
-              Move all to {DAY_LABELS[data.days[todayIdx]?.day] || "today"} →
+              Move all to {carryTargetLabel} →
             </button>
             <button
               onClick={() => { earlierDaysToBucket(todayIdx); setDailyCarryOpen(false); }}
