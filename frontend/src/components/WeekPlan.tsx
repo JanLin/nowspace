@@ -2685,7 +2685,14 @@ export default function WeekPlan() {
           </span>
           {viewMode === "day" && (
             <button
-              onClick={() => setShowNotesPanel(!showNotesPanel)}
+              onClick={() => {
+                const opening = !showNotesPanel;
+                setShowNotesPanel(opening);
+                // On phones the notes stack below the tasks — take the user there
+                if (opening && window.innerWidth < 768) {
+                  setTimeout(() => document.getElementById("day-notes-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+                }
+              }}
               className={`text-xs px-2 py-0.5 rounded transition-colors ${showNotesPanel ? "bg-blue-100 text-blue-700" : "hover:opacity-80"}`}
               style={!showNotesPanel ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
               title={showNotesPanel ? "Hide notes panel" : "Show notes panel"}
@@ -2928,7 +2935,7 @@ export default function WeekPlan() {
       {/* Right column — Notes Panel. Sticky + viewport-fitted so its own
           scrollbar reaches the bottom without scrolling the page. */}
       {showNotesPanel && (
-        <div className="min-w-0 md:pl-2 max-h-[calc(100vh-260px)] overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)]"
+        <div id="day-notes-panel" className="min-w-0 md:pl-2 max-h-[calc(100vh-260px)] overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)]"
           style={{ "--notes-w": `${notesPanelPct}%` } as React.CSSProperties}>
           <NotesPanel
             dayName={day.day}
