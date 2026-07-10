@@ -101,6 +101,15 @@ export default function TimeTab() {
 
   const announce = () => window.dispatchEvent(new CustomEvent("time-changed"));
 
+  // Draft of the running entry's description; null = untouched
+  const [runDesc, setRunDesc] = useState<string | null>(null);
+  const saveRunDesc = async () => {
+    const v = runDesc?.trim();
+    if (!v || !running || v === running.text) { setRunDesc(null); return; }
+    try { await api.adjustTime({ text: v }); setRunDesc(null); load(); announce(); }
+    catch (err) { setError(err instanceof Error ? err.message : "Failed to rename"); }
+  };
+
   const startEntry = async (text: string) => {
     try { await api.startTime(text); load(nowMonth()); setMonth(nowMonth()); announce(); }
     catch (e) { setError(e instanceof Error ? e.message : "Failed to start"); }
@@ -223,19 +232,27 @@ export default function TimeTab() {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             <input
-              key={`txt-${running.text}`}
-              defaultValue={running.text}
-              onKeyDown={async (ev) => {
-                if (ev.key !== "Enter") return;
-                const v = (ev.target as HTMLInputElement).value.trim();
-                if (!v || v === running.text) return;
-                try { await api.adjustTime({ text: v }); load(); announce(); }
-                catch (err) { setError(err instanceof Error ? err.message : "Failed to rename"); }
+              value={runDesc ?? running.text}
+              onChange={(ev) => setRunDesc(ev.target.value)}
+              onKeyDown={(ev) => {
+                if (ev.key === "Enter") saveRunDesc();
+                if (ev.key === "Escape") setRunDesc(null);
               }}
-              title="Edit the description of the running entry — Enter saves"
+              onBlur={saveRunDesc}
+              title="Edit the description — saves when you press Enter or click away"
               className="flex-1 min-w-[10rem] text-sm font-medium px-1.5 py-0.5 rounded"
               style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
             />
+            {runDesc !== null && runDesc.trim() && runDesc.trim() !== running.text && (
+              <button
+                onMouseDown={(ev) => ev.preventDefault()}
+                onClick={saveRunDesc}
+                className="px-2 py-0.5 rounded text-xs font-medium text-white shrink-0"
+                style={{ backgroundColor: "var(--accent)" }}
+              >
+                Save ↵
+              </button>
+            )}
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>started</span>
             <input
               key={running.start}
