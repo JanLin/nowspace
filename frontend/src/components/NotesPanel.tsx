@@ -193,7 +193,19 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
   if (loading) return <div className="text-[10px] text-gray-400 text-center py-4">Loading notes...</div>;
 
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("vault-note-name")) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        const name = e.dataTransfer.getData("vault-note-name");
+        if (name) {
+          e.preventDefault();
+          insertRef.current?.(`[[${name}]]`);
+        }
+      }}
+    >
       {/* Save indicator */}
       {saving && <span className="absolute top-0 right-0 text-[9px] text-gray-400">Saving...</span>}
       {!saving && content !== lastSaved && <span className="absolute top-0 right-0 text-[9px] text-orange-400">Unsaved</span>}
@@ -439,10 +451,18 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote, onScanAP
               {recentFiles.map((f) => {
                 const touchedToday = f.modified && new Date(f.modified).toDateString() === new Date().toDateString();
                 return (
-                <div key={f.path} className="flex items-center gap-1 group/file">
+                <div
+                  key={f.path}
+                  className="flex items-center gap-1 group/file cursor-grab active:cursor-grabbing"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("vault-note-name", f.name);
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
+                >
                   <button onClick={() => handleFileClick(f)}
                     className={`flex-1 text-left flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded hover:bg-blue-50 hover:text-blue-700 truncate min-w-0 ${touchedToday ? "text-blue-700 bg-blue-50/60" : "text-gray-600"}`}
-                    title={`Insert [[${f.name}]] into today's notes${touchedToday ? " — touched today" : ""}`}>
+                    title={`Click (or drag onto the notes) to link [[${f.name}]] in today's notes${touchedToday ? " — touched today" : ""}`}>
                     <span className="text-[10px]">📄</span>
                     <span className="truncate flex-1">{f.name}</span>
                     {touchedToday && <span className="text-[8px] font-semibold text-blue-500 shrink-0">today</span>}
