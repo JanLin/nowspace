@@ -211,7 +211,8 @@ export default function TimeTab() {
     const m = new Map<string, TimeEntry[]>();
     visible.forEach((e) => m.set(e.date, [...(m.get(e.date) || []), e]));
     return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([d, es]) => [d, es.sort((a, b) => a.start.localeCompare(b.start))] as const);
+      // Latest entry first within each day — the recent one is what you look for
+      .map(([d, es]) => [d, es.sort((a, b) => b.start.localeCompare(a.start))] as const);
   }, [visible]);
 
   const monthNav = (delta: number) => {

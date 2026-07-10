@@ -1,4 +1,8 @@
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// API base: dev talks to the local uvicorn; the Tauri app talks to its
+// bundled sidecar; a production build served by the backend itself uses
+// relative URLs, so it works from any host (LAN, Tailscale, phone).
+// VITE_API_URL overrides everything (e.g. the staging setup).
+const BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : __API_BASE__);
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
