@@ -222,7 +222,20 @@ export default function TimeTab() {
         {running ? (
           <div className="flex items-center gap-2 flex-wrap">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-sm font-medium" style={{ color: "var(--text)" }}>{running.text}</span>
+            <input
+              key={`txt-${running.text}`}
+              defaultValue={running.text}
+              onKeyDown={async (ev) => {
+                if (ev.key !== "Enter") return;
+                const v = (ev.target as HTMLInputElement).value.trim();
+                if (!v || v === running.text) return;
+                try { await api.adjustTime({ text: v }); load(); announce(); }
+                catch (err) { setError(err instanceof Error ? err.message : "Failed to rename"); }
+              }}
+              title="Edit the description of the running entry — Enter saves"
+              className="flex-1 min-w-[10rem] text-sm font-medium px-1.5 py-0.5 rounded"
+              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+            />
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>started</span>
             <input
               key={running.start}
@@ -231,7 +244,7 @@ export default function TimeTab() {
                 if (ev.key !== "Enter") return;
                 const t = normTime((ev.target as HTMLInputElement).value);
                 if (!t) { setError("Start must be HH:MM or HHMM (e.g. 1945)"); return; }
-                try { await api.adjustTime(t); load(); announce(); }
+                try { await api.adjustTime({ start: t }); load(); announce(); }
                 catch (err) { setError(err instanceof Error ? err.message : "Failed to adjust"); }
               }}
               title="Started earlier? Type the real start time (1945 works) and press Enter"
@@ -243,7 +256,7 @@ export default function TimeTab() {
                 onClick={async () => {
                   const [h, m] = running.start.split(":").map(Number);
                   const t = Math.max(0, h * 60 + m + d);
-                  try { await api.adjustTime(`${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`); load(); announce(); }
+                  try { await api.adjustTime({ start: `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}` }); load(); announce(); }
                   catch (err) { setError(err instanceof Error ? err.message : "Failed to adjust"); }
                 }}
                 title={`Started ${-d} minutes earlier than recorded`}

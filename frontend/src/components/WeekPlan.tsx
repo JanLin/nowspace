@@ -324,6 +324,7 @@ export default function WeekPlan() {
   const [runningTime, setRunningTime] = useState<TimeEntry | null>(null);
   const [timeAdjustOpen, setTimeAdjustOpen] = useState(false);
   const [timeAdjustVal, setTimeAdjustVal] = useState("");
+  const [timeAdjustText, setTimeAdjustText] = useState("");
   const [, setTimeTick] = useState(0);
   const refreshTime = () => {
     api.getTimeLog().then((r) => setRunningTime(r.running)).catch(() => {});
@@ -344,9 +345,9 @@ export default function WeekPlan() {
       window.dispatchEvent(new CustomEvent("time-changed"));
     } catch { /* ignore */ }
   };
-  const adjustTracking = async (start: string) => {
+  const adjustTracking = async (patch: { start?: string; text?: string }) => {
     try {
-      const r = await api.adjustTime(start);
+      const r = await api.adjustTime(patch);
       setRunningTime(r.running);
       setTimeAdjustOpen(false);
       window.dispatchEvent(new CustomEvent("time-changed"));
@@ -3866,25 +3867,32 @@ export default function WeekPlan() {
             return (
               <div className="relative flex items-center gap-1">
                 <button
-                  onClick={() => { setTimeAdjustVal(runningTime.start); setTimeAdjustOpen(!timeAdjustOpen); }}
+                  onClick={() => { setTimeAdjustVal(runningTime.start); setTimeAdjustText(runningTime.text); setTimeAdjustOpen(!timeAdjustOpen); }}
                   className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 hover:bg-green-200 max-w-[16rem] truncate"
-                  title={`Tracking since ${runningTime.start} — click to adjust the start time`}
+                  title={`Tracking since ${runningTime.start} — click to adjust the start time or description`}
                 >
                   ⏱ {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")} · {runningTime.text}
                 </button>
                 <button onClick={stopTracking} className="px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-600 hover:bg-red-200" title="Stop tracking">■</button>
                 {timeAdjustOpen && (
-                  <div className="absolute bottom-7 left-0 z-50 rounded-lg shadow-xl border p-2 flex items-center gap-1.5"
+                  <div className="absolute bottom-7 left-0 z-50 rounded-lg shadow-xl border p-2 flex flex-col gap-1.5"
                     style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}>
-                    <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>started</span>
-                    <input value={timeAdjustVal} onChange={(e) => setTimeAdjustVal(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") adjustTracking(timeAdjustVal); if (e.key === "Escape") setTimeAdjustOpen(false); }}
-                      className="w-14 px-1 py-0.5 rounded text-[10px] font-mono border" style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
-                    {[-5, -15, -30].map((d) => (
-                      <button key={d} onClick={() => adjustTracking(shiftStart(d))}
-                        className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600 hover:bg-gray-200">{d}m</button>
-                    ))}
-                    <button onClick={() => adjustTracking(timeAdjustVal)} className="px-1.5 py-0.5 rounded text-[10px] bg-blue-600 text-white">Set</button>
+                    <input value={timeAdjustText} onChange={(e) => setTimeAdjustText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") adjustTracking({ start: timeAdjustVal, text: timeAdjustText.trim() || undefined }); if (e.key === "Escape") setTimeAdjustOpen(false); }}
+                      placeholder="description"
+                      title="Edit what this time entry is about"
+                      className="w-64 px-1.5 py-0.5 rounded text-[10px] border" style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>started</span>
+                      <input value={timeAdjustVal} onChange={(e) => setTimeAdjustVal(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") adjustTracking({ start: timeAdjustVal, text: timeAdjustText.trim() || undefined }); if (e.key === "Escape") setTimeAdjustOpen(false); }}
+                        className="w-14 px-1 py-0.5 rounded text-[10px] font-mono border" style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
+                      {[-5, -15, -30].map((d) => (
+                        <button key={d} onClick={() => { setTimeAdjustVal(shiftStart(d)); adjustTracking({ start: shiftStart(d), text: timeAdjustText.trim() || undefined }); }}
+                          className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600 hover:bg-gray-200">{d}m</button>
+                      ))}
+                      <button onClick={() => adjustTracking({ start: timeAdjustVal, text: timeAdjustText.trim() || undefined })} className="px-1.5 py-0.5 rounded text-[10px] bg-blue-600 text-white">Set</button>
+                    </div>
                   </div>
                 )}
               </div>
