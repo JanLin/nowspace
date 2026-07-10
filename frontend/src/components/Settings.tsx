@@ -975,8 +975,12 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
           About
         </h2>
         <div className="text-xs space-y-1" style={{ color: "var(--text-secondary)" }}>
-          <p>Nowspace v0.1.0</p>
+          <p>Nowspace v{__APP_VERSION__}</p>
           <p>Personal coaching agent with Obsidian vault integration.</p>
+          <p>
+            <a href="https://github.com/JanLin/coaching-agent/releases" target="_blank" rel="noreferrer"
+              className="underline hover:opacity-80">Release notes</a>
+          </p>
         </div>
       </section>
     </div>
