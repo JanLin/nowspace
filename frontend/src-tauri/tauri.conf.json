@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicoverbruggen/tauri-v2-schema/main/schema.json",
   "productName": "Nowspace",
-  "version": "0.2.0",
+  "version": "../package.json",
   "identifier": "com.nowspace.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",

@@ -1,5 +1,7 @@
 # Nowspace — Personal Coaching Agent
 
+![Version](https://img.shields.io/github/package-json/v/JanLin/coaching-agent?filename=frontend%2Fpackage.json&label=version&color=4c78dd)
+
 A task planning and coaching tool that reads your [Obsidian](https://obsidian.md/) vault, prioritises tasks using AI, and helps you stay focused through coaching questions.
 
 ## Table of Contents
