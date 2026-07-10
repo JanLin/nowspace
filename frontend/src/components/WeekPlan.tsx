@@ -593,14 +593,17 @@ export default function WeekPlan() {
     } catch { /* ignore */ }
   };
 
-  // Check on window focus / tab visibility
+  // Detect external changes (another device via Syncthing/the mini, or
+  // Obsidian) on focus AND on a 30s poll. Clean tab → reload silently;
+  // unsaved local edits → show the banner and let the save guard arbitrate.
   useEffect(() => {
     const check = async () => {
       if (document.hidden || !data) return;
       try {
         const r = await api.getWeekModified(weekOffset);
         if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
-          setExternalChange(true);
+          if (dirty || addingAt) setExternalChange(true);
+          else fetchWeek();
         }
       } catch { /* ignore */ }
     };
@@ -608,11 +611,13 @@ export default function WeekPlan() {
     const onFocus = () => check();
     document.addEventListener("visibilitychange", onVisChange);
     window.addEventListener("focus", onFocus);
+    const poll = setInterval(check, 30000);
     return () => {
       document.removeEventListener("visibilitychange", onVisChange);
       window.removeEventListener("focus", onFocus);
+      clearInterval(poll);
     };
-  }, [data, weekOffset]);
+  }, [data, weekOffset, dirty, addingAt]);
 
   /** Mutate week data with undo tracking. Call instead of setData+setDirty. */
   const applyTaskChange = (newDays: DayTasks[]) => {

@@ -286,7 +286,9 @@ export default function Bucket() {
       try {
         const r = await api.getBucketModified();
         if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
-          setExternalChange(true);
+          // Clean tab reloads silently; unsaved edits keep the banner
+          if (dirty) setExternalChange(true);
+          else fetchBucket();
         }
       } catch { /* ignore */ }
     };
@@ -294,11 +296,13 @@ export default function Bucket() {
     const onFocus = () => check();
     document.addEventListener("visibilitychange", onVisChange);
     window.addEventListener("focus", onFocus);
+    const poll = setInterval(check, 30000);
     return () => {
       document.removeEventListener("visibilitychange", onVisChange);
       window.removeEventListener("focus", onFocus);
+      clearInterval(poll);
     };
-  }, [data]);
+  }, [data, dirty]);
 
   const fetchBucket = async () => {
     setLoading(true); setError(""); setExternalChange(false);
