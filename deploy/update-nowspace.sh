@@ -22,7 +22,8 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
 (cd frontend && npm ci --no-audit --no-fund && npx vite build)
-pip3 install -q -r requirements.txt
+[ -d .venv ] || python3 -m venv .venv
+.venv/bin/pip install -q -r requirements.txt
 
 launchctl kickstart -k "gui/$(id -u)/com.nowspace.server" || true
 echo "$(date '+%F %T') now at ${REMOTE:0:7} — server restarted"
