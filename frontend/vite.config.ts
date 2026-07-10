@@ -10,6 +10,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(version),
+    // Tauri builds bake in the sidecar address; plain web builds stay
+    // same-origin (the backend serves the SPA itself).
+    __API_BASE__: JSON.stringify(process.env.TAURI_ENV_PLATFORM ? "http://localhost:8000" : ""),
   },
   // prevent vite from obscuring rust errors
   clearScreen: false,

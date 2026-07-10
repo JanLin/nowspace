@@ -1,0 +1,12 @@
+{
+  "name": "Nowspace",
+  "short_name": "Nowspace",
+  "description": "Personal planning and coaching on your Obsidian vault",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/nowspace-compass-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

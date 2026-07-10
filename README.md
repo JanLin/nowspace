@@ -9,6 +9,7 @@ A task planning and coaching tool that reads your [Obsidian](https://obsidian.md
 - [What It Does](#what-it-does)
 - [Download Desktop App](#download-desktop-app)
 - [Run with Docker](#run-with-docker)
+- [Always-on Mac + Phone Access](#always-on-mac--phone-access)
 - [Development Setup](#development-setup)
 - [Vault Structure](#vault-structure)
 - [Task Icons](#task-icons)
@@ -82,6 +83,44 @@ Run Nowspace as a web app using Docker, without installing Python or Node.js.
 The `VAULT_PATH` environment variable in `.env` is mounted into the container so the app can read and write your Obsidian files. Changes sync back to your vault on disk.
 
 To stop: `docker compose down`
+
+## Always-on Mac + Phone Access
+
+Run Nowspace on an always-on Mac (e.g. a Mac mini that already holds a
+Syncthing copy of the vault) and reach it from your phone anywhere via
+[Tailscale](https://tailscale.com). The backend serves the built frontend
+itself, and production builds use same-origin API calls — no CORS, no
+extra server. The `deploy/` folder automates keeping it current.
+
+**One-time setup on the Mac:**
+
+```sh
+git clone https://github.com/JanLin/coaching-agent.git && cd coaching-agent
+# config.yaml: point vault_path at the synced vault; keep server.host 127.0.0.1
+pip3 install -r requirements.txt
+(cd frontend && npm ci && npx vite build)
+
+# Install the launchd services (server + hourly auto-update)
+REPO=$(pwd)
+for f in deploy/com.nowspace.server.plist deploy/com.nowspace.update.plist; do
+  sed -e "s|__REPO__|$REPO|g" -e "s|__HOME__|$HOME|g" "$f" > ~/Library/LaunchAgents/$(basename "$f")
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$(basename "$f")
+done
+
+# Expose it to your tailnet only (never use `tailscale funnel`)
+tailscale serve --bg 8000
+```
+
+Then on the phone: install Tailscale, sign in to the same tailnet, open
+`https://<mac-name>.<tailnet>.ts.net`, and use "Add to Home Screen" — the
+PWA manifest makes it launch full-screen like an app.
+
+**Updates are automatic**: `deploy/update-nowspace.sh` runs hourly via
+launchd, and whenever `origin/main` has new commits it pulls, rebuilds the
+frontend, refreshes Python deps, and restarts the server. Merging a PR is
+the deploy. Check the running version any time in Settings → About, or run
+the script by hand for an immediate update. Logs land in
+`~/Library/Logs/nowspace-{server,update}.log`.
 
 ## Development Setup
 
