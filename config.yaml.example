@@ -39,3 +39,8 @@ server:
   - http://localhost:8000
   - tauri://localhost
   - https://tauri.localhost
+
+# Feature switch: set to false to hide the Coach tab entirely and skip the
+# Anthropic API key requirement (useful for a self-hosted planning-only
+# instance, e.g. on an always-on Mac).
+coach_enabled: true

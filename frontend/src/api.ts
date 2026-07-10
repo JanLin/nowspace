@@ -331,6 +331,7 @@ export const api = {
       api_key_status: ApiKeyStatus;
       contexts: Record<string, string[]>;
       context_tags: Record<string, string>;
+      coach_enabled?: boolean;
     }>("/api/settings"),
 
   // Habits

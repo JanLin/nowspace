@@ -18,6 +18,7 @@ export default function App() {
   const [view, setView] = useState<View>("week");
   const [vaultReady, setVaultReady] = useState<boolean | null>(null); // null = checking
   const [backendUp, setBackendUp] = useState(false);
+  const [coachEnabled, setCoachEnabled] = useState(true);
   const [slowStart, setSlowStart] = useState(false);
 
   // Wait for the backend before mounting anything that fetches. The desktop
@@ -45,7 +46,10 @@ export default function App() {
   useEffect(() => {
     if (!backendUp) return;
     api.getSettings().then((s) => {
-      if (s.vault_status.exists && s.vault_status.has_para && s.api_key_status.configured) {
+      const coach = s.coach_enabled !== false;
+      setCoachEnabled(coach);
+      // The API key only matters when the coach feature is on
+      if (s.vault_status.exists && s.vault_status.has_para && (s.api_key_status.configured || !coach)) {
         setVaultReady(true);
       } else {
         setVaultReady(false);
@@ -84,7 +88,7 @@ export default function App() {
             <img src="/nowspace-compass-icon.svg" alt="Nowspace" className="w-6 h-6 sm:w-7 sm:h-7" />
             <h1 className="text-base sm:text-lg font-bold hidden sm:block" style={{ color: "var(--text)" }}>Nowspace</h1>
           </header>
-          <Nav current={view} onChange={setView} />
+          <Nav current={view} onChange={setView} hideCoach={!coachEnabled} />
           {/* Theme toggle */}
           <button
             onClick={() => setTheme(theme === "light" ? "dark" : theme === "dark" ? "system" : "light")}
