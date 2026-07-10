@@ -354,9 +354,9 @@ export const api = {
   stopTime: () =>
     request<{ status: string }>("/time/stop", { method: "POST" }),
 
-  adjustTime: (start: string) =>
+  adjustTime: (patch: { start?: string; text?: string }) =>
     request<{ status: string; running: TimeEntry }>("/time/adjust", {
-      method: "POST", body: JSON.stringify({ start }) }),
+      method: "POST", body: JSON.stringify(patch) }),
 
   addTimeEntry: (entry: { date: string; start: string; end: string | null; text: string }) =>
     request<{ status: string }>("/time/add", { method: "POST", body: JSON.stringify(entry) }),

@@ -130,7 +130,8 @@ class StartRequest(BaseModel):
 
 
 class AdjustRequest(BaseModel):
-    start: str  # HH:MM
+    start: Optional[str] = None  # HH:MM
+    text: Optional[str] = None   # new description for the running entry
 
 
 class EntryRequest(BaseModel):
@@ -188,14 +189,19 @@ async def stop():
 
 @router.post("/adjust")
 async def adjust(req: AdjustRequest):
-    """Fix the running entry's start time (forgot to press play)."""
-    start = _norm_time(req.start)
+    """Fix the running entry's start time and/or description."""
+    new_text = (req.text or "").strip()
+    if not req.start and not new_text:
+        raise HTTPException(status_code=400, detail="Nothing to adjust")
     month = _current_month()
     entries = _load(month)
     running = _find_running(entries)
     if not running:
         raise HTTPException(status_code=404, detail="No running entry")
-    running["start"] = start
+    if req.start:
+        running["start"] = _norm_time(req.start)
+    if new_text:
+        running["text"] = new_text
     _save(month, entries)
     return {"status": "adjusted", "running": _with_minutes(running)}
 
