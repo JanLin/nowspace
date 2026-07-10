@@ -86,43 +86,124 @@ To stop: `docker compose down`
 
 ## Always-on Mac + Phone Access
 
-Run Nowspace on an always-on Mac (e.g. a Mac mini that already holds a
-Syncthing copy of the vault) and reach it from your phone anywhere via
+Run Nowspace on an always-on Mac (e.g. a Mac mini holding a Syncthing copy
+of the vault) and reach it from your phone anywhere via
 [Tailscale](https://tailscale.com). The backend serves the built frontend
-itself, and production builds use same-origin API calls — no CORS, no
-extra server. The `deploy/` folder automates keeping it current.
+itself and production builds use same-origin API calls — no CORS, no extra
+server. The `deploy/` folder keeps it updated automatically.
 
-**One-time setup on the Mac:**
+Code blocks below contain no `#` comments on purpose — zsh chokes on
+pasted comment lines.
+
+### 1. Prerequisites
+
+- macOS user that will run the service, **logged in graphically** (launchd
+  user agents need a GUI session — installing over plain SSH fails with
+  `Bootstrap failed: 5`). A dedicated user (e.g. `nowspace`) is a nice
+  isolation boundary; enable auto-login for it if the Mac reboots
+  unattended, because user agents only run while that user is logged in.
+- [Homebrew](https://brew.sh), then `brew install node`. Python 3 ships
+  with the system/brew either way.
+- Tailscale installed and logged in — the **official app**, not the
+  Homebrew daemon (the brew `tailscaled` runs in userspace-networking mode:
+  CLI works but apps can't reach the tailnet, and MagicDNS names don't
+  resolve).
+
+### 2. Repo access (private repo → deploy key)
 
 ```sh
-git clone https://github.com/JanLin/coaching-agent.git && cd coaching-agent
-# config.yaml: point vault_path at the synced vault; keep server.host 127.0.0.1
-# Optional: add `coach_enabled: false` to hide the Coach tab — then no
-# Anthropic API key (and no .env) is needed on this machine at all.
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-(cd frontend && npm ci && npx vite build)
+ssh-keygen -t ed25519 -f ~/.ssh/nowspace_deploy
+cat ~/.ssh/nowspace_deploy.pub
+```
 
-# Install the launchd services (server + hourly auto-update)
-REPO=$(pwd)
+Press Enter twice at the passphrase prompts. Add the printed key at the
+repo's **Settings → Deploy keys → Add deploy key** (write access
+unchecked), then:
+
+```sh
+cat >> ~/.ssh/config <<'SSHEOF'
+Host github.com-nowspace
+  HostName github.com
+  IdentityFile ~/.ssh/nowspace_deploy
+  IdentitiesOnly yes
+SSHEOF
+mkdir -p ~/projects && cd ~/projects
+git clone git@github.com-nowspace:JanLin/coaching-agent.git
+cd coaching-agent
+```
+
+### 3. Configuration
+
+```sh
+cp config.yaml.example config.yaml
+mkdir -p ~/Obsidian/Home/0-Inbox ~/Obsidian/Home/1-Projects ~/Obsidian/Home/2-Areas ~/Obsidian/Home/3-Resources ~/Obsidian/Home/4-Archive
+```
+
+Edit `config.yaml`:
+
+- `vault_path` / `vault_root`: the vault location for **this** user
+  (the mkdir above creates a placeholder; point Syncthing at the same
+  path afterwards and the real vault replaces it — no restart needed).
+- `server.host: 127.0.0.1` — only the Tailscale proxy may reach it.
+- `coach_enabled: false` — hides the Coach tab and removes the Anthropic
+  API key requirement; nothing secret needs copying to this machine.
+- Copy your `contexts:` / `context_tags:` / `reference_links:` sections
+  from your main machine's config if you use them.
+
+### 4. Build and install the services
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cd frontend && npm ci && npx vite build && cd ..
+REPO=$(pwd); mkdir -p ~/Library/LaunchAgents
 for f in deploy/com.nowspace.server.plist deploy/com.nowspace.update.plist; do
   sed -e "s|__REPO__|$REPO|g" -e "s|__HOME__|$HOME|g" "$f" > ~/Library/LaunchAgents/$(basename "$f")
   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$(basename "$f")
 done
-
-# Expose it to your tailnet only (never use `tailscale funnel`)
-tailscale serve --bg 8000
+sleep 5
+curl http://127.0.0.1:8000/health
+curl -s -o /dev/null -w "%{http_code}
+" http://127.0.0.1:8000/
 ```
 
-Then on the phone: install Tailscale, sign in to the same tailnet, open
-`https://<mac-name>.<tailnet>.ts.net`, and use "Add to Home Screen" — the
+Expect `{"status":"ok"}` and `200`. Troubleshooting:
+
+- `Bootstrap failed: 5` → you're not in a GUI session for this user, or a
+  half-loaded leftover exists: `launchctl bootout gui/$(id -u)/com.nowspace.server`
+  (and `.update`), then bootstrap again.
+- Health ok but `/` returns `{"detail":"Not Found"}` → the frontend was
+  built after the server started; `launchctl kickstart -k gui/$(id -u)/com.nowspace.server`.
+- Anything else: `tail -30 ~/Library/Logs/nowspace-server.log` names it
+  (a missing `config.yaml` is the classic).
+
+### 5. Expose to the tailnet
+
+```sh
+tailscale serve --bg 8000
+tailscale serve status
+```
+
+First time, Tailscale prints an admin URL to enable Serve — open it,
+**untick "Tailscale Funnel"** (Funnel is public-internet exposure; this
+setup is tailnet-only, never enable it for Nowspace) and enable HTTPS.
+The very first HTTPS request mints a certificate and can take up to a
+minute; later requests are instant.
+
+### 6. Phone
+
+Install the Tailscale app, sign in to the same tailnet, toggle on, open
+the URL from `tailscale serve status`, and use "Add to Home Screen" — the
 PWA manifest makes it launch full-screen like an app.
 
-**Updates are automatic**: `deploy/update-nowspace.sh` runs hourly via
-launchd, and whenever `origin/main` has new commits it pulls, rebuilds the
-frontend, refreshes Python deps, and restarts the server. Merging a PR is
-the deploy. Check the running version any time in Settings → About, or run
-the script by hand for an immediate update. Logs land in
-`~/Library/Logs/nowspace-{server,update}.log`.
+### Updates are automatic
+
+`deploy/update-nowspace.sh` runs hourly via launchd; when `origin/main`
+has new commits it pulls, rebuilds the frontend, refreshes the venv, and
+restarts the server — **merging a PR is the deploy**. Check the running
+version any time in Settings → About (already-open tabs pick a new
+version up on their next reload), run the script by hand for an immediate
+update, and find logs in `~/Library/Logs/nowspace-{server,update}.log`.
 
 ## Development Setup
 
