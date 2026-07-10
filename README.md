@@ -99,7 +99,7 @@ git clone https://github.com/JanLin/coaching-agent.git && cd coaching-agent
 # config.yaml: point vault_path at the synced vault; keep server.host 127.0.0.1
 # Optional: add `coach_enabled: false` to hide the Coach tab — then no
 # Anthropic API key (and no .env) is needed on this machine at all.
-pip3 install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 (cd frontend && npm ci && npx vite build)
 
 # Install the launchd services (server + hourly auto-update)

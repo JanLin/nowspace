@@ -7,7 +7,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>cd __REPO__ &amp;&amp; exec python3 -m uvicorn backend.main:app --host 127.0.0.1 --port 8000</string>
+    <string>cd __REPO__ &amp;&amp; exec .venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
