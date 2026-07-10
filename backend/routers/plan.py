@@ -117,6 +117,24 @@ def _learn_and_clean_parsed_days(result: dict) -> None:
                         task["clean_text"] = _learn_and_clean_group_tag(task["clean_text"])
 
 
+def _list_archived_week_files() -> list[tuple[int, int, Path]]:
+    """List all archived week files as (year, week, path), sorted newest first."""
+    archive = _archive_path()
+    if not archive.exists():
+        return []
+    base = re.escape(config.plan_week_file.replace(".md", ""))
+    pattern = re.compile(rf"^{base} - (\d{{4}})-wk(\d{{1,2}})\.md$")
+    found: list[tuple[int, int, Path]] = []
+    for p in archive.iterdir():
+        if not p.is_file():
+            continue
+        m = pattern.match(p.name)
+        if m:
+            found.append((int(m.group(1)), int(m.group(2)), p))
+    found.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return found
+
+
 def _find_archived_week(year: int, week: int) -> Optional[Path]:
     """Find an archived week file, handling both zero-padded and non-padded names."""
     archive = _archive_path()
