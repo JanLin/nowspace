@@ -2580,21 +2580,21 @@ export default function WeekPlan() {
     return (
       <div className="flex flex-col md:flex-row max-w-5xl mx-auto" ref={splitterContainer}>
       {/* Left column — Tasks */}
-      <div className={`space-y-2 ${showNotesPanel ? "min-w-0" : "w-full max-w-lg mx-auto"}`}
-        style={showNotesPanel ? { width: `${100 - notesPanelPct}%` } : undefined}>
+      <div className={`space-y-2 ${showNotesPanel ? "min-w-0 w-full md:w-[var(--tasks-w)]" : "w-full max-w-lg mx-auto"}`}
+        style={showNotesPanel ? ({ "--tasks-w": `${100 - notesPanelPct}%` } as React.CSSProperties) : undefined}>
         {/* Habit chips — current week only, shrink as the week goes well */}
         {weekOffset === 0 && habits.length > 0 && (
           <HabitStrip habits={habits} onLog={logHabit} />
         )}
         {/* Day info bar */}
-        <div className="flex items-center gap-3 text-sm" style={{ color: "var(--text-secondary)" }}>
-          <span className="font-medium" style={{ color: "var(--text)" }}>
+        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+          <span className="font-medium whitespace-nowrap" style={{ color: "var(--text)" }}>
             {(day.heading || "").replace(/^#+\s*/, "") || DAY_LABELS[day.day] || day.day}
           </span>
           <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-medium">
             {selectedDayIdx >= 5 ? "weekend" : "weekday"}
           </span>
-          <span className="flex-1">
+          <span className="flex-1 whitespace-nowrap">
             {filteredTasks.filter(t => !t.done).length} tasks for {DAY_LABELS[day.day] || day.day}
           </span>
           {viewMode === "day" && (
@@ -2831,7 +2831,7 @@ export default function WeekPlan() {
       {showNotesPanel && (
         <div
           onMouseDown={onSplitterDown}
-          className="w-1.5 cursor-col-resize flex-shrink-0 group relative"
+          className="hidden md:block w-1.5 cursor-col-resize flex-shrink-0 group relative"
           title="Drag to resize"
         >
           <div className="absolute inset-y-0 -left-1 -right-1" />
@@ -2842,8 +2842,8 @@ export default function WeekPlan() {
       {/* Right column — Notes Panel. Sticky + viewport-fitted so its own
           scrollbar reaches the bottom without scrolling the page. */}
       {showNotesPanel && (
-        <div className="min-w-0 pl-2 max-h-[calc(100vh-260px)] overflow-y-auto sticky top-[80px] self-start"
-          style={{ width: `${notesPanelPct}%` }}>
+        <div className="min-w-0 md:pl-2 max-h-[calc(100vh-260px)] overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)]"
+          style={{ "--notes-w": `${notesPanelPct}%` } as React.CSSProperties}>
           <NotesPanel
             dayName={day.day}
             weekOffset={weekOffset}
@@ -2866,7 +2866,10 @@ export default function WeekPlan() {
             <HabitStrip habits={habits} onLog={logHabit} compact />
           </div>
         )}
-        <div className={`grid ${gridCols} gap-2`}>
+        {/* On phones the 5/7-day grids scroll horizontally with readable columns
+            instead of crushing; 2-3 columns still fit natively. */}
+        <div className="overflow-x-auto">
+        <div className={`grid ${gridCols} gap-2 ${viewMode === "5day" ? "min-w-[560px] sm:min-w-0" : viewMode === "7day" ? "min-w-[784px] sm:min-w-0" : ""}`}>
           {visibleDays.map((dayIdx) => {
             const day = data.days[dayIdx];
             const isToday = dayIdx === todayIdx;
@@ -3045,6 +3048,7 @@ export default function WeekPlan() {
             );
           })}
         </div>
+        </div>
 
         <p className="text-[10px] text-gray-300 text-center">
           Double-click a task to add after it &middot; Click &#x25CB; to complete/uncomplete &middot; Click day name for day view{groupView && " \u00b7 Drag group headers to reorder"}
@@ -3064,7 +3068,7 @@ export default function WeekPlan() {
 
       {data && (
         <>
-          <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-4 px-4 border-b" : ""}`} style={pinFilters ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
+          <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
           {isArchive && (
             <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium text-center">
               📁 Archive — read only
@@ -3080,7 +3084,7 @@ export default function WeekPlan() {
               >
                 «
               </button>
-              <span className="font-medium" style={{ color: "var(--text)" }}>
+              <span className="font-medium whitespace-nowrap" style={{ color: "var(--text)" }}>
                 {(() => {
                   const m = data.week_label.match(/wk(\d+)/i);
                   if (m) return `Week ${m[1]}`;
@@ -3231,7 +3235,7 @@ export default function WeekPlan() {
               <button
                 onClick={() => navigateDay(-1)}
                 disabled={loading || (viewMode === "3day" && selectedDayIdx <= 0)}
-                className="px-2 py-1 text-gray-400 hover:text-gray-700 text-lg font-medium transition-colors disabled:opacity-20"
+                className="px-1 sm:px-2 py-1 text-gray-400 hover:text-gray-700 text-lg font-medium transition-colors disabled:opacity-20"
                 title="Previous day"
               >
                 ‹
@@ -3246,7 +3250,7 @@ export default function WeekPlan() {
                     <button
                       key={d.day}
                       onClick={() => setSelectedDayIdx(i)}
-                      className={`flex flex-col items-center px-2 py-1 rounded text-xs font-medium transition-colors min-w-[40px] ${
+                      className={`flex flex-col items-center px-1 sm:px-2 py-1 rounded text-xs font-medium transition-colors min-w-[34px] sm:min-w-[40px] ${
                         isSelected
                           ? "bg-blue-600 text-white"
                           : isVisible
@@ -3272,7 +3276,7 @@ export default function WeekPlan() {
               <button
                 onClick={() => navigateDay(1)}
                 disabled={loading || (viewMode === "3day" && selectedDayIdx >= 6)}
-                className="px-2 py-1 text-gray-400 hover:text-gray-700 text-lg font-medium transition-colors disabled:opacity-20"
+                className="px-1 sm:px-2 py-1 text-gray-400 hover:text-gray-700 text-lg font-medium transition-colors disabled:opacity-20"
                 title="Next day"
               >
                 ›
