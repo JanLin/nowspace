@@ -7,14 +7,14 @@ export default function Nav({
   current: View;
   onChange: (v: View) => void;
 }) {
-  const tabs: { id: View; label: string; shortLabel: string }[] = [
-    { id: "week", label: "📅 Plan", shortLabel: "📅" },
-    { id: "bucket", label: "🪣 Bucket", shortLabel: "🪣" },
-    { id: "habits", label: "🌱 Habits", shortLabel: "🌱" },
-    { id: "time", label: "⏱ Time", shortLabel: "⏱" },
-    { id: "coaching", label: "🧭 Coach", shortLabel: "🧭" },
-    { id: "dashboard", label: "📊 Dashboard", shortLabel: "📊" },
-    { id: "settings", label: "⚙️ Settings", shortLabel: "⚙️" },
+  const tabs: { id: View; icon: string; name: string }[] = [
+    { id: "week", icon: "📅", name: "Plan" },
+    { id: "bucket", icon: "🪣", name: "Bucket" },
+    { id: "habits", icon: "🌱", name: "Habits" },
+    { id: "time", icon: "⏱", name: "Time" },
+    { id: "coaching", icon: "🧭", name: "Coach" },
+    { id: "dashboard", icon: "📊", name: "Dashboard" },
+    { id: "settings", icon: "⚙️", name: "Settings" },
   ];
 
   return (
@@ -23,15 +23,19 @@ export default function Nav({
         <button
           key={tab.id}
           onClick={() => onChange(tab.id)}
-          className="flex-1 py-1.5 sm:py-2 px-2 sm:px-4 rounded-md text-xs sm:text-sm font-medium transition-colors"
+          title={tab.name}
+          aria-label={tab.name}
+          aria-current={current === tab.id ? "page" : undefined}
+          className={`flex-1 py-1.5 sm:py-2 px-2 rounded-md text-base leading-none transition-all ${
+            current === tab.id ? "" : "opacity-55 hover:opacity-100 grayscale hover:grayscale-0"
+          }`}
           style={
             current === tab.id
-              ? { backgroundColor: "var(--bg)", color: "var(--text)", boxShadow: "0 1px 2px var(--shadow)" }
-              : { color: "var(--text-secondary)" }
+              ? { backgroundColor: "var(--accent-bg)", boxShadow: "inset 0 0 0 2px var(--accent)" }
+              : undefined
           }
         >
-          <span className="hidden sm:inline">{tab.label}</span>
-          <span className="sm:hidden">{tab.shortLabel}</span>
+          {tab.icon}
         </button>
       ))}
     </nav>
