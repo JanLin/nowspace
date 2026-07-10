@@ -3,9 +3,11 @@ type View = "week" | "bucket" | "habits" | "time" | "goals" | "coaching" | "dash
 export default function Nav({
   current,
   onChange,
+  hideCoach = false,
 }: {
   current: View;
   onChange: (v: View) => void;
+  hideCoach?: boolean;
 }) {
   const tabs: { id: View; icon: string; name: string }[] = [
     { id: "week", icon: "📅", name: "Plan" },
@@ -19,7 +21,7 @@ export default function Nav({
 
   return (
     <nav className="flex flex-1 gap-1 p-1 rounded-lg" style={{ backgroundColor: "var(--bg-secondary)" }}>
-      {tabs.map((tab) => (
+      {tabs.filter((tab) => !(hideCoach && tab.id === "coaching")).map((tab) => (
         <button
           key={tab.id}
           onClick={() => onChange(tab.id)}

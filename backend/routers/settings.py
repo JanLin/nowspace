@@ -42,6 +42,7 @@ class SettingsResponse(BaseModel):
     api_key_status: ApiKeyStatus
     contexts: Dict[str, list] = {}
     context_tags: Dict[str, str] = {}
+    coach_enabled: bool = True
 
 
 class ContextSettingsUpdate(BaseModel):
@@ -238,6 +239,7 @@ async def get_settings():
         api_key_status=ApiKeyStatus(**key_status),
         contexts=config.contexts,
         context_tags=config.context_tags,
+        coach_enabled=config.coach_enabled,
     )
 
 

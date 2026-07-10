@@ -120,6 +120,10 @@ class Config:
         # e.g. {"work": ["arratech", "wallet"], "volunteer": ["rotary"]}
         # Groups not listed anywhere default to "personal". Empty dict = feature off.
         raw_contexts = raw.get("contexts", {}) or {}
+        # Feature switch: hide the Coach tab and skip the Anthropic API key
+        # requirement entirely (e.g. a self-hosted instance without a key).
+        self.coach_enabled: bool = bool(raw.get("coach_enabled", True))
+
         self.contexts: Dict[str, list] = {
             str(name).lower(): [str(g).lower() for g in (groups or [])]
             for name, groups in raw_contexts.items()

@@ -97,6 +97,8 @@ extra server. The `deploy/` folder automates keeping it current.
 ```sh
 git clone https://github.com/JanLin/coaching-agent.git && cd coaching-agent
 # config.yaml: point vault_path at the synced vault; keep server.host 127.0.0.1
+# Optional: add `coach_enabled: false` to hide the Coach tab — then no
+# Anthropic API key (and no .env) is needed on this machine at all.
 pip3 install -r requirements.txt
 (cd frontend && npm ci && npx vite build)
 
