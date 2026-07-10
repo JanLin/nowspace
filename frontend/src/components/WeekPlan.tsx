@@ -425,10 +425,31 @@ export default function WeekPlan() {
   const carryGroupDragRef = useRef<{ groupName: string } | null>(null);
   // Day-nav buttons double as drop targets (carry/bucket → that day)
   const [dayNavDropTarget, setDayNavDropTarget] = useState<number | null>(null);
+  // Mobile bottom sheets: collapsed "peek" mode keeps the panel reachable
+  // while the page content above stays visible and scrollable.
+  const [sheetPeek, setSheetPeek] = useState(false);
+  const sheetClass = (width: string) =>
+    `fixed inset-x-0 bottom-0 z-40 rounded-t-xl border-t shadow-2xl ${
+      sheetPeek ? "max-h-12 overflow-hidden" : "max-h-[45vh] overflow-y-auto"
+    } md:sticky md:inset-x-auto md:bottom-auto md:z-auto md:top-[80px] md:max-h-[calc(100vh-260px)] md:overflow-y-auto md:shrink-0 md:border-l md:border-t-0 md:rounded-none md:shadow-none md:self-start ${width}`;
+  const SheetGrip = () => (
+    <button
+      onClick={() => setSheetPeek((v) => !v)}
+      className="md:hidden sticky top-0 z-10 w-full flex items-center justify-center py-1.5"
+      style={{ backgroundColor: "var(--bg-secondary)" }}
+      aria-label={sheetPeek ? "Expand panel" : "Collapse panel"}
+      title={sheetPeek ? "Expand panel" : "Collapse panel"}
+    >
+      <span className="w-10 h-1 rounded-full" style={{ backgroundColor: "var(--border-strong)" }} />
+    </button>
+  );
   // "Carry all" destination — follows the viewed day, still user-overridable
   const [carryDaySel, setCarryDaySel] = useState("monday");
   const [carryHighlight, setCarryHighlight] = useState(false);
 
+  useEffect(() => {
+    if (bucketOpen || carryForwardOpen || dailyCarryOpen) setSheetPeek(false);
+  }, [bucketOpen, carryForwardOpen, dailyCarryOpen]);
   // Bottom bar visibility
   const [showBottomBar, setShowBottomBar] = useState(true);
   const [pinFilters, setPinFilters] = useState(true);
@@ -3117,7 +3138,10 @@ export default function WeekPlan() {
   };
 
   return (
-    <div className="flex gap-0">
+    <div className={`flex gap-0 ${
+      bucketOpen || carryForwardOpen || dailyCarryOpen
+        ? (sheetPeek ? "pb-16 md:pb-0" : "pb-[48vh] md:pb-0") : ""
+    }`}>
 
     <div className={`space-y-3 pb-12 ${bucketOpen || carryForwardOpen || dailyCarryOpen ? "flex-1 min-w-0" : "w-full"}`}>
       {error && (
@@ -3882,7 +3906,8 @@ export default function WeekPlan() {
 
     {/* Bucket side panel */}
     {bucketOpen && (
-      <div className="fixed inset-x-0 bottom-0 z-40 max-h-[70vh] rounded-t-xl border-t shadow-2xl overflow-y-auto md:sticky md:inset-x-auto md:bottom-auto md:z-auto md:top-24 md:max-h-[calc(100vh-260px)] md:shrink-0 md:border-l md:border-t-0 md:rounded-none md:shadow-none md:self-start md:w-72" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className={sheetClass("md:w-72")} style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+        <SheetGrip />
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>🪣 Bucket ({bucketTasks.length})</h3>
           <button onClick={() => setBucketOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
@@ -3966,7 +3991,8 @@ export default function WeekPlan() {
     )}
     {/* Carry Forward side panel (right, matching bucket style) */}
     {carryForwardOpen && (
-      <div className="fixed inset-x-0 bottom-0 z-40 max-h-[70vh] rounded-t-xl border-t shadow-2xl overflow-y-auto md:sticky md:inset-x-auto md:bottom-auto md:z-auto md:top-24 md:max-h-[calc(100vh-260px)] md:shrink-0 md:border-l md:border-t-0 md:rounded-none md:shadow-none md:self-start md:w-72" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className={sheetClass("md:w-72")} style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+        <SheetGrip />
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
             <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({carryTasks.filter((t) => taskVisibleInMode(t.text)).length})</h3>
@@ -4131,7 +4157,8 @@ export default function WeekPlan() {
     )}
     {/* Daily carry side panel (right, matching carry-forward style) */}
     {dailyCarryOpen && data && weekOffset === 0 && todayIdx > 0 && (
-      <div className="fixed inset-x-0 bottom-0 z-40 max-h-[70vh] rounded-t-xl border-t shadow-2xl overflow-y-auto md:sticky md:inset-x-auto md:bottom-auto md:z-auto md:top-24 md:max-h-[calc(100vh-260px)] md:shrink-0 md:border-l md:border-t-0 md:rounded-none md:shadow-none md:self-start md:w-72" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      <div className={sheetClass("md:w-72")} style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+        <SheetGrip />
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
             <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Before Today ({dailyCarryCount})</h3>
