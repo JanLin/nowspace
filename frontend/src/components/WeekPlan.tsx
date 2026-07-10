@@ -1009,6 +1009,11 @@ export default function WeekPlan() {
   // Check if currently viewing today
   const isOnToday = weekOffset === 0 && selectedDayIdx === todayIdx;
 
+  // Where carry-forward actions land: the day being viewed in day view,
+  // today in week views.
+  const carryTargetIdx = viewMode === "day" ? selectedDayIdx : todayIdx;
+  const carryTargetLabel = DAY_LABELS[data?.days[carryTargetIdx]?.day || ""] || "today";
+
   const isArchive = weekOffset < 0;
 
   const saveWeek = async () => {
@@ -2583,7 +2588,15 @@ export default function WeekPlan() {
       <div className="flex flex-col md:flex-row max-w-5xl mx-auto" ref={splitterContainer}>
       {/* Left column — Tasks */}
       <div className={`space-y-2 ${showNotesPanel ? "min-w-0 w-full md:w-[var(--tasks-w)]" : "w-full max-w-lg mx-auto"}`}
-        style={showNotesPanel ? ({ "--tasks-w": `${100 - notesPanelPct}%` } as React.CSSProperties) : undefined}>
+        style={showNotesPanel ? ({ "--tasks-w": `${100 - notesPanelPct}%` } as React.CSSProperties) : undefined}
+        onDragOver={(e) => {
+          const types = e.dataTransfer.types;
+          if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task")) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          const types = e.dataTransfer.types;
+          if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task")) handleDrop(selectedDayIdx, day.tasks.length, e);
+        }}>
         {/* Habit chips — current week only, shrink as the week goes well */}
         {weekOffset === 0 && habits.length > 0 && (
           <HabitStrip habits={habits} onLog={logHabit} />
@@ -2617,8 +2630,8 @@ export default function WeekPlan() {
           return (
           <div
             className="space-y-0.5"
-            onDragOver={(e) => { if (dragGroupRef.current) return; e.preventDefault(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length, zone: "end" }); }}
-            onDrop={(e) => handleDrop(selectedDayIdx, day.tasks.length, e)}
+            onDragOver={(e) => { if (dragGroupRef.current) return; e.preventDefault(); e.stopPropagation(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length, zone: "end" }); }}
+            onDrop={(e) => { e.stopPropagation(); handleDrop(selectedDayIdx, day.tasks.length, e); }}
           >
             {sortedTasks.map((task, fi) => {
               const originalIdx = day.tasks.indexOf(task);
@@ -2659,8 +2672,8 @@ export default function WeekPlan() {
         {groupView && (
           <div
             className="space-y-1"
-            onDragOver={(e) => { if (!dragGroupRef.current) e.preventDefault(); }}
-            onDrop={(e) => { if (!dragGroupRef.current) handleDrop(selectedDayIdx, day.tasks.length, e); }}
+            onDragOver={(e) => { if (!dragGroupRef.current) { e.preventDefault(); e.stopPropagation(); } }}
+            onDrop={(e) => { e.stopPropagation(); if (!dragGroupRef.current) handleDrop(selectedDayIdx, day.tasks.length, e); }}
           >
             {/* Top-of-list drop zone — drop here to place above first group */}
             <div
@@ -3962,6 +3975,13 @@ export default function WeekPlan() {
                 </span>
                 <span className="text-[9px] text-gray-300 shrink-0">{task.from_day.slice(0, 3)}</span>
                 <button
+                  onClick={() => pullFromCarry(idx, carryTargetIdx)}
+                  title={`Carry to ${carryTargetLabel}`}
+                  className="shrink-0 text-purple-500 hover:text-purple-700 font-bold opacity-0 group-hover/ct:opacity-100 transition-opacity"
+                >
+                  →
+                </button>
+                <button
                   onClick={() => resolveCarryItem(idx, "done")}
                   title="It was actually done — mark completed in last week's file"
                   className="shrink-0 text-green-500 hover:text-green-700 opacity-0 group-hover/ct:opacity-100 transition-opacity"
@@ -3995,15 +4015,23 @@ export default function WeekPlan() {
                     onDragEnd={() => { carryGroupDragRef.current = null; }}
                     className="cursor-grab active:cursor-grabbing"
                   >
-                    <button
-                      onClick={() => toggleCarryGroup(section.name)}
-                      className="w-full flex items-center gap-1 py-1 px-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-white rounded transition-colors"
-                    >
-                      <span className="text-[10px]">{isExpanded ? "▾" : "▸"}</span>
-                      <span>{section.name}</span>
-                      <span className="text-[10px] text-gray-400">({section.items.length})</span>
-                      <span className="text-[10px] text-gray-300 opacity-0 group-hover:opacity-100 ml-auto shrink-0">drag group →</span>
-                    </button>
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => toggleCarryGroup(section.name)}
+                        className="flex-1 flex items-center gap-1 py-1 px-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-white rounded transition-colors"
+                      >
+                        <span className="text-[10px]">{isExpanded ? "▾" : "▸"}</span>
+                        <span>{section.name}</span>
+                        <span className="text-[10px] text-gray-400">({section.items.length})</span>
+                      </button>
+                      <button
+                        onClick={() => pullCarryGroup(section.name, carryTargetIdx)}
+                        title={`Carry group to ${carryTargetLabel}`}
+                        className="shrink-0 px-1.5 text-xs text-purple-500 hover:text-purple-700 font-bold"
+                      >
+                        →
+                      </button>
+                    </div>
                   </div>
                   {isExpanded && (
                     <div className="ml-3 border-l border-gray-200 pl-1">
@@ -4021,7 +4049,7 @@ export default function WeekPlan() {
             <div className="flex gap-1">
               <select
                 id="carry-target-day"
-                defaultValue={data?.days[todayIdx]?.day || "monday"}
+                defaultValue={data?.days[carryTargetIdx]?.day || "monday"}
                 className="flex-1 text-[10px] border border-gray-200 rounded px-1.5 py-1 bg-white text-gray-600"
               >
                 <option value="monday">Monday</option>
