@@ -151,3 +151,17 @@ body {
 .wmde-markdown ul ul { list-style-type: circle !important; }
 .wmde-markdown ul ul ul { list-style-type: square !important; }
 .wmde-markdown li { list-style-type: inherit !important; }
+
+/* Several inputs/textareas keep a white background in both themes
+   (notes scratchpad, add-task fields, popovers). Text typed into a
+   white field must stay dark regardless of theme, or dark mode types
+   white-on-white. Checkbox exempt; fields with their own bg- classes
+   or themed inline backgrounds are unaffected. */
+input.bg-white,
+textarea.bg-white,
+select.bg-white,
+.bg-white input:not([class*="bg-"]):not([type="checkbox"]),
+.bg-white textarea:not([class*="bg-"]) {
+  color: #111827;
+  caret-color: #111827;
+}

@@ -28,8 +28,8 @@ export default function Nav({
           title={tab.name}
           aria-label={tab.name}
           aria-current={current === tab.id ? "page" : undefined}
-          className={`flex-1 py-1.5 sm:py-2 px-2 rounded-md text-base leading-none transition-all ${
-            current === tab.id ? "" : "opacity-55 hover:opacity-100 grayscale hover:grayscale-0"
+          className={`flex-1 py-1 sm:py-2 px-1 sm:px-2 rounded-md leading-none transition-all ${
+            current === tab.id ? "" : "opacity-60 hover:opacity-100"
           }`}
           style={
             current === tab.id
@@ -37,7 +37,10 @@ export default function Nav({
               : undefined
           }
         >
-          {tab.icon}
+          <span className="flex flex-col items-center gap-0.5">
+            <span className="text-base leading-none">{tab.icon}</span>
+            <span className="text-[9px] leading-none sm:hidden" style={{ color: "var(--text-secondary)" }}>{tab.name}</span>
+          </span>
         </button>
       ))}
     </nav>
