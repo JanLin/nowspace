@@ -124,6 +124,10 @@ class Config:
         # requirement entirely (e.g. a self-hosted instance without a key).
         self.coach_enabled: bool = bool(raw.get("coach_enabled", True))
 
+        # Where the desktop app asks what version the deployed server runs
+        # (e.g. https://<mini>.ts.net/version.json). Empty = check disabled.
+        self.update_check_url: str = str(raw.get("update_check_url") or "").strip()
+
         self.contexts: Dict[str, list] = {
             str(name).lower(): [str(g).lower() for g in (groups or [])]
             for name, groups in raw_contexts.items()

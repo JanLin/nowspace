@@ -4,3 +4,4 @@
 // source of truth for the app version (tauri.conf.json reads it too).
 declare const __APP_VERSION__: string;
 declare const __API_BASE__: string;
+declare const __IS_TAURI__: boolean;

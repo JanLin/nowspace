@@ -44,3 +44,8 @@ server:
 # Anthropic API key requirement (useful for a self-hosted planning-only
 # instance, e.g. on an always-on Mac).
 coach_enabled: true
+
+# Desktop app only: URL of the deployed server's version.json. When set, the
+# app checks it once per launch and shows a "rebuild to update" notice if the
+# deployment is newer than the installed app. Leave unset to disable.
+# update_check_url: https://your-server.your-tailnet.ts.net/version.json

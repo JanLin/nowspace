@@ -64,21 +64,36 @@ export default function App() {
   const [planTasks, setPlanTasks] = useState<Task[]>([]);
   const { theme, setTheme } = useTheme();
 
-  // Update detection: the served assets carry version.json; when the server
-  // gets updated (the mini pulls hourly) an already-open app keeps running
-  // old code until reloaded. Check when the app comes to the foreground and
-  // every 5 minutes. The desktop app bundles frontend+backend together, so
-  // its versions always match and this stays quiet there. Dev has HMR.
+  // Update detection. Web/PWA: the served assets carry version.json — when
+  // the server gets updated (the mini pulls hourly) an already-open app
+  // keeps running old code until reloaded, so check on foreground and every
+  // 5 minutes and offer a restart. Desktop: the bundle only changes via a
+  // rebuild, so instead ask our backend once per launch what version the
+  // configured deployment runs (update_check_url in config.yaml — it tracks
+  // main) and offer to skip that version. Dev has HMR.
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   useEffect(() => {
-    if (import.meta.env.DEV) return;
+    if (import.meta.env.DEV || !backendUp) return;
+    const isNewer = (v: string) => {
+      const a = v.split(".").map(Number), b = __APP_VERSION__.split(".").map(Number);
+      for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+      return false;
+    };
+    if (__IS_TAURI__) {
+      api.updateCheck().then(({ version }) => {
+        if (version && isNewer(version) && localStorage.getItem("nowspace-skipped-update") !== version) {
+          setUpdateVersion(version);
+        }
+      }).catch(() => {});
+      return;
+    }
     let cancelled = false;
     const check = async () => {
       try {
         const r = await fetch("/version.json", { cache: "no-store" });
         if (!r.ok) return;
         const v = (await r.json()).version;
-        if (!cancelled && v && v !== __APP_VERSION__) setUpdateVersion(v);
+        if (!cancelled && v && isNewer(v)) setUpdateVersion(v);
       } catch { /* offline — try again later */ }
     };
     const onVis = () => { if (!document.hidden) check(); };
@@ -86,7 +101,7 @@ export default function App() {
     const iv = setInterval(check, 5 * 60 * 1000);
     check();
     return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); clearInterval(iv); };
-  }, []);
+  }, [backendUp]);
 
   if (!backendUp) {
     return (
@@ -130,10 +145,27 @@ export default function App() {
         <div className="fixed bottom-20 inset-x-0 z-50 flex justify-center pointer-events-none">
           <div className="pointer-events-auto flex items-center gap-2 px-3 py-2 rounded-full shadow-lg text-xs font-medium"
             style={{ backgroundColor: "var(--accent)", color: "white" }}>
-            <span>Nowspace v{updateVersion} is ready</span>
-            <button onClick={() => window.location.reload()} className="px-2 py-0.5 rounded-full bg-white/20 hover:bg-white/30 font-semibold">
-              Restart
-            </button>
+            {__IS_TAURI__ ? (
+              <>
+                <span title="Update: git pull, ./build-backend.sh, npm run tauri:build">
+                  Nowspace v{updateVersion} is out — rebuild the app to update
+                </span>
+                <button
+                  onClick={() => { localStorage.setItem("nowspace-skipped-update", updateVersion); setUpdateVersion(null); }}
+                  className="px-2 py-0.5 rounded-full bg-white/20 hover:bg-white/30 font-semibold"
+                  title="Don't show again for this version"
+                >
+                  Skip this version
+                </button>
+              </>
+            ) : (
+              <>
+                <span>Nowspace v{updateVersion} is ready</span>
+                <button onClick={() => window.location.reload()} className="px-2 py-0.5 rounded-full bg-white/20 hover:bg-white/30 font-semibold">
+                  Restart
+                </button>
+              </>
+            )}
             <button onClick={() => setUpdateVersion(null)} className="opacity-70 hover:opacity-100" aria-label="Dismiss">✕</button>
           </div>
         </div>
