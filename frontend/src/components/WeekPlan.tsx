@@ -4,6 +4,7 @@ import TaskLinkPopup from "./TaskLinkPopup";
 import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
+import TaskCheck from "./TaskCheck";
 import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
@@ -2307,10 +2308,10 @@ export default function WeekPlan() {
     >
       <button
         onClick={(e) => { e.stopPropagation(); toggleDone(dayIdx, taskIdx); }}
-        className={`shrink-0 text-[10px] leading-none hover:opacity-70 ${task.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
+        className={`shrink-0 inline-flex items-center justify-center hover:opacity-70 ${task.done ? "text-green-400" : "text-gray-400 hover:text-green-500"}`}
         title={task.done ? "Mark undone" : "Mark done"}
       >
-        {task.done ? "\u2713" : "\u25CB"}
+        <TaskCheck done={task.done} size={13} />
       </button>
       <div className="relative shrink-0">
         {task.done ? (
@@ -2484,10 +2485,10 @@ export default function WeekPlan() {
       >
         <button
           onClick={(e) => { e.stopPropagation(); toggleDone(dayIdx, taskIdx); }}
-          className={`shrink-0 hover:opacity-70 ${task.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
+          className={`shrink-0 inline-flex items-center justify-center hover:opacity-70 ${task.done ? "text-green-400" : "text-gray-400 hover:text-green-500"}`}
           title={task.done ? "Mark undone" : "Mark done"}
         >
-          {task.done ? "\u2713" : "\u25CB"}
+          <TaskCheck done={task.done} size={15} />
         </button>
         <div className="relative shrink-0">
           {task.done ? (

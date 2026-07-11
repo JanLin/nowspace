@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
+import TaskCheck from "./TaskCheck";
 import NoteFilePicker from "./NoteFilePicker";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
@@ -1078,8 +1079,8 @@ export default function Bucket() {
                                 >≡</span>
                               )}
                               <button onClick={() => toggleSubtaskDone(originalIdx, si)}
-                                className={`shrink-0 text-[10px] ${sub.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}>
-                                {sub.done ? "✓" : "○"}
+                                className={`shrink-0 inline-flex items-center justify-center hover:opacity-70 ${sub.done ? "text-green-400" : "text-gray-400 hover:text-green-500"}`}>
+                                <TaskCheck done={sub.done} size={12} />
                               </button>
                               {editingSubtask?.taskIdx === originalIdx && editingSubtask?.subIdx === si ? (
                                 <EditInput

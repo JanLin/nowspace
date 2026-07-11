@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { api, type PlanResponse, type Task } from "../api";
+import TaskCheck from "./TaskCheck";
 
 const PRIORITY_BADGE: Record<string, string> = {
   A: "bg-red-100 text-red-700",
@@ -590,10 +591,10 @@ export default function DailyPlan({
                   >
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleDone(planIdx, completedIdx); }}
-                      className={`shrink-0 hover:opacity-70 ${task.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
+                      className={`shrink-0 inline-flex items-center justify-center hover:opacity-70 ${task.done ? "text-green-400" : "text-gray-400 hover:text-green-500"}`}
                       title={task.done ? "Mark undone" : "Mark done"}
                     >
-                      {task.done ? "\u2713" : "\u25CB"}
+                      <TaskCheck done={task.done} size={15} />
                     </button>
                     <div className="relative shrink-0">
                       {task.done ? (
@@ -723,10 +724,10 @@ export default function DailyPlan({
                           >
                             <button
                               onClick={(e) => { e.stopPropagation(); toggleDone(planIdx, completedIdx); }}
-                              className={`shrink-0 hover:opacity-70 ${task.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
+                              className={`shrink-0 inline-flex items-center justify-center hover:opacity-70 ${task.done ? "text-green-400" : "text-gray-400 hover:text-green-500"}`}
                               title={task.done ? "Mark undone" : "Mark done"}
                             >
-                              {task.done ? "\u2713" : "\u25CB"}
+                              <TaskCheck done={task.done} size={15} />
                             </button>
                             <div className="relative shrink-0">
                               {task.done ? (
