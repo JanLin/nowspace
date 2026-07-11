@@ -604,6 +604,14 @@ export default function WeekPlan() {
     } catch { /* ignore */ }
   };
 
+  // The notes scratchpad writes to the same week file — its saves are not
+  // "external changes"; just refresh the baseline so the poll stays quiet.
+  useEffect(() => {
+    const onNotesSaved = () => { recordMtime(); };
+    window.addEventListener("notes-saved", onNotesSaved);
+    return () => window.removeEventListener("notes-saved", onNotesSaved);
+  }, []);
+
   // Detect external changes (another device via Syncthing/the mini, or
   // Obsidian) on focus AND on a 30s poll. Clean tab → reload silently;
   // unsaved local edits → show the banner and let the save guard arbitrate.
@@ -613,7 +621,12 @@ export default function WeekPlan() {
       try {
         const r = await api.getWeekModified(dataOffsetRef.current);
         if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
-          if (dirty || addingAt) setExternalChange(true);
+          // A reload mid-keystroke resets the input under the user's fingers
+          // (eaten backspaces, garbled text on mobile IMEs) — if any text
+          // field is active, fall back to the banner.
+          const el = document.activeElement as HTMLElement | null;
+          const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+          if (dirty || addingAt || typing) setExternalChange(true);
           else {
             fetchWeek();
             // Let the notes scratchpad refresh too — it reads the same file
