@@ -21,7 +21,7 @@ export default function Nav({
 
   return (
     <nav className="flex flex-1 gap-1 p-1 rounded-lg" style={{ backgroundColor: "var(--bg-secondary)" }}>
-      {tabs.filter((tab) => !(hideCoach && tab.id === "coaching")).map((tab) => (
+      {tabs.filter((tab) => !(hideCoach && (tab.id === "coaching" || tab.id === "dashboard"))).map((tab) => (
         <button
           key={tab.id}
           onClick={() => onChange(tab.id)}

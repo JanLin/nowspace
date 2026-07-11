@@ -189,12 +189,16 @@ export default function App() {
           <div className={view === "goals" ? "max-w-3xl mx-auto" : "hidden"}>
             <Goals />
           </div>
-          <div className={view === "coaching" ? "max-w-3xl mx-auto" : "hidden"}>
-            <Coaching sessionId={sessionId} tasks={planTasks} onTasksChanged={setPlanTasks} />
-          </div>
-          <div className={view === "dashboard" ? "max-w-3xl mx-auto" : "hidden"}>
-            <Dashboard />
-          </div>
+          {coachEnabled && (
+            <>
+              <div className={view === "coaching" ? "max-w-3xl mx-auto" : "hidden"}>
+                <Coaching sessionId={sessionId} tasks={planTasks} onTasksChanged={setPlanTasks} />
+              </div>
+              <div className={view === "dashboard" ? "max-w-3xl mx-auto" : "hidden"}>
+                <Dashboard />
+              </div>
+            </>
+          )}
           <div className={view === "settings" ? "max-w-3xl mx-auto" : "hidden"}>
             <Settings onVaultReady={() => {
               if (!vaultReady) {
