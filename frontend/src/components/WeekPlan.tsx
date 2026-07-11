@@ -509,7 +509,7 @@ export default function WeekPlan() {
       setDirty(true);
       // Immediate save for undo (don't wait for debounce)
       try {
-        const res = await api.saveWeekPlan(entry.days, weekOffset, lastKnownMtime.current);
+        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current);
         if (res.mtime) lastKnownMtime.current = res.mtime;
       } catch (e) {
         if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
@@ -541,7 +541,7 @@ export default function WeekPlan() {
     if (entry.type === "tasks" || entry.type === "both") {
       setDirty(true);
       try {
-        const res = await api.saveWeekPlan(entry.days, weekOffset, lastKnownMtime.current);
+        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current);
         if (res.mtime) lastKnownMtime.current = res.mtime;
       } catch (e) {
         if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
@@ -590,10 +590,16 @@ export default function WeekPlan() {
   const lastKnownMtime = useRef<number | null>(null);
   const [externalChange, setExternalChange] = useState(false);
 
+  // The offset the currently displayed data was loaded for — saves and
+  // freshness checks must use THIS, never the live weekOffset state, or a
+  // mid-navigation save/compare can hit the wrong week's file.
+  const dataOffsetRef = useRef(0);
+  const fetchSeq = useRef(0);
+
   // Record mtime after every save or fetch
-  const recordMtime = async () => {
+  const recordMtime = async (ofs: number = dataOffsetRef.current) => {
     try {
-      const r = await api.getWeekModified(weekOffset);
+      const r = await api.getWeekModified(ofs);
       lastKnownMtime.current = r.mtime;
     } catch { /* ignore */ }
   };
@@ -605,7 +611,7 @@ export default function WeekPlan() {
     const check = async () => {
       if (document.hidden || !data) return;
       try {
-        const r = await api.getWeekModified(weekOffset);
+        const r = await api.getWeekModified(dataOffsetRef.current);
         if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
           if (dirty || addingAt) setExternalChange(true);
           else fetchWeek();
@@ -923,18 +929,24 @@ export default function WeekPlan() {
 
   const fetchWeek = async (offset?: number) => {
     const ofs = offset ?? weekOffset;
+    const seq = ++fetchSeq.current;
     setLoading(true);
     setError("");
     setDirty(false);
     setExternalChange(false);
+    // A stale mtime must never be compared against another week's file
+    lastKnownMtime.current = null;
     try {
       const result = await api.getWeekPlan(ofs);
+      if (seq !== fetchSeq.current) return; // superseded by a newer navigation
       setData(result);
-      recordMtime();
+      dataOffsetRef.current = ofs;
+      recordMtime(ofs);
     } catch (e) {
+      if (seq !== fetchSeq.current) return;
       setError(e instanceof Error ? e.message : "Failed to load week plan");
     } finally {
-      setLoading(false);
+      if (seq === fetchSeq.current) setLoading(false);
     }
   };
 
@@ -1087,7 +1099,7 @@ export default function WeekPlan() {
     if (!data || isArchive) return;
     setSaving(true);
     try {
-      const res = await api.saveWeekPlan(data.days, weekOffset, lastKnownMtime.current);
+      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, lastKnownMtime.current);
       setSaved(true);
       setDirty(false);
       setExternalChange(false);
