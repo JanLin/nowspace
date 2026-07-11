@@ -4,6 +4,7 @@ import TaskLinkPopup from "./TaskLinkPopup";
 import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
+import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
 import { markDone as markAPDone } from "../actionPoints";
@@ -448,9 +449,13 @@ export default function WeekPlan() {
   const [carryDaySel, setCarryDaySel] = useState("monday");
   const [carryHighlight, setCarryHighlight] = useState(false);
 
+  // Vault browser
+  const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
   useEffect(() => {
-    if (bucketOpen || carryForwardOpen || dailyCarryOpen) setSheetPeek(false);
-  }, [bucketOpen, carryForwardOpen, dailyCarryOpen]);
+    if (bucketOpen || carryForwardOpen || dailyCarryOpen || vaultBrowserOpen) setSheetPeek(false);
+  }, [bucketOpen, carryForwardOpen, dailyCarryOpen, vaultBrowserOpen]);
+  const vaultBrowserStateRef = useRef<VaultBrowserState | null>(null);
+
   // Bottom bar visibility
   const [showBottomBar, setShowBottomBar] = useState(true);
   const [pinFilters, setPinFilters] = useState(true);
@@ -1728,11 +1733,12 @@ export default function WeekPlan() {
   };
 
   const handleDragOver = (e: React.DragEvent, dayIdx: number, taskIdx: number, _group: string | null = null, nextIdx?: number) => {
-    // Accept individual task drags, group drags, and subtask-to-task promotions
+    // Accept individual task drags, group drags, subtask-to-task promotions, and vault note drops
     const dominated = dragGroupRef.current || dragRef.current ||
       e.dataTransfer.types.includes("subtask") || e.dataTransfer.types.includes("bucket-task") ||
       e.dataTransfer.types.includes("carry-task") || e.dataTransfer.types.includes("carry-group") ||
-      e.dataTransfer.types.includes("daily-carry-task") || e.dataTransfer.types.includes("daily-carry-day");
+      e.dataTransfer.types.includes("daily-carry-task") || e.dataTransfer.types.includes("daily-carry-day") ||
+      e.dataTransfer.types.includes("vault-note-name");
     if (!dominated) return;
     if (dragGroupRef.current && dragGroupRef.current.fromDay !== dayIdx) return;
     e.preventDefault();
@@ -1741,6 +1747,12 @@ export default function WeekPlan() {
 
     // A row indicator replaces any group-header highlight from a group drag
     setDropGroupTarget(null);
+
+    // For vault note drops, just highlight the task (no reorder)
+    if (e.dataTransfer.types.includes("vault-note-name")) {
+      setDropTarget({ day: dayIdx, idx: taskIdx, zone: "task" });
+      return;
+    }
 
     // Use mouse Y position relative to the element to decide above vs below.
     // In priority-sorted views the row below is not taskIdx + 1 in the stored
@@ -1759,6 +1771,16 @@ export default function WeekPlan() {
 
   const handleDrop = (dayIdx: number, taskIdx: number, e?: React.DragEvent, targetGroup?: string | null) => {
     if (!data) return;
+
+    // Handle vault note dropped onto task — add wiki link
+    if (e && e.dataTransfer.types.includes("vault-note-name")) {
+      const noteName = e.dataTransfer.getData("vault-note-name");
+      if (noteName) {
+        addLinkToTask(dayIdx, taskIdx, noteName);
+      }
+      setDropTarget(null);
+      return;
+    }
 
     // Handle carry forward task dropped into day
     if (e && e.dataTransfer.types.includes("carry-task")) {
@@ -3185,19 +3207,16 @@ export default function WeekPlan() {
   };
 
   return (
-    <div className={`flex gap-0 ${
-      bucketOpen || carryForwardOpen || dailyCarryOpen
-        ? (sheetPeek ? "pb-16 md:pb-0" : "pb-[48vh] md:pb-0") : ""
-    }`}>
+    <div>
 
-    <div className={`space-y-3 pb-12 ${bucketOpen || carryForwardOpen || dailyCarryOpen ? "flex-1 min-w-0" : "w-full"}`}>
+    {/* Error + filters: always full width. NOTE: the pinned toolbar is
+        position:sticky — it must stay a direct child of the component root,
+        or its containing block shrinks to the toolbar and pinning is a no-op. */}
       {error && (
-        <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
+        <div className="p-3 mb-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
       )}
 
-
       {data && (
-        <>
           <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
           {isArchive && (
             <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium text-center">
@@ -3446,7 +3465,17 @@ export default function WeekPlan() {
             </div>
           )}
           </div>
+      )}
 
+    {/* Tasks + side panels: flex layout */}
+    <div className={`flex gap-0 items-start ${
+      bucketOpen || carryForwardOpen || dailyCarryOpen || vaultBrowserOpen
+        ? (sheetPeek ? "pb-16 md:pb-0" : "pb-[48vh] md:pb-0") : ""
+    }`}>
+    <div className={`space-y-3 pb-12 ${bucketOpen || carryForwardOpen || dailyCarryOpen || vaultBrowserOpen ? "flex-1 min-w-0" : "w-full"}`}>
+
+      {data && (
+        <>
           {/* Goals Banner */}
           {!isArchive && (
             <div className="rounded-lg border transition-all" style={{ backgroundColor: "var(--amber-bg)", borderColor: "var(--amber-border)" }}>
@@ -3757,8 +3786,24 @@ export default function WeekPlan() {
     {/* Bucket & Carry icons — above status bar, togglable */}
     {data && showBottomBar && (
       <div className={`fixed bottom-8 z-40 flex items-end gap-2 right-6 ${
-        (bucketOpen || carryForwardOpen || dailyCarryOpen) ? "md:right-[max(19.5rem,calc(50vw-16.5rem))]" : ""
+        vaultBrowserOpen ? "md:right-[max(21.5rem,calc(50vw-14.5rem))]"
+          : (bucketOpen || carryForwardOpen || dailyCarryOpen) ? "md:right-[max(19.5rem,calc(50vw-16.5rem))]" : ""
       }`}>
+        {/* Vault browser */}
+        <div
+          className={`relative cursor-pointer transition-all duration-200 hover:scale-105`}
+          title="Vault Browser"
+          onClick={() => {
+            const opening = !vaultBrowserOpen;
+            setVaultBrowserOpen(opening);
+            if (opening) { setBucketOpen(false); setCarryForwardOpen(false); setDailyCarryOpen(false); }
+          }}
+        >
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg shadow-md border-2 transition-colors ${
+            vaultBrowserOpen ? "bg-blue-200 border-blue-500" : "bg-white border-gray-200 hover:border-blue-300"
+          }`}>{"\uD83D\uDCC1"}</div>
+        </div>
+
         {/* Daily carry — open tasks from days before today */}
         {dailyCarryCount > 0 && (
           <div
@@ -3767,7 +3812,7 @@ export default function WeekPlan() {
             onClick={() => {
               const opening = !dailyCarryOpen;
               setDailyCarryOpen(opening);
-              if (opening) { setBucketOpen(false); setCarryForwardOpen(false); }
+              if (opening) { setBucketOpen(false); setCarryForwardOpen(false); setVaultBrowserOpen(false); }
             }}
           >
             <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg shadow-md border-2 transition-colors ${
@@ -3788,7 +3833,7 @@ export default function WeekPlan() {
             title={`⏩ Carry Forward (${carryTasks.filter((t) => taskVisibleInMode(t.text)).length} tasks)`}
             onClick={() => {
               if (carryForwardOpen) { setCarryForwardOpen(false); }
-              else { setBucketOpen(false); setCarryForwardOpen(true); setDailyCarryOpen(false); }
+              else { setBucketOpen(false); setCarryForwardOpen(true); setDailyCarryOpen(false); setVaultBrowserOpen(false); }
             }}
           >
             <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg shadow-md border-2 transition-colors ${
@@ -3805,7 +3850,7 @@ export default function WeekPlan() {
           <div
             className={`relative cursor-pointer transition-all duration-200 ${bucketHighlight ? "scale-110" : "hover:scale-105"}`}
             title={`🪣 Bucket (${bucketCount})`}
-            onClick={() => { const opening = !bucketOpen; setBucketOpen(opening); if (opening) { refreshBucket(); setCarryForwardOpen(false); setDailyCarryOpen(false); } }}
+            onClick={() => { const opening = !bucketOpen; setBucketOpen(opening); if (opening) { refreshBucket(); setCarryForwardOpen(false); setDailyCarryOpen(false); setVaultBrowserOpen(false); } }}
             onDragOver={(e) => {
               if (dragRef.current || dragGroupRef.current || carryDragRef.current || carryGroupDragRef.current || e.dataTransfer.types.includes("carry-task") || e.dataTransfer.types.includes("carry-group")) {
                 e.preventDefault(); setBucketHighlight(true);
@@ -4334,7 +4379,18 @@ export default function WeekPlan() {
         )}
       </div>
     )}
-
+    {/* Vault browser side panel */}
+    {vaultBrowserOpen && (
+      <div className={sheetClass("md:w-80")} style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+        <SheetGrip />
+        <VaultBrowser
+          onClose={() => setVaultBrowserOpen(false)}
+          stateRef={vaultBrowserStateRef}
+          onOpenNote={(path, name) => setNoteEditor({ path, name })}
+        />
+      </div>
+    )}
+    </div>{/* end flex container for tasks + side panels */}
 
     {/* Task link popup */}
     {linkPopup && (

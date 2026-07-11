@@ -1,10 +1,22 @@
 """Vault endpoints: file index, search, linked document discovery."""
 
-from typing import Optional
+import shutil
+from pathlib import Path
+from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from backend.config import config
+
+
+class MoveRequest(BaseModel):
+    source: str
+    destination: str
+
+
+class PinnedNotesRequest(BaseModel):
+    pinned: List[str]
 from backend.vault_index import (
     refresh_index,
     get_index,
@@ -106,6 +118,65 @@ async def vault_folder(path: str = "1-Projects"):
         elif f.is_dir() and not f.name.startswith("."):
             files.append({"name": f.name, "path": str(f.relative_to(config.vault_root)), "type": "folder", "modified": ""})
     return {"path": path, "files": files}
+
+
+def _safe_vault_path(rel_path: str) -> Path:
+    """Resolve a relative path within vault root, rejecting traversal attacks."""
+    resolved = (config.vault_root / rel_path).resolve()
+    if not str(resolved).startswith(str(config.vault_root.resolve())):
+        raise HTTPException(status_code=400, detail="Path outside vault")
+    return resolved
+
+
+@router.post("/move")
+async def vault_move(body: MoveRequest):
+    """Move a file or folder within the vault."""
+    src = _safe_vault_path(body.source)
+    dst_folder = _safe_vault_path(body.destination)
+
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"Source not found: {body.source}")
+    if not dst_folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"Destination is not a folder: {body.destination}")
+
+    new_path = dst_folder / src.name
+    if new_path.exists():
+        raise HTTPException(status_code=409, detail=f"Already exists: {new_path.name}")
+
+    shutil.move(str(src), str(new_path))
+    return {"success": True, "new_path": str(new_path.relative_to(config.vault_root))}
+
+
+@router.delete("/file")
+async def vault_delete(path: str):
+    """Delete a file from the vault (moves to trash if available)."""
+    target = _safe_vault_path(path)
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"Not found: {path}")
+    if not target.is_file():
+        raise HTTPException(status_code=400, detail="Can only delete files, not folders")
+
+    try:
+        from send2trash import send2trash
+        send2trash(str(target))
+    except ImportError:
+        target.unlink()
+
+    return {"success": True, "path": path}
+
+
+@router.get("/pinned-notes")
+async def get_pinned_notes():
+    """Return pinned notes list."""
+    return {"pinned": config.pinned_notes}
+
+
+@router.put("/pinned-notes")
+async def save_pinned_notes(body: PinnedNotesRequest):
+    """Save pinned notes list."""
+    config.save_pinned_notes(body.pinned)
+    return {"pinned": config.pinned_notes}
 
 
 def _parse_week_header_refs(offset: int = 0) -> dict:

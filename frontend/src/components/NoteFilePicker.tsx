@@ -197,9 +197,27 @@ export default function NoteFilePicker({
                   if (link.resolved_path) {
                     onSelect(link.resolved_path, link.display_text || link.name);
                   } else {
-                    // Try to resolve by searching
+                    // Try to resolve by searching, create if not found
                     api.vaultSearch(link.name, 1).then((res) => {
-                      if (res.results.length > 0) onSelect(res.results[0].path, link.display_text || link.name);
+                      if (res.results.length > 0) {
+                        onSelect(res.results[0].path, link.display_text || link.name);
+                      } else {
+                        // Note doesn't exist in search — create or find via create API
+                        const folder = folderPath || DEFAULT_FOLDER;
+                        const noteName = link.display_text || link.name;
+                        api.createNote(folder, noteName).then((created) => {
+                          onSelect(created.path, noteName);
+                        }).catch(async (err) => {
+                          // 409 = file already exists, extract path from error
+                          const msg = err instanceof Error ? err.message : String(err);
+                          const pathMatch = msg.match(/File already exists: (.+\.md)/);
+                          if (pathMatch) {
+                            onSelect(pathMatch[1], noteName);
+                          } else {
+                            onSelect(link.name + ".md", noteName);
+                          }
+                        });
+                      }
                     });
                   }
                 }}

@@ -6,6 +6,7 @@ import {
   ctxChipClass, ctxEdgeColor, allContextNames, resolveContext, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
+import { normTime } from "../timefmt";
 
 /* Where the time goes: month log, per-area/company/sub-project sums, and a
    per-day invoice summary per company. Filtering mirrors the Plan tab
@@ -28,15 +29,7 @@ function nowMonth(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
-/** Flexible time input → "HH:MM" (colon optional: 1945, 945, 9:45); null if invalid */
-function normTime(raw: string): string | null {
-  const s = raw.trim().replace(".", ":");
-  const m = s.match(/^(\d{1,2}):(\d{2})$/) || s.match(/^(\d{1,2})(\d{2})$/);
-  if (!m) return null;
-  const h = parseInt(m[1], 10), mnt = parseInt(m[2], 10);
-  if (h > 23 || mnt > 59) return null;
-  return `${String(h).padStart(2, "0")}:${String(mnt).padStart(2, "0")}`;
-}
+
 
 export default function TimeTab() {
   const [month, setMonth] = useState(nowMonth());
