@@ -641,7 +641,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
           )}
         </div>
         <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
-          Stored in <span className="font-mono">config.yaml</span>. Map group names to vault folders for project files and notes.
+          Stored in <span className="font-mono">Plan Week Configuration.md</span> in the vault, so every installation shares them. Map group names to vault folders for project files and notes.
         </p>
 
         {/* Existing links */}
@@ -804,13 +804,13 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
             style={ctxDirty
               ? { backgroundColor: "var(--accent)", color: "white" }
               : { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
-            title={ctxDirty ? "Save changes to config.yaml (Enter in a field also saves)" : "All changes saved"}
+            title={ctxDirty ? "Save changes (Enter in a field also saves)" : "All changes saved"}
           >
             {ctxSaving ? "Saving…" : ctxDirty ? "Save changes" : "Saved ✓"}
           </button>
         </div>
         <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
-          Stored in <span className="font-mono">config.yaml</span>. Each context has a single-letter tag
+          Stored in <span className="font-mono">Plan Week Configuration.md</span> in the vault, shared by every installation. Each context has a single-letter tag
           (used as <span className="font-mono">@w</span> in task text) and a list of task group prefixes.
           Unknown tags typed in tasks (e.g. <span className="font-mono">@f</span>) are created automatically —
           rename them here. Work, volunteer and personal are built in; ungrouped tasks are personal.
