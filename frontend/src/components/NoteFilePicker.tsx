@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { api, type TaskLink } from "../api";
 
 const VAULT_NAME = "Home";
-const DEFAULT_FOLDER = "1-Projects";
+// Unmapped groups default to the inbox — new notes get captured there and
+// sorted later, instead of polluting 1-Projects (PARA capture convention).
+const DEFAULT_FOLDER = "0-Inbox";
 
 function obsidianUri(path: string): string {
   return `obsidian://open?vault=${encodeURIComponent(VAULT_NAME)}&file=${encodeURIComponent(path.replace(/\.md$/, ""))}`;
@@ -66,7 +68,7 @@ export default function NoteFilePicker({
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
-  // Load files: group folder if resolved, otherwise 1-Projects
+  // Load files: group folder if resolved, otherwise the inbox
   const loadProjectsFolder = () => {
     api.vaultFolder(DEFAULT_FOLDER).then((res) => {
       setFiles(res.files.map(f => ({ name: f.name, path: f.path, type: f.type === "folder" ? "subfolder" : "project" })));
@@ -79,7 +81,7 @@ export default function NoteFilePicker({
     if (group) {
       api.vaultLinkedDocs(group).then((res) => {
         if (!res.folder) {
-          // Group has no configured reference — show 1-Projects
+          // Group has no configured reference — fall back to the inbox
           loadProjectsFolder();
           return;
         }
@@ -180,7 +182,7 @@ export default function NoteFilePicker({
             </button>
           )}
           <span className="text-xs font-semibold text-gray-700 truncate">
-            {group && folderPath && folderPath !== DEFAULT_FOLDER ? `Notes — ${group}` : folderPath ? folderPath.split("/").pop() : "Project Notes"}
+            {group && folderPath && folderPath !== DEFAULT_FOLDER ? `Notes — ${group}` : folderPath ? folderPath.split("/").pop() : "Inbox"}
           </span>
         </div>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xs shrink-0">&times;</button>
@@ -270,7 +272,7 @@ export default function NoteFilePicker({
 
             {!loading && displayFiles.length === 0 && searchQuery.length < 2 && (
               <div className="text-[10px] text-gray-400 text-center py-2">
-                {group ? "No notes found for this group" : "No project notes found"}
+                {group ? "No notes found for this group" : "No notes found"}
               </div>
             )}
 
