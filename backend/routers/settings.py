@@ -208,17 +208,17 @@ def _create_para_structure(vault_root: Path) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# Helpers — reference_links (stored in config.yaml)
+# Helpers — reference_links (stored in Plan Week Configuration.md in the vault)
 # ---------------------------------------------------------------------------
 
 
 def _read_reference_links() -> Dict[str, str]:
-    """Read reference_links from config.yaml."""
+    """Read reference_links (vault settings file, config.yaml fallback)."""
     return dict(config.reference_links)
 
 
 def _write_reference_links(links: Dict[str, str]) -> None:
-    """Write reference_links to config.yaml."""
+    """Write reference_links to the vault settings file."""
     config.save_reference_links(links)
 
 

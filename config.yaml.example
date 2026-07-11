@@ -15,6 +15,10 @@ vault_sections:
 plan:
   week_file: Plan Week.md
   bucket_file: Plan Week Bucket.md
+# LEGACY FALLBACK: reference links, contexts and context_tags now live in
+# "0-Inbox/Plan Week Configuration.md" inside the vault (a ```yaml block),
+# so they sync to every installation. Values here are only read when the
+# vault file lacks the key; any save from Settings writes the vault file.
 reference_links: {}
 # Contexts: separate work / volunteer / personal mentally.
 # Map context names to task group prefixes (case-insensitive).

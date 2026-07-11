@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Dict
@@ -113,8 +114,11 @@ class Config:
         self.plan_week_habits_file = plan.get("habits_file", "Plan Week Habits.md")
         self.plan_week_config_file = plan.get("config_file", "0-Inbox/Plan Week Configuration.md")
 
-        # Reference links (group → vault folder path)
-        self.reference_links: Dict[str, str] = raw.get("reference_links", {})
+        # Reference links (group → vault folder path). Shared settings like
+        # this live in Plan Week Configuration.md inside the vault (synced to
+        # every installation); the config.yaml value is a legacy fallback for
+        # vaults that don't have the file/key yet.
+        self._fallback_reference_links: Dict[str, str] = raw.get("reference_links", {})
 
         # Contexts: map of context name → list of group prefixes (lowercase).
         # e.g. {"work": ["arratech", "wallet"], "volunteer": ["rotary"]}
@@ -128,7 +132,7 @@ class Config:
         # (e.g. https://<mini>.ts.net/version.json). Empty = check disabled.
         self.update_check_url: str = str(raw.get("update_check_url") or "").strip()
 
-        self.contexts: Dict[str, list] = {
+        self._fallback_contexts: Dict[str, list] = {
             str(name).lower(): [str(g).lower() for g in (groups or [])]
             for name, groups in raw_contexts.items()
         }
@@ -137,12 +141,14 @@ class Config:
         # task markup (@w, @f, …). Unknown letters seen in tasks are
         # auto-created (name defaults to the letter; rename in Settings).
         raw_tags = raw.get("context_tags", {}) or {}
-        self.context_tags: Dict[str, str] = {
+        self._fallback_context_tags: Dict[str, str] = {
             str(k).lower(): str(v).lower() for k, v in raw_tags.items()
             if len(str(k)) == 1 and str(k).isalpha()
         }
-        for abbrev, name in {"w": "work", "v": "volunteer", "p": "personal"}.items():
-            self.context_tags.setdefault(abbrev, name)
+
+        # Cache for the parsed vault settings file (invalidated by mtime)
+        self._vault_cfg_cache = None
+        self._vault_cfg_mtime = None
 
         api = raw.get("api", {})
         self.model = api.get("model", "claude-sonnet-4-6")
@@ -163,14 +169,104 @@ class Config:
     def system_prompt(self) -> str:
         return self.system_prompt_path.read_text()
 
+    # ------------------------------------------------------------------
+    # Shared settings — stored in Plan Week Configuration.md in the vault
+    # (a ```yaml block), so Syncthing carries them to every installation.
+    # config.yaml values act as a read fallback for keys the file lacks;
+    # every save writes the effective values to the vault file, migrating
+    # legacy config.yaml state on first write.
+    # ------------------------------------------------------------------
+
+    _YAML_BLOCK_RE = re.compile(r"```ya?ml\s*\n(.*?)```", re.DOTALL)
+
+    @property
+    def _vault_settings_path(self) -> Path:
+        return self.vault_root / self.plan_week_config_file
+
+    def _vault_settings(self) -> dict:
+        """Parse the yaml block from the vault settings file (mtime-cached)."""
+        path = self._vault_settings_path
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return {}
+        if self._vault_cfg_cache is not None and self._vault_cfg_mtime == mtime:
+            return self._vault_cfg_cache
+        parsed: dict = {}
+        try:
+            m = self._YAML_BLOCK_RE.search(path.read_text(encoding="utf-8"))
+            if m:
+                loaded = yaml.safe_load(m.group(1))
+                if isinstance(loaded, dict):
+                    parsed = loaded
+        except Exception:
+            return {}
+        self._vault_cfg_cache = parsed
+        self._vault_cfg_mtime = mtime
+        return parsed
+
+    def _save_vault_settings(self, updates: dict) -> None:
+        """Merge updates into the yaml block, preserving surrounding markdown."""
+        path = self._vault_settings_path
+        merged = dict(self._vault_settings())
+        merged.update(updates)
+        block = "```yaml\n" + yaml.dump(
+            merged, default_flow_style=False, sort_keys=False, allow_unicode=True
+        ) + "```"
+        try:
+            content = path.read_text(encoding="utf-8") if path.exists() else ""
+        except OSError:
+            content = ""
+        if self._YAML_BLOCK_RE.search(content):
+            content = self._YAML_BLOCK_RE.sub(lambda _m: block, content, count=1)
+        elif content:
+            content = content.rstrip("\n") + "\n\n" + block + "\n"
+        else:
+            content = (
+                "# Plan Week Configuration\n\n"
+                "Shared Nowspace settings. This file syncs with the vault, so every\n"
+                "installation (Mac, mini, phone) reads the same mappings.\n\n"
+                + block + "\n"
+            )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        self._vault_cfg_cache = None
+        self._vault_cfg_mtime = None
+
+    @property
+    def reference_links(self) -> Dict[str, str]:
+        links = self._vault_settings().get("reference_links")
+        if isinstance(links, dict):
+            return {str(k): str(v) for k, v in links.items()}
+        return dict(self._fallback_reference_links)
+
+    @property
+    def contexts(self) -> Dict[str, list]:
+        raw_ctx = self._vault_settings().get("contexts")
+        if isinstance(raw_ctx, dict):
+            return {
+                str(name).lower(): [str(g).lower() for g in (groups or [])]
+                for name, groups in raw_ctx.items()
+            }
+        return {k: list(v) for k, v in self._fallback_contexts.items()}
+
+    @property
+    def context_tags(self) -> Dict[str, str]:
+        raw_tags = self._vault_settings().get("context_tags")
+        if isinstance(raw_tags, dict):
+            tags = {
+                str(k).lower(): str(v).lower() for k, v in raw_tags.items()
+                if len(str(k)) == 1 and str(k).isalpha()
+            }
+        else:
+            tags = dict(self._fallback_context_tags)
+        for abbrev, name in {"w": "work", "v": "volunteer", "p": "personal"}.items():
+            tags.setdefault(abbrev, name)
+        return tags
+
     def save_reference_links(self, links: Dict[str, str]) -> None:
-        """Persist reference_links into config.yaml."""
-        self.reference_links = links
-        with open(self._config_file) as f:
-            raw = yaml.safe_load(f) or {}
-        raw["reference_links"] = links
-        with open(self._config_file, "w") as f:
-            yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        """Persist reference_links into the vault settings file."""
+        self._save_vault_settings({"reference_links": links})
 
     def assign_group_context(self, group: str, context: str) -> bool:
         """Assign a task group to a context (inline teaching: "wallet@w: task").
@@ -183,16 +279,17 @@ class Config:
         context = context.strip().lower()
         if not group:
             return False
+        contexts = {k: list(v) for k, v in self.contexts.items()}
         changed = False
-        for ctx in list(self.contexts.keys()):
-            if ctx != context and group in self.contexts[ctx]:
-                self.contexts[ctx].remove(group)
+        for ctx in list(contexts.keys()):
+            if ctx != context and group in contexts[ctx]:
+                contexts[ctx].remove(group)
                 changed = True
-        if context != "personal" and group not in self.contexts.get(context, []):
-            self.contexts.setdefault(context, []).append(group)
+        if context != "personal" and group not in contexts.get(context, []):
+            contexts.setdefault(context, []).append(group)
             changed = True
         if changed:
-            self._persist_contexts()
+            self._persist_contexts(contexts, self.context_tags)
         return changed
 
     def ensure_context_tag(self, abbrev: str) -> bool:
@@ -205,32 +302,32 @@ class Config:
         abbrev = abbrev.strip().lower()
         if len(abbrev) != 1 or not abbrev.isalpha() or abbrev in self.context_tags:
             return False
-        self.context_tags[abbrev] = abbrev
-        self.contexts.setdefault(abbrev, [])
-        self._persist_contexts()
+        tags = dict(self.context_tags)
+        tags[abbrev] = abbrev
+        contexts = {k: list(v) for k, v in self.contexts.items()}
+        contexts.setdefault(abbrev, [])
+        self._persist_contexts(contexts, tags)
         return True
 
     def save_context_settings(self, contexts: Dict[str, list], context_tags: Dict[str, str]) -> None:
         """Replace the context configuration from the Settings tab."""
-        self.contexts = {
+        contexts_norm = {
             str(name).lower(): [str(g).lower() for g in (groups or [])]
             for name, groups in (contexts or {}).items()
         }
-        self.context_tags = {
+        tags = {
             str(k).lower(): str(v).lower() for k, v in (context_tags or {}).items()
             if len(str(k)) == 1 and str(k).isalpha()
         }
         for abbrev, name in {"w": "work", "v": "volunteer", "p": "personal"}.items():
-            self.context_tags.setdefault(abbrev, name)
-        self._persist_contexts()
+            tags.setdefault(abbrev, name)
+        self._persist_contexts(contexts_norm, tags)
 
-    def _persist_contexts(self) -> None:
-        with open(self._config_file) as f:
-            raw = yaml.safe_load(f) or {}
-        raw["contexts"] = {k: v for k, v in self.contexts.items() if v}
-        raw["context_tags"] = self.context_tags
-        with open(self._config_file, "w") as f:
-            yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    def _persist_contexts(self, contexts: Dict[str, list], tags: Dict[str, str]) -> None:
+        self._save_vault_settings({
+            "contexts": {k: v for k, v in contexts.items() if v},
+            "context_tags": tags,
+        })
 
 
 config = Config()

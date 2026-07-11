@@ -191,7 +191,7 @@ def search(query: str, max_results: int = 20) -> List[dict]:
 
 
 def _read_vault_reference_links() -> Dict[str, str]:
-    """Read reference_links from config.yaml."""
+    """Read reference_links (Plan Week Configuration.md, config.yaml fallback)."""
     return {k.lower(): v for k, v in config.reference_links.items()}
 
 
