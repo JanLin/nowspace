@@ -36,8 +36,11 @@ def _priority_score(rel_path: str) -> int:
             score -= 50
             break
 
-    # Prefer non-archive files
-    if any(part.startswith("4-") for part in parts):
+    # Prefer non-archive files. Match the configured archive section (which
+    # may be numbered differently, e.g. "3-Archive") and any folder whose
+    # name says archive — not just the default "4-" prefix.
+    archive = config.vault_sections.get("archive", "4-Archive")
+    if any(part == archive or part.startswith("4-") or "archive" in part.lower() for part in parts):
         score += 100
 
     # Prefer areas and projects over resources
@@ -188,7 +191,7 @@ def search(query: str, max_results: int = 20) -> List[dict]:
 
 
 def _read_vault_reference_links() -> Dict[str, str]:
-    """Read reference_links from config.yaml."""
+    """Read reference_links (Plan Week Configuration.md, config.yaml fallback)."""
     return {k.lower(): v for k, v in config.reference_links.items()}
 
 
@@ -200,15 +203,27 @@ def resolve_group_to_folder(group_name: str, week_refs: Optional[Dict[str, str]]
     """Resolve a group name (e.g., 'iGrant') to a project folder path.
 
     Resolution order:
-    1. Week header references (e.g., "igrant: [[iGrant calls]]")
-    2. config.yaml reference_links
+    1. config.yaml reference_links (explicit setup wins)
+    2. Week header references (e.g., "igrant: [[iGrant calls]]")
     3. Vault index search
 
     Returns relative path from vault root, or None.
     """
     group_lower = group_name.lower().strip()
 
-    # 1. Week header references — resolve the wiki link to find the folder
+    # 1. config.yaml reference_links — the explicit mapping managed in
+    #    Settings. It must win over week-header inference: a wiki link in
+    #    the header resolves by NAME through the index, and a same-named
+    #    archived copy can drag the whole group (and note creation) into
+    #    the archive folder.
+    ref_links = _read_vault_reference_links()
+    ref = ref_links.get(group_lower)
+    if ref:
+        full_path = config.vault_root / ref
+        if full_path.exists():
+            return ref
+
+    # 2. Week header references — resolve the wiki link to find the folder
     if week_refs:
         for key, wiki_link in week_refs.items():
             if key.lower() == group_lower:
@@ -216,14 +231,6 @@ def resolve_group_to_folder(group_name: str, week_refs: Optional[Dict[str, str]]
                 if resolved:
                     # Return the parent folder of the resolved file
                     return str(Path(resolved).parent)
-
-    # 2. Vault configuration file reference_links
-    ref_links = _read_vault_reference_links()
-    ref = ref_links.get(group_lower)
-    if ref:
-        full_path = config.vault_root / ref
-        if full_path.exists():
-            return ref
 
     # 3. Vault index search — look for folders or PROJ files matching the name
     if not _file_index:

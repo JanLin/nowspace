@@ -52,8 +52,8 @@ async def vault_linked_docs(group: str, week_offset: int = 0):
     """Resolve a group name to its project folder and discover linked documents.
 
     Resolution order:
-    1. Week header references (e.g., "igrant: [[iGrant calls]]")
-    2. Plan Week Configuration.md reference_links
+    1. config.yaml reference_links (explicit setup wins)
+    2. Week header references (e.g., "igrant: [[iGrant calls]]")
     3. Vault index search
 
     Returns call logs, project files, subfolders, and wiki refs.
