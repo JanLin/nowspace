@@ -172,6 +172,8 @@ select.bg-white,
    slightly dimmed instead. One rule covers all ~40 usages. */
 @media (hover: none) {
   .opacity-0[class*="group-hover"] {
-    opacity: 0.8;
+    /* faint: active states (pinned star, waiting amber, …) keep their
+       own full-strength styling and stand out against these */
+    opacity: 0.35;
   }
 }

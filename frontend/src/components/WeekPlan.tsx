@@ -1009,6 +1009,26 @@ export default function WeekPlan() {
   };
 
   // Navigate one day forward/backward, wrapping across weeks
+  // Swipe left/right in day view changes the day (touch screens)
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const onDayTouchStart = (e: React.TouchEvent) => {
+    const target = e.target as HTMLElement;
+    // Don't hijack text editing/selection surfaces
+    if (target.closest("textarea, input, [contenteditable]")) { swipeStart.current = null; return; }
+    swipeStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const onDayTouchEnd = (e: React.TouchEvent) => {
+    const s = swipeStart.current;
+    swipeStart.current = null;
+    if (!s) return;
+    const dx = e.changedTouches[0].clientX - s.x;
+    const dy = e.changedTouches[0].clientY - s.y;
+    // Decisive horizontal gesture only — vertical scrolling stays untouched
+    if (Math.abs(dx) > 70 && Math.abs(dx) > 2.5 * Math.abs(dy)) {
+      navigateDay(dx < 0 ? 1 : -1);
+    }
+  };
+
   const navigateDay = async (direction: -1 | 1) => {
     const newIdx = selectedDayIdx + direction;
     if (newIdx >= 0 && newIdx <= 6) {
@@ -2656,7 +2676,8 @@ export default function WeekPlan() {
     }
 
     return (
-      <div className="flex flex-col md:flex-row max-w-5xl mx-auto" ref={splitterContainer}>
+      <div className="flex flex-col md:flex-row max-w-5xl mx-auto" ref={splitterContainer}
+        onTouchStart={onDayTouchStart} onTouchEnd={onDayTouchEnd}>
       {/* Left column — Tasks */}
       <div className={`space-y-2 ${showNotesPanel ? "min-w-0 w-full md:w-[var(--tasks-w)]" : "w-full max-w-lg mx-auto"}`}
         style={showNotesPanel ? ({ "--tasks-w": `${100 - notesPanelPct}%` } as React.CSSProperties) : undefined}
