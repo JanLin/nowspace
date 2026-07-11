@@ -614,7 +614,11 @@ export default function WeekPlan() {
         const r = await api.getWeekModified(dataOffsetRef.current);
         if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
           if (dirty || addingAt) setExternalChange(true);
-          else fetchWeek();
+          else {
+            fetchWeek();
+            // Let the notes scratchpad refresh too — it reads the same file
+            window.dispatchEvent(new CustomEvent("week-external-reload"));
+          }
         }
       } catch { /* ignore */ }
     };

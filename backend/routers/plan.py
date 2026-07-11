@@ -1568,42 +1568,47 @@ async def put_plan_notes(req: PutNotesRequest):
     day_lower = req.day.lower()
     day_title = day_heading_map.get(day_lower, req.day.capitalize())
 
-    # Find the day heading and its extent
+    # Collect ALL blocks for this day. Duplicate day headings (from an old
+    # replace-only-the-last bug, or multi-device conflicts) previously became
+    # immortal: a save replaced one block and re-merged the rest on read,
+    # splicing stale text into new. A save now removes every block for the
+    # day and writes exactly one fresh one — the file self-heals.
     from backend.agents.obsidian_reader import _DAY_NORMALIZE
-    day_idx = None
-    day_end_idx = None
+    day_ranges: list[tuple[int, int]] = []  # [start, end) line ranges
+    block_start: int | None = None
+    section_end = len(lines)
 
-    for i in range(notes_idx + 1, len(lines)):
-        stripped = lines[i].strip()
-        if stripped.startswith("#####"):
-            heading_text = stripped.lstrip("#").strip().lower()
-            heading_words = set(heading_text.split())
+    i = notes_idx + 1
+    while i <= len(lines):
+        stripped = lines[i].strip() if i < len(lines) else ""
+        at_end = i == len(lines)
+        is_other_section = (not at_end) and stripped.startswith("####") and not stripped.startswith("#####")
+        this_day = None
+        if (not at_end) and stripped.startswith("#####"):
+            heading_words = set(stripped.lstrip("#").strip().lower().split())
             matched = heading_words & set(_DAY_NORMALIZE.keys())
             if matched:
-                match_word = next(iter(matched))
-                if _DAY_NORMALIZE[match_word] == day_lower:
-                    day_idx = i
-                elif day_idx is not None and day_end_idx is None:
-                    day_end_idx = i
-        elif stripped.startswith("####") and not stripped.startswith("#####"):
-            if day_idx is not None and day_end_idx is None:
-                day_end_idx = i
+                this_day = _DAY_NORMALIZE[next(iter(matched))]
+        boundary = at_end or is_other_section or this_day is not None
+        if block_start is not None and boundary:
+            day_ranges.append((block_start, i))
+            block_start = None
+        if this_day == day_lower:
+            block_start = i
+        if at_end or is_other_section:
+            section_end = i
             break
+        i += 1
 
     new_day_lines = [f"##### {day_title}", req.content, ""]
 
-    if day_idx is not None:
-        if day_end_idx is None:
-            day_end_idx = len(lines)
-        lines = lines[:day_idx] + new_day_lines + lines[day_end_idx:]
+    if day_ranges:
+        insert_at = day_ranges[0][0]
+        for start, end in reversed(day_ranges):
+            del lines[start:end]
+        lines[insert_at:insert_at] = new_day_lines
     else:
-        end_of_notes = len(lines)
-        for i in range(notes_idx + 1, len(lines)):
-            stripped = lines[i].strip()
-            if stripped.startswith("####") and not stripped.startswith("#####"):
-                end_of_notes = i
-                break
-        lines = lines[:end_of_notes] + new_day_lines + lines[end_of_notes:]
+        lines = lines[:section_end] + new_day_lines + lines[section_end:]
 
     plan_file.write_text("\n".join(lines), encoding="utf-8")
     return {"status": "saved", "day": day_lower}

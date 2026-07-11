@@ -127,6 +127,17 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
 
   useEffect(() => { fetchNotes(); }, [fetchNotes]);
 
+  // The week file changed externally (another device via Syncthing) and the
+  // week view silently reloaded — refresh the scratchpad too, but never
+  // while the user is editing or has unsaved text here.
+  useEffect(() => {
+    const onExternal = () => {
+      if (!focused && content === lastSaved) fetchNotes();
+    };
+    window.addEventListener("week-external-reload", onExternal);
+    return () => window.removeEventListener("week-external-reload", onExternal);
+  }, [focused, content, lastSaved, fetchNotes]);
+
   // Auto-save with debounce
   const save = useCallback(async (text: string) => {
     if (text === lastSaved) return;
