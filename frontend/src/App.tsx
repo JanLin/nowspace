@@ -67,7 +67,7 @@ export default function App() {
   // Update detection: the served assets carry version.json; when the server
   // gets updated (the mini pulls hourly) an already-open app keeps running
   // old code until reloaded. Check when the app comes to the foreground and
-  // every 15 minutes. The desktop app bundles frontend+backend together, so
+  // every 5 minutes. The desktop app bundles frontend+backend together, so
   // its versions always match and this stays quiet there. Dev has HMR.
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   useEffect(() => {
@@ -83,7 +83,7 @@ export default function App() {
     };
     const onVis = () => { if (!document.hidden) check(); };
     document.addEventListener("visibilitychange", onVis);
-    const iv = setInterval(check, 15 * 60 * 1000);
+    const iv = setInterval(check, 5 * 60 * 1000);
     check();
     return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); clearInterval(iv); };
   }, []);
