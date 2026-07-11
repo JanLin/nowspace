@@ -7,7 +7,18 @@ const host = process.env.TAURI_DEV_HOST;
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      // The deployed assets advertise their version so a running app can
+      // detect that the server was updated and offer a restart.
+      name: "emit-version-json",
+      generateBundle() {
+        this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ version }) });
+      },
+    },
+  ],
   define: {
     __APP_VERSION__: JSON.stringify(version),
     // Tauri builds bake in the sidecar address; plain web builds stay
