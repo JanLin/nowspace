@@ -24,6 +24,7 @@ export default defineConfig({
     // Tauri builds bake in the sidecar address; plain web builds stay
     // same-origin (the backend serves the SPA itself).
     __API_BASE__: JSON.stringify(process.env.TAURI_ENV_PLATFORM ? "http://localhost:8000" : ""),
+    __IS_TAURI__: JSON.stringify(!!process.env.TAURI_ENV_PLATFORM),
   },
   // prevent vite from obscuring rust errors
   clearScreen: false,

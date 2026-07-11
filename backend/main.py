@@ -40,6 +40,23 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/update-check")
+def update_check():
+    """Report the version running at the configured deployment (the always-on
+    server tracks main, so it is effectively "latest"). The desktop app is a
+    frozen bundle that only changes via a rebuild — this lets it notice one
+    is worth doing. Null when unconfigured or unreachable."""
+    if not config.update_check_url:
+        return {"version": None}
+    try:
+        import httpx
+        r = httpx.get(config.update_check_url, timeout=4)
+        r.raise_for_status()
+        return {"version": r.json().get("version")}
+    except Exception:
+        return {"version": None}
+
+
 # Serve frontend static files in production (when frontend/dist exists)
 _frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _frontend_dist.is_dir():
