@@ -9,15 +9,11 @@ import {
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
   stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, setMonthHorizon,
 } from "../contexts";
+import NoteEditor from "./NoteEditor";
+import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 
-const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 const MD_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
-
-function obsidianUri(path: string): string {
-  const filePath = path.replace(/\.md$/, "");
-  return `obsidian://open?vault=${encodeURIComponent(VAULT_NAME)}&file=${encodeURIComponent(filePath)}`;
-}
 
 /* ── helpers ────────────────────────────────────────────────── */
 
@@ -45,7 +41,7 @@ function extractLinks(text: string): TaskLink[] {
 }
 
 /** Render text with wiki links and markdown hyperlinks as clickable elements */
-function renderWikiText(text: string) {
+function renderWikiText(text: string, onOpenNote?: (path: string, name: string) => void) {
   // Combined regex: wiki links [[...]] and markdown links [text](url)
   const COMBINED_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)]+)\)/g;
   const parts: React.ReactNode[] = [];
@@ -66,13 +62,13 @@ function renderWikiText(text: string) {
             e.preventDefault();
             e.stopPropagation();
             api.vaultSearch(name, 1).then((res) => {
-              if (res.results.length > 0) {
-                window.open(obsidianUri(res.results[0].path), "_blank");
+              if (res.results.length > 0 && onOpenNote) {
+                onOpenNote(res.results[0].path, name);
               }
             });
           }}
           className="inline-flex items-center gap-0.5 px-1.5 py-0 bg-blue-50 text-blue-700 rounded text-[11px] font-medium hover:bg-blue-100 transition-colors"
-          title={`Open ${name} in Obsidian`}
+          title={`Open ${name}`}
         >
           {display}
         </a>
@@ -198,6 +194,9 @@ export default function Bucket() {
     pos: { top: number; left: number };
   } | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [noteEditor, setNoteEditor] = useState<{ path: string; name: string } | null>(null);
+  const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
+  const vaultBrowserStateRef = useRef<VaultBrowserState | null>(null);
   const dragRef = useRef<{ fromIdx: number } | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [dropGroupTarget, setDropGroupTarget] = useState<string | null>(null);
@@ -538,14 +537,23 @@ export default function Bucket() {
 
   const handleDragStart = (idx: number) => { dragRef.current = { fromIdx: idx }; };
   const handleDragOver = (e: React.DragEvent, idx: number) => {
-    if (!dragRef.current) return;
+    if (!dragRef.current && !e.dataTransfer.types.includes("vault-note-name")) return;
     e.preventDefault(); setDropTarget(idx); setDropGroupTarget(null);
   };
   const handleDragOverGroup = (e: React.DragEvent, groupName: string) => {
     if (!dragRef.current) return;
     e.preventDefault(); setDropGroupTarget(groupName); setDropTarget(null);
   };
-  const handleDrop = (idx: number, targetGroup: string) => {
+  const handleDrop = (idx: number, targetGroup: string, e?: React.DragEvent) => {
+    // Handle vault note dropped onto task — add wiki link
+    if (e && e.dataTransfer.types.includes("vault-note-name")) {
+      const noteName = e.dataTransfer.getData("vault-note-name");
+      if (noteName) {
+        addLinkToTask(idx, noteName);
+      }
+      setDropTarget(null);
+      return;
+    }
     if (!dragRef.current) return;
     const { fromIdx } = dragRef.current;
     const next = [...tasks];
@@ -713,7 +721,7 @@ export default function Bucket() {
   /* ── render ──────────────────────────────────────────── */
 
   return (
-    <div className="space-y-3 pb-12">
+    <div className={`space-y-3 pb-12 ${vaultBrowserOpen ? "" : "max-w-3xl mx-auto"}`}>
       {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
       <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { background: 'var(--bg)', borderColor: 'var(--border)' } : undefined}>
@@ -883,8 +891,9 @@ export default function Bucket() {
         </div>
       )}
 
-      {/* Task list */}
-      <div className={`space-y-2 max-w-2xl ${boardView ? "hidden" : ""}`}>
+      {/* Tasks + side panels: flex layout */}
+      <div className={`flex gap-0 items-start ${boardView ? "hidden" : ""}`}>
+      <div className={`space-y-2 ${vaultBrowserOpen ? "flex-1 min-w-0" : "max-w-2xl w-full"}`}>
         {sections.map((section, si) => {
           const displayName = section.name || "Un-grouped";
           const hasMultipleSections = sections.length > 1;
@@ -920,7 +929,7 @@ export default function Bucket() {
                       draggable
                       onDragStart={() => handleDragStart(originalIdx)}
                       onDragOver={(e) => handleDragOver(e, originalIdx)}
-                      onDrop={(e) => { e.preventDefault(); handleDrop(originalIdx, section.name); }}
+                      onDrop={(e) => { e.preventDefault(); handleDrop(originalIdx, section.name, e); }}
                       onDragEnd={handleDragEnd}
                       onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ afterIdx: originalIdx, group: section.name || undefined }); }}
                       className={`group flex items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${
@@ -941,7 +950,7 @@ export default function Bucket() {
                         <span onClick={() => setEditingTask(originalIdx)}
                           className={`flex-1 text-sm cursor-text hover:text-blue-600 ${task.focused ? "font-bold" : ""}`}
                           style={{ color: 'var(--text)' }}>
-                          {renderWikiText(displayLabel)}
+                          {renderWikiText(displayLabel, (path, name) => setNoteEditor({ path, name }))}
                         </span>
                       )}
 
@@ -1154,13 +1163,51 @@ export default function Bucket() {
           group={notePicker.group}
           position={notePicker.pos}
           onSelect={(path, name) => {
-            window.open(obsidianUri(path), "_blank");
+            setNotePicker(null);
+            setNoteEditor({ path, name });
           }}
           onAddLink={(name) => addLinkToTask(notePicker.idx, name)}
           onRemoveLink={(name) => removeLinkFromTask(notePicker.idx, name)}
           onClose={() => setNotePicker(null)}
         />
       )}
+
+      {/* Vault browser side panel */}
+      {vaultBrowserOpen && (
+        <div className="hidden md:block w-80 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-80px)] sticky top-[80px] self-start relative" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+          <VaultBrowser
+            onClose={() => setVaultBrowserOpen(false)}
+            stateRef={vaultBrowserStateRef}
+            onOpenNote={(path, name) => setNoteEditor({ path, name })}
+          />
+        </div>
+      )}
+      </div>{/* end flex container */}
+
+      {/* Note editor modal */}
+      {noteEditor && (
+        <NoteEditor
+          initialPath={noteEditor.path}
+          initialName={noteEditor.name}
+          onClose={() => setNoteEditor(null)}
+        />
+      )}
+
+      {/* Floating vault browser icon */}
+      <div className="fixed bottom-12 right-4 z-30 flex flex-col gap-1.5">
+        <div
+          onClick={() => setVaultBrowserOpen(!vaultBrowserOpen)}
+          className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer shadow-lg transition-all text-sm ${
+            vaultBrowserOpen
+              ? "bg-teal-600 text-white ring-2 ring-teal-400"
+              : "hover:scale-110"
+          }`}
+          style={!vaultBrowserOpen ? { backgroundColor: "var(--bg-secondary)", color: "var(--text-secondary)", border: "1px solid var(--border)" } : undefined}
+          title="Vault Browser"
+        >
+          📂
+        </div>
+      </div>
 
       {/* Sticky bottom bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1.5" style={{ background: 'color-mix(in srgb, var(--bg) 95%, transparent)', borderColor: 'var(--border)' }}>
