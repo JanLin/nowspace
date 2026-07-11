@@ -165,3 +165,13 @@ select.bg-white,
   color: #111827;
   caret-color: #111827;
 }
+
+/* Touch screens can't hover: every row action in the app is hidden with
+   `opacity-0 group-hover/…:opacity-100`, which makes tasks look
+   action-less on phones. On no-hover devices, show those controls
+   slightly dimmed instead. One rule covers all ~40 usages. */
+@media (hover: none) {
+  .opacity-0[class*="group-hover"] {
+    opacity: 0.8;
+  }
+}
