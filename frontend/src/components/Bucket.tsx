@@ -285,8 +285,10 @@ export default function Bucket() {
       try {
         const r = await api.getBucketModified();
         if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
-          // Clean tab reloads silently; unsaved edits keep the banner
-          if (dirty) setExternalChange(true);
+          // Clean tab reloads silently; unsaved edits or active typing keep the banner
+          const el = document.activeElement as HTMLElement | null;
+          const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+          if (dirty || typing) setExternalChange(true);
           else fetchBucket();
         }
       } catch { /* ignore */ }
