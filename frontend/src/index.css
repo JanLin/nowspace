@@ -177,3 +177,9 @@ select.bg-white,
     opacity: 0.35;
   }
 }
+
+/* Day navigation: content arrives from the direction of travel */
+@keyframes day-enter-fwd { from { transform: translateX(7%); opacity: 0.25; } }
+@keyframes day-enter-back { from { transform: translateX(-7%); opacity: 0.25; } }
+.day-enter-fwd { animation: day-enter-fwd 0.22s ease-out; }
+.day-enter-back { animation: day-enter-back 0.22s ease-out; }

@@ -1009,6 +1009,14 @@ export default function WeekPlan() {
   };
 
   // Navigate one day forward/backward, wrapping across weeks
+  // Direction of the last day change — drives the slide-in animation
+  const [slideDir, setSlideDir] = useState<0 | 1 | -1>(0);
+  const slideClass = slideDir === 1 ? "day-enter-fwd" : slideDir === -1 ? "day-enter-back" : "";
+  const goToDay = (i: number) => {
+    setSlideDir(i > selectedDayIdx ? 1 : i < selectedDayIdx ? -1 : 0);
+    setSelectedDayIdx(i);
+  };
+
   // Swipe left/right in day view changes the day (touch screens)
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
   const onDayTouchStart = (e: React.TouchEvent) => {
@@ -1030,6 +1038,7 @@ export default function WeekPlan() {
   };
 
   const navigateDay = async (direction: -1 | 1) => {
+    setSlideDir(direction);
     const newIdx = selectedDayIdx + direction;
     if (newIdx >= 0 && newIdx <= 6) {
       setSelectedDayIdx(newIdx);
@@ -2676,7 +2685,7 @@ export default function WeekPlan() {
     }
 
     return (
-      <div className="flex flex-col md:flex-row max-w-5xl mx-auto" ref={splitterContainer}
+      <div key={`day-${selectedDayIdx}`} className={`flex flex-col md:flex-row max-w-5xl mx-auto ${slideClass}`} ref={splitterContainer}
         onTouchStart={onDayTouchStart} onTouchEnd={onDayTouchEnd}>
       {/* Left column — Tasks */}
       <div className={`space-y-2 ${showNotesPanel ? "min-w-0 w-full md:w-[var(--tasks-w)]" : "w-full max-w-lg mx-auto"}`}
@@ -2982,8 +2991,12 @@ export default function WeekPlan() {
         )}
         {/* On phones the 5/7-day grids scroll horizontally with readable columns
             instead of crushing; 2-3 columns still fit natively. */}
-        <div className="overflow-x-auto">
-        <div className={`grid ${gridCols} gap-2 ${viewMode === "5day" ? "min-w-[560px] sm:min-w-0" : viewMode === "7day" ? "min-w-[784px] sm:min-w-0" : ""}`}>
+        <div className="overflow-x-auto"
+          onTouchStart={viewMode === "3day" ? onDayTouchStart : undefined}
+          onTouchEnd={viewMode === "3day" ? onDayTouchEnd : undefined}>
+        <div
+          key={viewMode === "3day" ? `grid-${visibleDays[0]}` : "grid"}
+          className={`grid ${gridCols} gap-2 ${viewMode === "3day" ? slideClass : ""} ${viewMode === "5day" ? "min-w-[560px] sm:min-w-0" : viewMode === "7day" ? "min-w-[784px] sm:min-w-0" : ""}`}>
           {visibleDays.map((dayIdx) => {
             const day = data.days[dayIdx];
             const isToday = dayIdx === todayIdx;
@@ -3366,7 +3379,7 @@ export default function WeekPlan() {
                   return (
                     <button
                       key={d.day}
-                      onClick={() => setSelectedDayIdx(i)}
+                      onClick={() => goToDay(i)}
                       onDragOver={(e) => {
                         // Day buttons accept carry/bucket drops — carry to THAT day,
                         // regardless of which day is being viewed
