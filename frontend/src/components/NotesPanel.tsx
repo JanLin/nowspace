@@ -340,14 +340,7 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote, onScanAP
     if (!newName.trim() || creating) return;
     setCreating(true);
     try {
-      // Call notes live in the group's coms subfolder (created if missing);
-      // reuse an existing coms/comms folder's casing when present.
-      let target = currentPath;
-      if (createMode === "call") {
-        const existing = files.find((f) => f.type === "folder" && /^comm?s$/i.test(f.name));
-        target = existing ? existing.path : `${currentPath}/coms`;
-      }
-      const res = await api.createNote(target, newName.trim());
+      const res = await api.createNote(currentPath, newName.trim());
       onInsertLink(newName.trim());
       setShowCreate(false);
       setNewName("");
