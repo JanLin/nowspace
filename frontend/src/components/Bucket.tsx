@@ -182,6 +182,7 @@ export default function Bucket() {
   const [filedNext, setFiledNext] = useState<string[]>([]);
   const [pinFilters, setPinFilters] = useState(true);
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
+  const [quickAddText, setQuickAddText] = useState("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
   const [dayPicker, setDayPicker] = useState<number | null>(null);
   const [groupPicker, setGroupPicker] = useState<number | null>(null);
@@ -378,6 +379,34 @@ export default function Bucket() {
     next.splice(afterIdx + 1, 0, newTask);
     updateTasks(next);
     setAddingAt(null);
+  };
+
+  // Quick-add from the top bar: "Group: task" files under that group,
+  // reusing an existing group's casing; plain text lands un-grouped.
+  const quickAdd = (raw: string) => {
+    const text = raw.trim();
+    if (!text) return;
+    const { group, label } = parseGroup(text);
+    let canonical = group;
+    if (group) {
+      const existing = tasks.map((t) => parseGroup(t.text).group)
+        .find((g) => g && g.toLowerCase() === group.toLowerCase());
+      if (existing) canonical = existing;
+    }
+    const newTask: BucketTask = {
+      text: canonical ? `${canonical}: ${label}` : text,
+      priority: "C", focused: false, waiting: false, subtasks: [],
+    };
+    // Keep groups contiguous: insert after the group's last task
+    let insertAfter = tasks.length - 1;
+    if (canonical) {
+      for (let i = tasks.length - 1; i >= 0; i--) {
+        if (parseGroup(tasks[i].text).group.toLowerCase() === canonical.toLowerCase()) { insertAfter = i; break; }
+      }
+    }
+    const next = [...tasks];
+    next.splice(insertAfter + 1, 0, newTask);
+    updateTasks(next);
   };
 
   const deleteTask = (idx: number) => {
@@ -897,6 +926,26 @@ export default function Bucket() {
       {/* Tasks + side panels: flex layout */}
       <div className={`flex gap-0 items-start ${boardView ? "hidden" : ""}`}>
       <div className={`space-y-2 ${vaultBrowserOpen ? "flex-1 min-w-0" : "max-w-2xl w-full"}`}>
+        {/* Quick add — "Group: task" files it under that group */}
+        <div className="flex items-center gap-1.5">
+          <input
+            value={quickAddText}
+            onChange={(e) => setQuickAddText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && quickAddText.trim()) { quickAdd(quickAddText); setQuickAddText(""); } }}
+            placeholder={'Add task — "Group: task" files it under the group'}
+            className="flex-1 min-w-0 text-sm px-2.5 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-blue-400"
+            style={{ background: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
+          />
+          <button
+            onClick={() => { if (quickAddText.trim()) { quickAdd(quickAddText); setQuickAddText(""); } }}
+            disabled={!quickAddText.trim()}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 shrink-0"
+            style={{ backgroundColor: "var(--accent)" }}
+            title="Add to bucket"
+          >
+            ＋
+          </button>
+        </div>
         {sections.map((section, si) => {
           const displayName = section.name || "Un-grouped";
           const hasMultipleSections = sections.length > 1;
@@ -904,7 +953,7 @@ export default function Bucket() {
           return (
           <div key={`${displayName}-${si}`}>
             {showHeader && (
-              <div className={`text-xs font-semibold tracking-wide px-1 py-1 flex items-center gap-1 relative cursor-pointer select-none transition-colors ${
+              <div className={`group text-xs font-semibold tracking-wide px-1 py-1 flex items-center gap-1 relative cursor-pointer select-none transition-colors ${
                 dropGroupTarget === section.name ? "bg-blue-100 rounded" : ""
               }`}
                 onClick={() => toggleCollapseGroup(section.name)}
@@ -914,6 +963,19 @@ export default function Bucket() {
                 style={{ color: section.name ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{collapsedGroups.has(section.name) ? "▸" : "▾"}</span> {displayName}
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>({section.items.length})</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (collapsedGroups.has(section.name)) toggleCollapseGroup(section.name);
+                    const last = section.items[section.items.length - 1];
+                    setAddingAt({ afterIdx: last ? last.originalIdx : tasks.length - 1, group: section.name || undefined });
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-[11px] px-1 rounded transition-opacity"
+                  style={{ color: 'var(--text-secondary)' }}
+                  title={`Add task to ${displayName}`}
+                >
+                  ＋
+                </button>
               </div>
             )}
             {!collapsedGroups.has(section.name) && (
@@ -1144,9 +1206,9 @@ export default function Bucket() {
 
         {/* Add task at bottom */}
         {!addingAt ? (
-          <button onDoubleClick={() => setAddingAt({ afterIdx: tasks.length - 1 })}
+          <button onClick={() => setAddingAt({ afterIdx: tasks.length - 1 })}
             className="w-full text-left text-sm py-2 px-2" style={{ color: 'var(--text-tertiary)' }}>
-            + Add task (double-click)
+            + Add task
           </button>
         ) : !sections.some(s => s.items.some(({ originalIdx }) => originalIdx === addingAt.afterIdx)) && (
           <div className="py-1 px-2">
