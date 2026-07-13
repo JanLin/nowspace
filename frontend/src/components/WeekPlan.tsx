@@ -5,6 +5,7 @@ import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import TaskCheck from "./TaskCheck";
+import { CLUSTER, CLUSTER_LABEL } from "../clusters";
 import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
@@ -3346,7 +3347,8 @@ export default function WeekPlan() {
               {/* Context filter — toggleable chips, combine freely; only when contexts are configured.
                   Core three always show; custom contexts only when present in this week or selected. */}
               {ctxEnabled && (
-                <>
+                <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.tag}>
+                  <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Tag</span>
                   {allContextNames(ctxMap, ctxTags).filter((name) => {
                     if (["work", "volunteer", "personal"].includes(name)) return true;
                     if (ctxSel.includes(name)) return true;
@@ -3373,10 +3375,11 @@ export default function WeekPlan() {
                   >
                     All
                   </button>
-                  <span className="w-px h-4 bg-gray-200" />
-                </>
+                </span>
               )}
-              {/* Group toggle */}
+              {/* Filter cluster: grouping, group dropdown, done visibility */}
+              <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.filter}>
+              <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Filter</span>
               <button
                 onClick={() => setGroupView(!groupView)}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
@@ -3415,9 +3418,11 @@ export default function WeekPlan() {
                 </button>
               )}
 
-              <span className="w-px h-4 bg-gray-200" />
+              </span>
 
-              {/* View mode toggles — Day with day picker */}
+              {/* View cluster — layout modes */}
+              <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.view}>
+              <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>View</span>
               <button
                 onClick={() => setViewMode("day")}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
@@ -3439,6 +3444,7 @@ export default function WeekPlan() {
                   {mode === "3day" ? "3 Day" : mode === "5day" ? "Mon-Fri" : mode === "7day" ? "Full week" : "Weekend"}
                 </button>
               ))}
+              </span>
               {/* Pin/unpin toggle */}
               <button
                 onClick={() => setPinFilters(!pinFilters)}

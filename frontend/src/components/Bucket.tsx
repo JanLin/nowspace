@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import TaskCheck from "./TaskCheck";
+import { CLUSTER, CLUSTER_LABEL } from "../clusters";
 import NoteFilePicker from "./NoteFilePicker";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
@@ -772,8 +773,8 @@ export default function Bucket() {
       <div className="flex items-start flex-wrap gap-x-2 gap-y-1.5 text-xs pr-6" style={{ color: 'var(--text-secondary)' }}>
         <span className="whitespace-nowrap py-1.5">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""}</span>
         {ctxEnabled && (
-          <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={{ border: '1px solid hsl(215 45% 55% / 0.35)', backgroundColor: 'hsl(215 60% 55% / 0.08)' }}>
-            <span className="text-[9px] uppercase tracking-wider select-none" style={{ color: 'var(--text-tertiary)' }}>Tag</span>
+          <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.tag}>
+            <span className={CLUSTER_LABEL} style={{ color: 'var(--text-tertiary)' }}>Tag</span>
             {allContextNames(ctxMap, ctxTags).filter((name) => {
               if (["work", "volunteer", "personal"].includes(name)) return true;
               if (ctxSel.includes(name)) return true;
@@ -795,8 +796,8 @@ export default function Bucket() {
             </button>
           </span>
         )}
-        <span className="flex items-center gap-1 rounded-lg px-1.5 py-1" style={{ border: '1px solid hsl(270 40% 60% / 0.35)', backgroundColor: 'hsl(270 55% 60% / 0.08)' }}>
-          <span className="text-[9px] uppercase tracking-wider select-none" style={{ color: 'var(--text-tertiary)' }}>View</span>
+        <span className="flex items-center gap-1 rounded-lg px-1.5 py-1" style={CLUSTER.view}>
+          <span className={CLUSTER_LABEL} style={{ color: 'var(--text-tertiary)' }}>View</span>
           <button onClick={toggleBoardView}
             className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${boardView ? "bg-blue-100 text-blue-700" : ""}`}
             style={!boardView ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}
@@ -811,8 +812,8 @@ export default function Bucket() {
       </div>
 
       {/* Filter cluster — group chips */}
-      <div className="flex gap-1 items-center flex-wrap mt-1.5 rounded-lg px-1.5 py-1" style={{ border: '1px solid hsl(40 55% 50% / 0.35)', backgroundColor: 'hsl(40 65% 55% / 0.08)' }}>
-        <span className="text-[9px] uppercase tracking-wider select-none" style={{ color: 'var(--text-tertiary)' }}>Filter</span>
+      <div className="flex gap-1 items-center flex-wrap mt-1.5 rounded-lg px-1.5 py-1" style={CLUSTER.filter}>
+        <span className={CLUSTER_LABEL} style={{ color: 'var(--text-tertiary)' }}>Filter</span>
         <button onClick={() => setFilterGroup(null)}
           className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
             !filterGroup ? "bg-blue-100 text-blue-700" : ""

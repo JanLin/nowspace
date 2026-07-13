@@ -7,6 +7,7 @@ import {
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
 import { normTime } from "../timefmt";
+import { CLUSTER, CLUSTER_LABEL } from "../clusters";
 
 /* Where the time goes: month log, per-area/company/sub-project sums, and a
    per-day invoice summary per company. Filtering mirrors the Plan tab
@@ -428,6 +429,8 @@ export default function TimeTab() {
 
       {/* Month nav + filters (same chips as the Plan tab) */}
       <div className="flex items-center gap-2 flex-wrap">
+        <span className="flex items-center gap-1.5 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.view}>
+        <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>View</span>
         <div className="flex items-center gap-0.5 rounded-md p-0.5" style={{ backgroundColor: "var(--bg-tertiary)" }}>
           {(["week", "month", "custom"] as const).map((m) => (
             <button key={m} onClick={() => setMode(m)}
@@ -452,8 +455,11 @@ export default function TimeTab() {
               className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
           </>
         )}
-        <span className="w-px h-4 bg-gray-200" />
-        {ctxEnabled && allContextNames(ctxMap, ctxTags).filter((n) =>
+        </span>
+        {ctxEnabled && (
+        <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.tag}>
+        <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Tag</span>
+        {allContextNames(ctxMap, ctxTags).filter((n) =>
           ["work", "volunteer", "personal"].includes(n) || ctxSel.includes(n) ||
           entries.some((e) => resolveContext(`${parseEntry(e.text).company}: x`, ctxMap, ctxTags) === n)
         ).map((name) => {
@@ -466,18 +472,21 @@ export default function TimeTab() {
             </button>
           );
         })}
-        {ctxEnabled && (
           <button onClick={() => { setCtxSelState([]); saveCtxSelection([]); }}
             className={`px-2 py-0.5 rounded text-xs font-medium ${ctxSel.length === 0 ? "bg-gray-200 text-gray-700" : ""}`}
             style={ctxSel.length !== 0 ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}>
             All
           </button>
+        </span>
         )}
+        <span className="flex items-center gap-1 rounded-lg px-1.5 py-1" style={CLUSTER.filter}>
+        <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Filter</span>
         <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}
           className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "none" }}>
           <option value="">All companies</option>
           {companies.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+        </span>
       </div>
 
       {/* Sums */}
