@@ -195,7 +195,19 @@ export default function Bucket() {
     idx: number; group: string; links: TaskLink[];
     pos: { top: number; left: number };
   } | null>(null);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Groups collapse by default (accordion, like the bucket panel) so the
+  // tab isn't one endless list; the expanded set persists across visits.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    try { return new Set<string>(JSON.parse(localStorage.getItem("bucket-expanded-groups") || "[]")); }
+    catch { return new Set<string>(); }
+  });
+  const persistExpanded = (s: Set<string>) => {
+    try { localStorage.setItem("bucket-expanded-groups", JSON.stringify([...s])); } catch { /* private mode */ }
+    return s;
+  };
+  const isGroupCollapsed = (name: string) => !expandedGroups.has(name);
+  const expandGroup = (name: string) =>
+    setExpandedGroups((prev) => persistExpanded(new Set(prev).add(name)));
   const [noteEditor, setNoteEditor] = useState<{ path: string; name: string } | null>(null);
   const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
   const vaultBrowserStateRef = useRef<VaultBrowserState | null>(null);
@@ -407,6 +419,7 @@ export default function Bucket() {
     const next = [...tasks];
     next.splice(insertAfter + 1, 0, newTask);
     updateTasks(next);
+    if (canonical && isGroupCollapsed(canonical)) expandGroup(canonical);
   };
 
   const deleteTask = (idx: number) => {
@@ -638,9 +651,7 @@ export default function Bucket() {
     updateTasks(next);
 
     // Expand the group if collapsed
-    if (collapsedGroups.has(groupName)) {
-      setCollapsedGroups((prev) => { const n = new Set(prev); n.delete(groupName); return n; });
-    }
+    if (isGroupCollapsed(groupName)) expandGroup(groupName);
 
     dragRef.current = null; setDropTarget(null); setDropGroupTarget(null);
   };
@@ -660,16 +671,16 @@ export default function Bucket() {
   /* ── group collapse ──────────────────────────────────── */
 
   const toggleCollapseGroup = (name: string) => {
-    setCollapsedGroups((prev) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name); else next.add(name);
-      return next;
+      return persistExpanded(next);
     });
   };
 
-  const collapseAll = () => setCollapsedGroups(new Set(allGroups.keys()));
-  const expandAll = () => setCollapsedGroups(new Set());
-  const allCollapsed = collapsedGroups.size > 0 && collapsedGroups.size >= allGroups.size;
+  const collapseAll = () => setExpandedGroups(persistExpanded(new Set()));
+  const expandAll = () => setExpandedGroups(persistExpanded(new Set(allGroups.keys())));
+  const allCollapsed = expandedGroups.size === 0;
 
   const sortedGroups = [...allGroups.entries()].sort((a, b) => {
     const aPin = data.pinned_groups.includes(a[0]) ? 0 : 1;
@@ -961,12 +972,12 @@ export default function Bucket() {
                 onDragLeave={() => setDropGroupTarget(null)}
                 onDrop={(e) => { e.preventDefault(); handleDropOnGroup(section.name); }}
                 style={{ color: section.name ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
-                <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{collapsedGroups.has(section.name) ? "▸" : "▾"}</span> {displayName}
+                <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{isGroupCollapsed(section.name) ? "▸" : "▾"}</span> {displayName}
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>({section.items.length})</span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (collapsedGroups.has(section.name)) toggleCollapseGroup(section.name);
+                    if (isGroupCollapsed(section.name)) expandGroup(section.name);
                     const last = section.items[section.items.length - 1];
                     setAddingAt({ afterIdx: last ? last.originalIdx : tasks.length - 1, group: section.name || undefined });
                   }}
@@ -978,7 +989,7 @@ export default function Bucket() {
                 </button>
               </div>
             )}
-            {!collapsedGroups.has(section.name) && (
+            {!isGroupCollapsed(section.name) && (
             <div className={showHeader ? "ml-4 border-l-2 pl-2" : ""} style={showHeader ? { borderColor: 'var(--border)' } : undefined}>
               {section.items.map(({ task, originalIdx, label }) => {
                 const taskLinks = extractLinks(label);
