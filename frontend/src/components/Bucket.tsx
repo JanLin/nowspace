@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import TaskCheck from "./TaskCheck";
+import { groupAccent } from "../groupColor";
 import NoteFilePicker from "./NoteFilePicker";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
@@ -679,7 +680,7 @@ export default function Bucket() {
   };
 
   const collapseAll = () => setExpandedGroups(persistExpanded(new Set()));
-  const expandAll = () => setExpandedGroups(persistExpanded(new Set(allGroups.keys())));
+  const expandAll = () => setExpandedGroups(persistExpanded(new Set(["", ...allGroups.keys()])));
   const allCollapsed = expandedGroups.size === 0;
 
   const sortedGroups = [...allGroups.entries()].sort((a, b) => {
@@ -820,9 +821,10 @@ export default function Bucket() {
         {sortedGroups.map(([name, count]) => (
           <div key={name} className="flex items-center gap-0.5">
             <button onClick={() => setFilterGroup(filterGroup === name ? null : name)}
-              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1 ${
                 filterGroup === name ? "bg-blue-100 text-blue-700" : ""
               }`} style={filterGroup !== name ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: groupAccent(name).dot }} />
               {name} <span className="text-[10px] opacity-60">({count})</span>
             </button>
             <button onClick={() => togglePin(name)} title={data.pinned_groups.includes(name) ? "Unpin" : "Pin"}
@@ -970,14 +972,18 @@ export default function Bucket() {
           return (
           <div key={`${displayName}-${si}`}>
             {showHeader && (
-              <div className={`group text-xs font-semibold tracking-wide px-1 py-1 flex items-center gap-1 relative cursor-pointer select-none transition-colors ${
-                dropGroupTarget === section.name ? "bg-blue-100 rounded" : ""
+              <div className={`group text-xs font-semibold tracking-wide px-1.5 py-1 flex items-center gap-1 relative cursor-pointer select-none transition-colors rounded ${
+                dropGroupTarget === section.name ? "bg-blue-100" : ""
               }`}
                 onClick={() => toggleCollapseGroup(section.name)}
                 onDragOver={(e) => handleDragOverGroup(e, section.name)}
                 onDragLeave={() => setDropGroupTarget(null)}
                 onDrop={(e) => { e.preventDefault(); handleDropOnGroup(section.name); }}
-                style={{ color: section.name ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                style={{
+                  color: section.name ? 'var(--text-secondary)' : 'var(--text-tertiary)',
+                  ...(dropGroupTarget === section.name ? {} : { backgroundColor: groupAccent(section.name).bg }),
+                  boxShadow: `inset 3px 0 0 ${groupAccent(section.name).border}`,
+                }}>
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{isGroupCollapsed(section.name) ? "▸" : "▾"}</span> {displayName}
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>({section.items.length})</span>
                 <button
@@ -996,7 +1002,7 @@ export default function Bucket() {
               </div>
             )}
             {!isGroupCollapsed(section.name) && (
-            <div className={showHeader ? "ml-4 border-l-2 pl-2" : ""} style={showHeader ? { borderColor: 'var(--border)' } : undefined}>
+            <div className={showHeader ? "ml-4 border-l-2 pl-2" : ""} style={showHeader ? { borderColor: groupAccent(section.name).border } : undefined}>
               {section.items.map(({ task, originalIdx, label }) => {
                 const taskLinks = extractLinks(label);
                 const hasLinks = taskLinks.length > 0;

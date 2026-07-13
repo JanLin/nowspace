@@ -5,6 +5,7 @@ import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import TaskCheck from "./TaskCheck";
+import { groupAccent } from "../groupColor";
 import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
@@ -4162,14 +4163,15 @@ export default function WeekPlan() {
                 <div key={`bg-${si}-${displayName}`} className="mb-0.5">
                   <button
                     onClick={() => toggleBucketGroup(section.name)}
-                    className="w-full flex items-center gap-1 py-1 px-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-white rounded transition-colors"
+                    className="w-full flex items-center gap-1 py-1 px-2 text-xs font-medium text-gray-500 hover:text-gray-700 rounded transition-colors"
+                    style={{ backgroundColor: groupAccent(section.name).bg, boxShadow: `inset 3px 0 0 ${groupAccent(section.name).border}` }}
                   >
                     <span className="text-[10px]">{isExpanded ? "▾" : "▸"}</span>
                     <span>{displayName}</span>
                     <span className="text-[10px] text-gray-400">({section.items.length})</span>
                   </button>
                   {isExpanded && (
-                    <div className="ml-3 border-l border-gray-200 pl-1">
+                    <div className="ml-3 border-l pl-1" style={{ borderColor: groupAccent(section.name).border }}>
                       {section.items.map(({ task, idx, label }) => renderBucketItem(task, idx, label))}
                       {bucketAddingGroup === section.name ? (
                         <input
