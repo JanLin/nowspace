@@ -1106,6 +1106,13 @@ export default function WeekPlan() {
   // today in week views.
   const carryTargetIdx = viewMode === "day" ? selectedDayIdx : todayIdx;
   const carryTargetLabel = DAY_LABELS[data?.days[carryTargetIdx]?.day || ""] || "today";
+
+  // How far the carry panel looks for open tasks: everything before the day
+  // being planned — so planning tomorrow tonight (or a day in a future week)
+  // includes today and earlier days, not just "before today".
+  const carryCutoffIdx = weekOffset === 0
+    ? (viewMode === "day" ? Math.max(selectedDayIdx, todayIdx) : todayIdx)
+    : (viewMode === "day" ? selectedDayIdx : 0);
   useEffect(() => {
     const d = data?.days[carryTargetIdx]?.day;
     if (d) setCarryDaySel(d);
@@ -2705,10 +2712,10 @@ export default function WeekPlan() {
     ? visibleDays.reduce((sum, di) => sum + data.days[di].tasks.filter((t) => t.done && taskVisibleInMode(t.text)).length, 0)
     : 0;
 
-  // Daily carry count: open tasks from days before today (current week only),
+  // Daily carry count: open tasks from days before the carry cutoff,
   // counting only tasks visible in the active context mode
-  const dailyCarryCount = data && weekOffset === 0 && todayIdx > 0
-    ? data.days.slice(0, todayIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done && taskVisibleInMode(t.text)).length, 0)
+  const dailyCarryCount = data && weekOffset >= 0 && carryCutoffIdx > 0
+    ? data.days.slice(0, carryCutoffIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done && taskVisibleInMode(t.text)).length, 0)
     : 0;
 
   // --- Day view renderer ---
@@ -3834,11 +3841,11 @@ export default function WeekPlan() {
           }`}>{"\uD83D\uDCC1"}</div>
         </div>
 
-        {/* Daily carry — open tasks from days before today */}
-        {dailyCarryCount > 0 && (
+        {/* Daily carry — open tasks from days before the planned day */}
+        {weekOffset >= 0 && (
           <div
             className={`relative cursor-pointer transition-all duration-200 hover:scale-105`}
-            title={`${dailyCarryCount} open tasks from before today`}
+            title={dailyCarryCount > 0 ? `${dailyCarryCount} open tasks from earlier days` : "Carry forward — pull open tasks into the day you're planning"}
             onClick={() => {
               const opening = !dailyCarryOpen;
               setDailyCarryOpen(opening);
@@ -3848,7 +3855,7 @@ export default function WeekPlan() {
             <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg shadow-md border-2 transition-colors ${
               dailyCarryOpen ? "bg-purple-200 border-purple-500" : "bg-white border-gray-200 hover:border-purple-300"
             }`}>⏩</div>
-            <span className="absolute -top-1 -right-1 bg-purple-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+            <span className={`absolute -top-1 -right-1 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center ${dailyCarryCount > 0 ? "bg-purple-500" : "bg-gray-300"}`}>
               {dailyCarryCount > 99 ? "99+" : dailyCarryCount}
             </span>
           </div>
@@ -4085,7 +4092,13 @@ export default function WeekPlan() {
                   {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
                   {label}
                 </span>
-                <span className="text-[10px] text-gray-300 opacity-0 group-hover/bt:opacity-100 shrink-0">drag →</span>
+                <button
+                  onClick={() => pullFromBucket(idx, carryTargetIdx)}
+                  className="text-[10px] text-purple-400 hover:text-purple-700 opacity-0 group-hover/bt:opacity-100 shrink-0 transition-opacity"
+                  title={`Add to ${carryTargetLabel} (drag also works)`}
+                >
+                  → {carryTargetLabel}
+                </button>
               </div>
             );
 
@@ -4285,24 +4298,36 @@ export default function WeekPlan() {
       </div>
     )}
     {/* Daily carry side panel (right, matching carry-forward style) */}
-    {dailyCarryOpen && data && weekOffset === 0 && todayIdx > 0 && (
+    {dailyCarryOpen && data && weekOffset >= 0 && (
       <div className={sheetClass("md:w-72")} style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <SheetGrip />
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
-            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Before Today ({dailyCarryCount})</h3>
-            <p className="text-[10px] text-gray-500">Open tasks from {DAY_LABELS[data.days[0]?.day] || "Mon"}–{DAY_LABELS[data.days[todayIdx - 1]?.day] || ""}</p>
+            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({dailyCarryCount})</h3>
+            <p className="text-[10px] text-gray-500">
+              {carryCutoffIdx > 0
+                ? `Open tasks from ${DAY_LABELS[data.days[0]?.day] || "Mon"}–${DAY_LABELS[data.days[carryCutoffIdx - 1]?.day] || ""} → ${carryTargetLabel}`
+                : "Nothing earlier in this week"}
+            </p>
           </div>
           <button onClick={() => setDailyCarryOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
         </div>
         <div className="p-2 space-y-0.5">
           {dailyCarryCount === 0 && (
-            <p className="text-xs text-gray-400 text-center py-4">No open tasks from before today</p>
+            <div className="text-center py-4 space-y-2">
+              <p className="text-xs text-gray-400">No open tasks from earlier days</p>
+              <button
+                onClick={() => { setDailyCarryOpen(false); openCarryForward(); }}
+                className="px-2 py-1 rounded bg-purple-600 text-white text-[10px] font-medium hover:bg-purple-700 transition-colors"
+              >
+                ⏪ Pull from the week before →
+              </button>
+            </div>
           )}
           {(() => {
             // Collect open tasks from days before today, grouped by day then by group
             const items: { dayIdx: number; dayName: string; taskIdx: number; task: Task; group: string; label: string }[] = [];
-            for (let di = 0; di < todayIdx; di++) {
+            for (let di = 0; di < carryCutoffIdx; di++) {
               const prevDay = data.days[di];
               if (!prevDay) continue;
               const dayLabel = DAY_LABELS[prevDay.day] || prevDay.day;
@@ -4394,13 +4419,13 @@ export default function WeekPlan() {
         {dailyCarryCount > 0 && (
           <div className="p-2 border-t border-gray-200 flex flex-col gap-1.5 sticky bottom-0" style={{ backgroundColor: "var(--bg-secondary)" }}>
             <button
-              onClick={() => { carryAllFromPreviousDays(todayIdx, carryTargetIdx); setDailyCarryOpen(false); }}
+              onClick={() => { carryAllFromPreviousDays(carryCutoffIdx, carryTargetIdx); setDailyCarryOpen(false); }}
               className="w-full px-2 py-1.5 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 transition-colors"
             >
               Move all to {carryTargetLabel} →
             </button>
             <button
-              onClick={() => { earlierDaysToBucket(todayIdx); setDailyCarryOpen(false); }}
+              onClick={() => { earlierDaysToBucket(carryCutoffIdx); setDailyCarryOpen(false); }}
               className="w-full px-2 py-1 bg-amber-500 text-white rounded text-[10px] font-medium hover:bg-amber-600 transition-colors"
             >
               🪣 All to Bucket
