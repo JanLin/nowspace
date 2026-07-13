@@ -5,6 +5,7 @@ import NotesPanel from "./NotesPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import TaskCheck from "./TaskCheck";
+import { CLUSTER, CLUSTER_LABEL } from "../clusters";
 import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
@@ -414,6 +415,8 @@ export default function WeekPlan() {
   const [bucketOpen, setBucketOpen] = useState(false);
   const [bucketTasks, setBucketTasks] = useState<import("../api").BucketTask[]>([]);
   const [bucketExpandedGroups, setBucketExpandedGroups] = useState<Set<string>>(new Set());
+  const [bucketQuickAddText, setBucketQuickAddText] = useState("");
+  const [bucketAddingGroup, setBucketAddingGroup] = useState<string | null>(null);
   const bucketDragRef = useRef<{ bucketIdx: number } | null>(null);
 
   // Carry forward
@@ -785,6 +788,41 @@ export default function WeekPlan() {
       setError(e instanceof Error ? e.message : "Failed to carry forward");
     }
     setCarryLoading(false);
+  };
+
+  // Quick capture into the bucket from the panel: "Group: task" reuses an
+  // existing group's casing and keeps the group contiguous.
+  const addToBucket = async (raw: string, fixedGroup?: string) => {
+    const text = raw.trim();
+    if (!text) return;
+    try {
+      const current = await api.getBucket();
+      const parsed = fixedGroup ? { group: fixedGroup, label: text } : parseGroup(text);
+      let canonical = parsed.group;
+      if (parsed.group) {
+        const existing = current.tasks.map((bt) => parseGroup(bt.text).group)
+          .find((g) => g && g.toLowerCase() === parsed.group.toLowerCase());
+        if (existing) canonical = existing;
+      }
+      const newTask = {
+        text: canonical ? `${canonical}: ${parsed.label}` : text,
+        priority: "C", focused: false, waiting: false, subtasks: [],
+      };
+      let insertAfter = current.tasks.length - 1;
+      if (canonical) {
+        for (let i = current.tasks.length - 1; i >= 0; i--) {
+          if (parseGroup(current.tasks[i].text).group.toLowerCase() === canonical.toLowerCase()) { insertAfter = i; break; }
+        }
+      }
+      const next = [...current.tasks];
+      next.splice(insertAfter + 1, 0, newTask);
+      await api.saveBucket(next, current.pinned_groups);
+      refreshBucket();
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+      if (canonical) setBucketExpandedGroups((prev) => new Set(prev).add(canonical));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add to bucket");
+    }
   };
 
   const carryAllToBucket = async () => {
@@ -3309,7 +3347,8 @@ export default function WeekPlan() {
               {/* Context filter — toggleable chips, combine freely; only when contexts are configured.
                   Core three always show; custom contexts only when present in this week or selected. */}
               {ctxEnabled && (
-                <>
+                <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.tag}>
+                  <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Tag</span>
                   {allContextNames(ctxMap, ctxTags).filter((name) => {
                     if (["work", "volunteer", "personal"].includes(name)) return true;
                     if (ctxSel.includes(name)) return true;
@@ -3336,10 +3375,11 @@ export default function WeekPlan() {
                   >
                     All
                   </button>
-                  <span className="w-px h-4 bg-gray-200" />
-                </>
+                </span>
               )}
-              {/* Group toggle */}
+              {/* Filter cluster: grouping, group dropdown, done visibility */}
+              <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.filter}>
+              <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Filter</span>
               <button
                 onClick={() => setGroupView(!groupView)}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
@@ -3378,9 +3418,11 @@ export default function WeekPlan() {
                 </button>
               )}
 
-              <span className="w-px h-4 bg-gray-200" />
+              </span>
 
-              {/* View mode toggles — Day with day picker */}
+              {/* View cluster — layout modes */}
+              <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.view}>
+              <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>View</span>
               <button
                 onClick={() => setViewMode("day")}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
@@ -3402,6 +3444,7 @@ export default function WeekPlan() {
                   {mode === "3day" ? "3 Day" : mode === "5day" ? "Mon-Fri" : mode === "7day" ? "Full week" : "Weekend"}
                 </button>
               ))}
+              </span>
               {/* Pin/unpin toggle */}
               <button
                 onClick={() => setPinFilters(!pinFilters)}
@@ -4048,6 +4091,18 @@ export default function WeekPlan() {
           <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>🪣 Bucket ({bucketTasks.length})</h3>
           <button onClick={() => setBucketOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
         </div>
+        <div className="px-2 pt-2">
+          <input
+            value={bucketQuickAddText}
+            onChange={(e) => setBucketQuickAddText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && bucketQuickAddText.trim()) { addToBucket(bucketQuickAddText); setBucketQuickAddText(""); }
+            }}
+            placeholder={'Add — "Group: task"'}
+            className="w-full text-xs px-2 py-1 rounded outline-none focus:ring-1 focus:ring-blue-400"
+            style={{ background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+          />
+        </div>
         <div className="p-2 space-y-0.5">
           {bucketTasks.length === 0 && (
             <p className="text-xs text-gray-400 text-center py-4">Empty — drag tasks here to defer</p>
@@ -4122,6 +4177,30 @@ export default function WeekPlan() {
                   {isExpanded && (
                     <div className="ml-3 border-l border-gray-200 pl-1">
                       {section.items.map(({ task, idx, label }) => renderBucketItem(task, idx, label))}
+                      {bucketAddingGroup === section.name ? (
+                        <input
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const v = (e.target as HTMLInputElement).value.trim();
+                              if (v) addToBucket(v, section.name || undefined);
+                              setBucketAddingGroup(null);
+                            }
+                            if (e.key === "Escape") setBucketAddingGroup(null);
+                          }}
+                          onBlur={() => setBucketAddingGroup(null)}
+                          placeholder={`Add to ${displayName}...`}
+                          className="w-full text-xs px-2 py-1 my-0.5 rounded outline-none focus:ring-1 focus:ring-blue-400"
+                          style={{ background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+                        />
+                      ) : (
+                        <button
+                          onClick={() => setBucketAddingGroup(section.name)}
+                          className="text-[10px] text-gray-400 hover:text-blue-500 py-0.5 px-2"
+                        >
+                          + add
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

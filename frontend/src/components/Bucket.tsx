@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import TaskCheck from "./TaskCheck";
+import { CLUSTER, CLUSTER_LABEL } from "../clusters";
 import NoteFilePicker from "./NoteFilePicker";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
@@ -182,6 +183,7 @@ export default function Bucket() {
   const [filedNext, setFiledNext] = useState<string[]>([]);
   const [pinFilters, setPinFilters] = useState(true);
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
+  const [quickAddText, setQuickAddText] = useState("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
   const [dayPicker, setDayPicker] = useState<number | null>(null);
   const [groupPicker, setGroupPicker] = useState<number | null>(null);
@@ -194,7 +196,19 @@ export default function Bucket() {
     idx: number; group: string; links: TaskLink[];
     pos: { top: number; left: number };
   } | null>(null);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Groups collapse by default (accordion, like the bucket panel) so the
+  // tab isn't one endless list; the expanded set persists across visits.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    try { return new Set<string>(JSON.parse(localStorage.getItem("bucket-expanded-groups") || "[]")); }
+    catch { return new Set<string>(); }
+  });
+  const persistExpanded = (s: Set<string>) => {
+    try { localStorage.setItem("bucket-expanded-groups", JSON.stringify([...s])); } catch { /* private mode */ }
+    return s;
+  };
+  const isGroupCollapsed = (name: string) => !expandedGroups.has(name);
+  const expandGroup = (name: string) =>
+    setExpandedGroups((prev) => persistExpanded(new Set(prev).add(name)));
   const [noteEditor, setNoteEditor] = useState<{ path: string; name: string } | null>(null);
   const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
   const vaultBrowserStateRef = useRef<VaultBrowserState | null>(null);
@@ -378,6 +392,35 @@ export default function Bucket() {
     next.splice(afterIdx + 1, 0, newTask);
     updateTasks(next);
     setAddingAt(null);
+  };
+
+  // Quick-add from the top bar: "Group: task" files under that group,
+  // reusing an existing group's casing; plain text lands un-grouped.
+  const quickAdd = (raw: string) => {
+    const text = raw.trim();
+    if (!text) return;
+    const { group, label } = parseGroup(text);
+    let canonical = group;
+    if (group) {
+      const existing = tasks.map((t) => parseGroup(t.text).group)
+        .find((g) => g && g.toLowerCase() === group.toLowerCase());
+      if (existing) canonical = existing;
+    }
+    const newTask: BucketTask = {
+      text: canonical ? `${canonical}: ${label}` : text,
+      priority: "C", focused: false, waiting: false, subtasks: [],
+    };
+    // Keep groups contiguous: insert after the group's last task
+    let insertAfter = tasks.length - 1;
+    if (canonical) {
+      for (let i = tasks.length - 1; i >= 0; i--) {
+        if (parseGroup(tasks[i].text).group.toLowerCase() === canonical.toLowerCase()) { insertAfter = i; break; }
+      }
+    }
+    const next = [...tasks];
+    next.splice(insertAfter + 1, 0, newTask);
+    updateTasks(next);
+    if (canonical && isGroupCollapsed(canonical)) expandGroup(canonical);
   };
 
   const deleteTask = (idx: number) => {
@@ -609,9 +652,7 @@ export default function Bucket() {
     updateTasks(next);
 
     // Expand the group if collapsed
-    if (collapsedGroups.has(groupName)) {
-      setCollapsedGroups((prev) => { const n = new Set(prev); n.delete(groupName); return n; });
-    }
+    if (isGroupCollapsed(groupName)) expandGroup(groupName);
 
     dragRef.current = null; setDropTarget(null); setDropGroupTarget(null);
   };
@@ -631,16 +672,16 @@ export default function Bucket() {
   /* ── group collapse ──────────────────────────────────── */
 
   const toggleCollapseGroup = (name: string) => {
-    setCollapsedGroups((prev) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name); else next.add(name);
-      return next;
+      return persistExpanded(next);
     });
   };
 
-  const collapseAll = () => setCollapsedGroups(new Set(allGroups.keys()));
-  const expandAll = () => setCollapsedGroups(new Set());
-  const allCollapsed = collapsedGroups.size > 0 && collapsedGroups.size >= allGroups.size;
+  const collapseAll = () => setExpandedGroups(persistExpanded(new Set()));
+  const expandAll = () => setExpandedGroups(persistExpanded(new Set(["", ...allGroups.keys()])));
+  const allCollapsed = expandedGroups.size === 0;
 
   const sortedGroups = [...allGroups.entries()].sort((a, b) => {
     const aPin = data.pinned_groups.includes(a[0]) ? 0 : 1;
@@ -728,10 +769,12 @@ export default function Bucket() {
       {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
       <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { background: 'var(--bg)', borderColor: 'var(--border)' } : undefined}>
-      <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-        <span className="whitespace-nowrap">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""} in bucket{ctxEnabled && ctxSel.length > 0 ? ` (${ctxSel.join(" + ")})` : ""}</span>
+      {/* Toolbar — three labeled clusters: Tag / View / Filter */}
+      <div className="flex items-start flex-wrap gap-x-2 gap-y-1.5 text-xs pr-6" style={{ color: 'var(--text-secondary)' }}>
+        <span className="whitespace-nowrap py-1.5">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""}</span>
         {ctxEnabled && (
-          <span className="flex gap-0.5">
+          <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.tag}>
+            <span className={CLUSTER_LABEL} style={{ color: 'var(--text-tertiary)' }}>Tag</span>
             {allContextNames(ctxMap, ctxTags).filter((name) => {
               if (["work", "volunteer", "personal"].includes(name)) return true;
               if (ctxSel.includes(name)) return true;
@@ -753,20 +796,24 @@ export default function Bucket() {
             </button>
           </span>
         )}
-        <button onClick={allCollapsed ? expandAll : collapseAll}
-          className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
-          {allCollapsed ? "Expand all" : "Collapse all"}
-        </button>
-        <button onClick={toggleBoardView}
-          className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${boardView ? "bg-blue-100 text-blue-700" : ""}`}
-          style={!boardView ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}
-          title="GTD board: file tasks into This week / Next week / This month / Backlog">
-          {boardView ? "List" : "Board"}
-        </button>
+        <span className="flex items-center gap-1 rounded-lg px-1.5 py-1" style={CLUSTER.view}>
+          <span className={CLUSTER_LABEL} style={{ color: 'var(--text-tertiary)' }}>View</span>
+          <button onClick={toggleBoardView}
+            className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${boardView ? "bg-blue-100 text-blue-700" : ""}`}
+            style={!boardView ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}
+            title="GTD board: file tasks into This week / Next week / This month / Backlog">
+            {boardView ? "List" : "Board"}
+          </button>
+          <button onClick={allCollapsed ? expandAll : collapseAll}
+            className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+            {allCollapsed ? "Expand all" : "Collapse all"}
+          </button>
+        </span>
       </div>
 
-      {/* Group filter bar */}
-      <div className="flex gap-1 items-center flex-wrap">
+      {/* Filter cluster — group chips */}
+      <div className="flex gap-1 items-center flex-wrap mt-1.5 rounded-lg px-1.5 py-1" style={CLUSTER.filter}>
+        <span className={CLUSTER_LABEL} style={{ color: 'var(--text-tertiary)' }}>Filter</span>
         <button onClick={() => setFilterGroup(null)}
           className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
             !filterGroup ? "bg-blue-100 text-blue-700" : ""
@@ -897,6 +944,26 @@ export default function Bucket() {
       {/* Tasks + side panels: flex layout */}
       <div className={`flex gap-0 items-start ${boardView ? "hidden" : ""}`}>
       <div className={`space-y-2 ${vaultBrowserOpen ? "flex-1 min-w-0" : "max-w-2xl w-full"}`}>
+        {/* Quick add — "Group: task" files it under that group */}
+        <div className="flex items-center gap-1.5">
+          <input
+            value={quickAddText}
+            onChange={(e) => setQuickAddText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && quickAddText.trim()) { quickAdd(quickAddText); setQuickAddText(""); } }}
+            placeholder={'Add task — "Group: task" files it under the group'}
+            className="flex-1 min-w-0 text-sm px-2.5 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-blue-400"
+            style={{ background: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
+          />
+          <button
+            onClick={() => { if (quickAddText.trim()) { quickAdd(quickAddText); setQuickAddText(""); } }}
+            disabled={!quickAddText.trim()}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 shrink-0"
+            style={{ backgroundColor: "var(--accent)" }}
+            title="Add to bucket"
+          >
+            ＋
+          </button>
+        </div>
         {sections.map((section, si) => {
           const displayName = section.name || "Un-grouped";
           const hasMultipleSections = sections.length > 1;
@@ -904,7 +971,7 @@ export default function Bucket() {
           return (
           <div key={`${displayName}-${si}`}>
             {showHeader && (
-              <div className={`text-xs font-semibold tracking-wide px-1 py-1 flex items-center gap-1 relative cursor-pointer select-none transition-colors ${
+              <div className={`group text-xs font-semibold tracking-wide px-1 py-1 flex items-center gap-1 relative cursor-pointer select-none transition-colors ${
                 dropGroupTarget === section.name ? "bg-blue-100 rounded" : ""
               }`}
                 onClick={() => toggleCollapseGroup(section.name)}
@@ -912,11 +979,24 @@ export default function Bucket() {
                 onDragLeave={() => setDropGroupTarget(null)}
                 onDrop={(e) => { e.preventDefault(); handleDropOnGroup(section.name); }}
                 style={{ color: section.name ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
-                <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{collapsedGroups.has(section.name) ? "▸" : "▾"}</span> {displayName}
+                <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{isGroupCollapsed(section.name) ? "▸" : "▾"}</span> {displayName}
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>({section.items.length})</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isGroupCollapsed(section.name)) expandGroup(section.name);
+                    const last = section.items[section.items.length - 1];
+                    setAddingAt({ afterIdx: last ? last.originalIdx : tasks.length - 1, group: section.name || undefined });
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-[11px] px-1 rounded transition-opacity"
+                  style={{ color: 'var(--text-secondary)' }}
+                  title={`Add task to ${displayName}`}
+                >
+                  ＋
+                </button>
               </div>
             )}
-            {!collapsedGroups.has(section.name) && (
+            {!isGroupCollapsed(section.name) && (
             <div className={showHeader ? "ml-4 border-l-2 pl-2" : ""} style={showHeader ? { borderColor: 'var(--border)' } : undefined}>
               {section.items.map(({ task, originalIdx, label }) => {
                 const taskLinks = extractLinks(label);
@@ -1144,9 +1224,9 @@ export default function Bucket() {
 
         {/* Add task at bottom */}
         {!addingAt ? (
-          <button onDoubleClick={() => setAddingAt({ afterIdx: tasks.length - 1 })}
+          <button onClick={() => setAddingAt({ afterIdx: tasks.length - 1 })}
             className="w-full text-left text-sm py-2 px-2" style={{ color: 'var(--text-tertiary)' }}>
-            + Add task (double-click)
+            + Add task
           </button>
         ) : !sections.some(s => s.items.some(({ originalIdx }) => originalIdx === addingAt.afterIdx)) && (
           <div className="py-1 px-2">
