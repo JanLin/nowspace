@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import TaskCheck from "./TaskCheck";
-import { groupAccent } from "../groupColor";
 import NoteFilePicker from "./NoteFilePicker";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
@@ -773,7 +772,7 @@ export default function Bucket() {
       <div className="flex items-start flex-wrap gap-x-2 gap-y-1.5 text-xs pr-6" style={{ color: 'var(--text-secondary)' }}>
         <span className="whitespace-nowrap py-1.5">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""}</span>
         {ctxEnabled && (
-          <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>
+          <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={{ border: '1px solid hsl(215 45% 55% / 0.35)', backgroundColor: 'hsl(215 60% 55% / 0.08)' }}>
             <span className="text-[9px] uppercase tracking-wider select-none" style={{ color: 'var(--text-tertiary)' }}>Tag</span>
             {allContextNames(ctxMap, ctxTags).filter((name) => {
               if (["work", "volunteer", "personal"].includes(name)) return true;
@@ -796,7 +795,7 @@ export default function Bucket() {
             </button>
           </span>
         )}
-        <span className="flex items-center gap-1 rounded-lg px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>
+        <span className="flex items-center gap-1 rounded-lg px-1.5 py-1" style={{ border: '1px solid hsl(270 40% 60% / 0.35)', backgroundColor: 'hsl(270 55% 60% / 0.08)' }}>
           <span className="text-[9px] uppercase tracking-wider select-none" style={{ color: 'var(--text-tertiary)' }}>View</span>
           <button onClick={toggleBoardView}
             className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${boardView ? "bg-blue-100 text-blue-700" : ""}`}
@@ -812,7 +811,7 @@ export default function Bucket() {
       </div>
 
       {/* Filter cluster — group chips */}
-      <div className="flex gap-1 items-center flex-wrap mt-1.5 rounded-lg px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>
+      <div className="flex gap-1 items-center flex-wrap mt-1.5 rounded-lg px-1.5 py-1" style={{ border: '1px solid hsl(40 55% 50% / 0.35)', backgroundColor: 'hsl(40 65% 55% / 0.08)' }}>
         <span className="text-[9px] uppercase tracking-wider select-none" style={{ color: 'var(--text-tertiary)' }}>Filter</span>
         <button onClick={() => setFilterGroup(null)}
           className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
@@ -821,10 +820,9 @@ export default function Bucket() {
         {sortedGroups.map(([name, count]) => (
           <div key={name} className="flex items-center gap-0.5">
             <button onClick={() => setFilterGroup(filterGroup === name ? null : name)}
-              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1 ${
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
                 filterGroup === name ? "bg-blue-100 text-blue-700" : ""
               }`} style={filterGroup !== name ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
-              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: groupAccent(name).dot }} />
               {name} <span className="text-[10px] opacity-60">({count})</span>
             </button>
             <button onClick={() => togglePin(name)} title={data.pinned_groups.includes(name) ? "Unpin" : "Pin"}
@@ -972,18 +970,14 @@ export default function Bucket() {
           return (
           <div key={`${displayName}-${si}`}>
             {showHeader && (
-              <div className={`group text-xs font-semibold tracking-wide px-1.5 py-1 flex items-center gap-1 relative cursor-pointer select-none transition-colors rounded ${
-                dropGroupTarget === section.name ? "bg-blue-100" : ""
+              <div className={`group text-xs font-semibold tracking-wide px-1 py-1 flex items-center gap-1 relative cursor-pointer select-none transition-colors ${
+                dropGroupTarget === section.name ? "bg-blue-100 rounded" : ""
               }`}
                 onClick={() => toggleCollapseGroup(section.name)}
                 onDragOver={(e) => handleDragOverGroup(e, section.name)}
                 onDragLeave={() => setDropGroupTarget(null)}
                 onDrop={(e) => { e.preventDefault(); handleDropOnGroup(section.name); }}
-                style={{
-                  color: section.name ? 'var(--text-secondary)' : 'var(--text-tertiary)',
-                  ...(dropGroupTarget === section.name ? {} : { backgroundColor: groupAccent(section.name).bg }),
-                  boxShadow: `inset 3px 0 0 ${groupAccent(section.name).border}`,
-                }}>
+                style={{ color: section.name ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{isGroupCollapsed(section.name) ? "▸" : "▾"}</span> {displayName}
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>({section.items.length})</span>
                 <button
@@ -1002,7 +996,7 @@ export default function Bucket() {
               </div>
             )}
             {!isGroupCollapsed(section.name) && (
-            <div className={showHeader ? "ml-4 border-l-2 pl-2" : ""} style={showHeader ? { borderColor: groupAccent(section.name).border } : undefined}>
+            <div className={showHeader ? "ml-4 border-l-2 pl-2" : ""} style={showHeader ? { borderColor: 'var(--border)' } : undefined}>
               {section.items.map(({ task, originalIdx, label }) => {
                 const taskLinks = extractLinks(label);
                 const hasLinks = taskLinks.length > 0;
