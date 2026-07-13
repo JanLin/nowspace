@@ -768,10 +768,12 @@ export default function Bucket() {
       {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
       <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { background: 'var(--bg)', borderColor: 'var(--border)' } : undefined}>
-      <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-        <span className="whitespace-nowrap">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""} in bucket{ctxEnabled && ctxSel.length > 0 ? ` (${ctxSel.join(" + ")})` : ""}</span>
+      {/* Toolbar — three labeled clusters: Tag / View / Filter */}
+      <div className="flex items-start flex-wrap gap-x-2 gap-y-1.5 text-xs pr-6" style={{ color: 'var(--text-secondary)' }}>
+        <span className="whitespace-nowrap py-1.5">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""}</span>
         {ctxEnabled && (
-          <span className="flex gap-0.5">
+          <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>
+            <span className="text-[9px] uppercase tracking-wider select-none" style={{ color: 'var(--text-tertiary)' }}>Tag</span>
             {allContextNames(ctxMap, ctxTags).filter((name) => {
               if (["work", "volunteer", "personal"].includes(name)) return true;
               if (ctxSel.includes(name)) return true;
@@ -793,20 +795,24 @@ export default function Bucket() {
             </button>
           </span>
         )}
-        <button onClick={allCollapsed ? expandAll : collapseAll}
-          className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
-          {allCollapsed ? "Expand all" : "Collapse all"}
-        </button>
-        <button onClick={toggleBoardView}
-          className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${boardView ? "bg-blue-100 text-blue-700" : ""}`}
-          style={!boardView ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}
-          title="GTD board: file tasks into This week / Next week / This month / Backlog">
-          {boardView ? "List" : "Board"}
-        </button>
+        <span className="flex items-center gap-1 rounded-lg px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>
+          <span className="text-[9px] uppercase tracking-wider select-none" style={{ color: 'var(--text-tertiary)' }}>View</span>
+          <button onClick={toggleBoardView}
+            className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${boardView ? "bg-blue-100 text-blue-700" : ""}`}
+            style={!boardView ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}
+            title="GTD board: file tasks into This week / Next week / This month / Backlog">
+            {boardView ? "List" : "Board"}
+          </button>
+          <button onClick={allCollapsed ? expandAll : collapseAll}
+            className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+            {allCollapsed ? "Expand all" : "Collapse all"}
+          </button>
+        </span>
       </div>
 
-      {/* Group filter bar */}
-      <div className="flex gap-1 items-center flex-wrap">
+      {/* Filter cluster — group chips */}
+      <div className="flex gap-1 items-center flex-wrap mt-1.5 rounded-lg px-1.5 py-1" style={{ border: '1px solid var(--border)' }}>
+        <span className="text-[9px] uppercase tracking-wider select-none" style={{ color: 'var(--text-tertiary)' }}>Filter</span>
         <button onClick={() => setFilterGroup(null)}
           className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
             !filterGroup ? "bg-blue-100 text-blue-700" : ""
