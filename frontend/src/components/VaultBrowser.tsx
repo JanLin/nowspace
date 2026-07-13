@@ -187,6 +187,18 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote }: Props) {
     setDropTarget(null);
   };
 
+  // Force-fetch a folder, updating both caches and (if it's the folder on
+  // screen) the visible listing. loadFolder() consults the cache through a
+  // stale closure, so after a mutation it must not be trusted to refetch.
+  const reloadFolder = async (path: string) => {
+    try {
+      const res = await api.vaultFolder(path || "");
+      setFolderCache(prev => new Map(prev).set(path, res.files));
+      setSubFiles(prev => (prev.has(path) ? new Map(prev).set(path, res.files) : prev));
+      if (path === currentFolder) setFiles(res.files);
+    } catch { /* keep old listing */ }
+  };
+
   const handleDrop = async (e: React.DragEvent, targetFolder: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -200,18 +212,10 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote }: Props) {
 
     try {
       await api.vaultMove(sourcePath, targetFolder);
-      // Clear cache for source and target folders to force refresh
-      setFolderCache(prev => {
-        const next = new Map(prev);
-        // Clear parent folder of source
-        const sourceParent = sourcePath.includes("/") ? sourcePath.substring(0, sourcePath.lastIndexOf("/")) : "";
-        next.delete(sourceParent);
-        next.delete(targetFolder);
-        return next;
-      });
-      // Reload current folder
-      setFolderCache(prev => { const n = new Map(prev); n.delete(currentFolder); return n; });
-      loadFolder(currentFolder);
+      // Refresh every listing the move touched: source's parent, the
+      // target, and whatever is on screen (incl. expanded subtrees).
+      const sourceParent = sourcePath.includes("/") ? sourcePath.substring(0, sourcePath.lastIndexOf("/")) : "";
+      await Promise.all([...new Set([sourceParent, targetFolder, currentFolder])].map(reloadFolder));
     } catch (err) {
       console.error("Move failed:", err);
     }
@@ -225,9 +229,8 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote }: Props) {
       setConfirmDelete(null);
       // Remove from pinned if it was pinned
       if (isPinned(path)) togglePin(path);
-      // Clear cache and reload
-      setFolderCache(prev => { const n = new Map(prev); n.delete(currentFolder); return n; });
-      loadFolder(currentFolder);
+      const parent = path.includes("/") ? path.substring(0, path.lastIndexOf("/")) : "";
+      await Promise.all([...new Set([parent, currentFolder])].map(reloadFolder));
     } catch (err) {
       console.error("Delete failed:", err);
     }
