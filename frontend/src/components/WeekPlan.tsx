@@ -806,7 +806,7 @@ export default function WeekPlan() {
       }
       const newTask = {
         text: canonical ? `${canonical}: ${parsed.label}` : text,
-        priority: "C", focused: false, waiting: false, subtasks: [],
+        priority: "", focused: false, waiting: false, subtasks: [],
       };
       let insertAfter = current.tasks.length - 1;
       if (canonical) {

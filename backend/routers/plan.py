@@ -629,7 +629,7 @@ class CarryForwardItem(BaseModel):
     subtasks: list = []
     focused: bool = False
     waiting: bool = False
-    priority: str = "C"
+    priority: str = ""  # empty = unassigned (shown as "-" in the UI)
 
 
 class CarryForwardRequest(BaseModel):
@@ -1162,7 +1162,7 @@ def _parse_bucket_file(content: str) -> tuple[list[BucketTask], list[str]]:
             current_group = ""
 
         text = bullet_m.group(1).strip()
-        priority = "C"  # default — priority only lives in the UI
+        priority = ""  # no prefix = unassigned ("-" in the UI)
 
         # Legacy support: extract [A] priority if present (from old format)
         prio_m = _BUCKET_PRIORITY_RE.match(text)
@@ -1231,14 +1231,14 @@ def _format_bucket_tasks(tasks: list, pinned_groups: list[str]) -> str:
         if group:
             lines.append(f"- {group}:")
         for task, label in by_group[key]:
-            p = getattr(task, "priority", "C") or "C"
+            p = getattr(task, "priority", "") or ""
             item = label
             if getattr(task, "focused", False):
                 item = f"**{item}**"
             if getattr(task, "waiting", False):
                 item = f"WAIT: {item}"
             indent = "\t" if group else ""
-            lines.append(f"{indent}- {p}: {item}")
+            lines.append(f"{indent}- {p}: {item}" if p else f"{indent}- {item}")
             for sub in getattr(task, "subtasks", []) or []:
                 lines.append(f"{indent}\t- {sub.text}")
 
@@ -1354,7 +1354,8 @@ async def move_bucket_task(req: BucketMoveRequest):
         btask = bucket_tasks.pop(req.task_index)
         new_task = Task(
             text=_strip_bucket_meta(btask.text),
-            priority=btask.priority,
+            # Unassigned bucket tasks default to C when they become plan tasks
+            priority=btask.priority or "C",
             focused=btask.focused,
             waiting=btask.waiting,
             done=False,
