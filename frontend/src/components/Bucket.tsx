@@ -3,6 +3,15 @@ import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import TaskCheck from "./TaskCheck";
 import { CLUSTER, CLUSTER_LABEL } from "../clusters";
+
+// Same annotation as the Plan tab; "-" = unassigned
+const PRIORITIES = ["A", "B", "C", "D"] as const;
+const PRIORITY_BADGE: Record<string, string> = {
+  A: "bg-red-100 text-red-700",
+  B: "bg-amber-100 text-amber-700",
+  C: "bg-green-100 text-green-700",
+  D: "bg-gray-100 text-gray-500",
+};
 import NoteFilePicker from "./NoteFilePicker";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
@@ -184,6 +193,7 @@ export default function Bucket() {
   const [pinFilters, setPinFilters] = useState(true);
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
   const [quickAddText, setQuickAddText] = useState("");
+  const [prioMenu, setPrioMenu] = useState<number | null>(null);
   const [editingTask, setEditingTask] = useState<number | null>(null);
   const [dayPicker, setDayPicker] = useState<number | null>(null);
   const [groupPicker, setGroupPicker] = useState<number | null>(null);
@@ -387,7 +397,7 @@ export default function Bucket() {
 
   const addTask = (afterIdx: number, text: string, group?: string) => {
     const fullText = group ? `${group}: ${text}` : text;
-    const newTask: BucketTask = { text: fullText, priority: "C", focused: false, waiting: false, subtasks: [] };
+    const newTask: BucketTask = { text: fullText, priority: "", focused: false, waiting: false, subtasks: [] };
     const next = [...tasks];
     next.splice(afterIdx + 1, 0, newTask);
     updateTasks(next);
@@ -408,7 +418,7 @@ export default function Bucket() {
     }
     const newTask: BucketTask = {
       text: canonical ? `${canonical}: ${label}` : text,
-      priority: "C", focused: false, waiting: false, subtasks: [],
+      priority: "", focused: false, waiting: false, subtasks: [],
     };
     // Keep groups contiguous: insert after the group's last task
     let insertAfter = tasks.length - 1;
@@ -421,6 +431,13 @@ export default function Bucket() {
     next.splice(insertAfter + 1, 0, newTask);
     updateTasks(next);
     if (canonical && isGroupCollapsed(canonical)) expandGroup(canonical);
+  };
+
+  const setPriority = (idx: number, p: string) => {
+    const next = [...tasks];
+    next[idx] = { ...next[idx], priority: p };
+    updateTasks(next);
+    setPrioMenu(null);
   };
 
   const deleteTask = (idx: number) => {
@@ -1024,6 +1041,36 @@ export default function Bucket() {
                         <span className="text-xs cursor-pointer" title="Remove wait"
                           onClick={(e) => { e.stopPropagation(); toggleWaiting(originalIdx); }}>⏳</span>
                       )}
+
+                      {/* Priority badge — click to set (A/B/C/D, - clears) */}
+                      <span className="relative shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setPrioMenu(prioMenu === originalIdx ? null : originalIdx); }}
+                          className={`px-1 py-0 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${
+                            task.priority ? PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C : "text-gray-400"
+                          }`}
+                          style={!task.priority ? { border: "1px solid var(--border)" } : undefined}
+                          title="Click to change priority"
+                        >
+                          {task.priority || "-"}
+                        </button>
+                        {prioMenu === originalIdx && (
+                          <div className="absolute left-0 top-full mt-0.5 flex gap-0.5 z-20 rounded shadow-md p-0.5" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+                            {PRIORITIES.filter((pr) => pr !== task.priority).map((pr) => (
+                              <button key={pr} onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, pr); }}
+                                className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[pr]}`}>
+                                {pr}
+                              </button>
+                            ))}
+                            {task.priority && (
+                              <button onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, ""); }}
+                                className="px-1 py-0 rounded text-[10px] font-bold text-gray-400" style={{ border: "1px solid var(--border)" }}>
+                                -
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </span>
 
                       {/* Task text */}
                       {editingTask === originalIdx ? (
