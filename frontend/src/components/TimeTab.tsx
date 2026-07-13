@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import type { TimeEntry } from "../api";
 import {
@@ -29,10 +29,80 @@ function nowMonth(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
+function toISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
+function mondayOf(iso: string): Date {
+  const d = new Date(iso + "T12:00:00");
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
+function isoWeekNum(iso: string): number {
+  const d = new Date(iso + "T12:00:00");
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const jan4 = new Date(d.getFullYear(), 0, 4);
+  return 1 + Math.round(((d.getTime() - jan4.getTime()) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+}
+
+function monthsBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  let [y, m] = from.slice(0, 7).split("-").map(Number);
+  const end = to.slice(0, 7);
+  while (out.length < 36) {
+    const cur = `${y}-${String(m).padStart(2, "0")}`;
+    out.push(cur);
+    if (cur >= end) break;
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return out;
+}
+
+/* Donut palette — resolves via --viz-N CSS vars so dark mode swaps
+   automatically (both palettes CVD/contrast-validated against the card
+   surface; the legend carries the values as text). */
+const DONUT_COLORS = Array.from({ length: 8 }, (_, i) => `var(--viz-${i + 1})`);
+
+function Donut({ slices }: { slices: { label: string; minutes: number; color: string }[] }) {
+  const total = slices.reduce((n, s) => n + s.minutes, 0);
+  const size = 120, r = 56, ir = 32, c = size / 2;
+  if (!total) return null;
+  if (slices.length === 1) {
+    return (
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" className="shrink-0">
+        <title>{slices[0].label}</title>
+        <circle cx={c} cy={c} r={(r + ir) / 2} fill="none" stroke={slices[0].color} strokeWidth={r - ir} />
+      </svg>
+    );
+  }
+  let a = -Math.PI / 2;
+  const pt = (ang: number, rad: number) => `${c + rad * Math.cos(ang)},${c + rad * Math.sin(ang)}`;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" className="shrink-0">
+      {slices.map((s) => {
+        const a0 = a, a1 = a + (s.minutes / total) * Math.PI * 2;
+        a = a1;
+        const large = a1 - a0 > Math.PI ? 1 : 0;
+        return (
+          <path key={s.label}
+            d={`M ${pt(a0, r)} A ${r} ${r} 0 ${large} 1 ${pt(a1, r)} L ${pt(a1, ir)} A ${ir} ${ir} 0 ${large} 0 ${pt(a0, ir)} Z`}
+            fill={s.color} stroke="var(--bg-secondary)" strokeWidth="2">
+            <title>{`${s.label} — ${fmtH(s.minutes, false)}h (${Math.round((s.minutes / total) * 100)}%)`}</title>
+          </path>
+        );
+      })}
+    </svg>
+  );
+}
 
 export default function TimeTab() {
+  const [mode, setMode] = useState<"week" | "month" | "custom">("month");
   const [month, setMonth] = useState(nowMonth());
+  const [weekAnchor, setWeekAnchor] = useState(() => toISODate(new Date()));
+  const [customFrom, setCustomFrom] = useState(() => `${nowMonth()}-01`);
+  const [customTo, setCustomTo] = useState(() => toISODate(new Date()));
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [running, setRunning] = useState<TimeEntry | null>(null);
   const [error, setError] = useState("");
@@ -67,12 +137,43 @@ export default function TimeTab() {
   const [editEnd, setEditEnd] = useState("");
   const [editText, setEditText] = useState("");
 
-  const load = (m: string = month) => {
-    api.getTimeLog(m).then((r) => { setEntries(r.entries); setRunning(r.running); setError(""); })
+  // Selected period → inclusive date range (a week or custom range can
+  // span month files; load() fetches every month it touches)
+  const range = useMemo(() => {
+    if (mode === "week") {
+      const mon = mondayOf(weekAnchor);
+      const sun = new Date(mon);
+      sun.setDate(mon.getDate() + 6);
+      return { from: toISODate(mon), to: toISODate(sun) };
+    }
+    if (mode === "custom") {
+      return customFrom <= customTo ? { from: customFrom, to: customTo } : { from: customTo, to: customFrom };
+    }
+    const [y, m] = month.split("-").map(Number);
+    return { from: `${month}-01`, to: toISODate(new Date(y, m, 0)) };
+  }, [mode, month, weekAnchor, customFrom, customTo]);
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  const periodLabel = mode === "month" ? month
+    : mode === "week" ? `Week ${isoWeekNum(range.from)} · ${range.from} → ${range.to}`
+    : `${range.from} → ${range.to}`;
+
+  const load = () => {
+    const { from, to } = rangeRef.current;
+    const months = monthsBetween(from, to);
+    // The running entry lives in the current month's file — fetch it too
+    const withNow = months.includes(nowMonth()) ? months : [...months, nowMonth()];
+    Promise.all(withNow.map((m) => api.getTimeLog(m)))
+      .then((rs) => {
+        setEntries(rs.slice(0, months.length).flatMap((r) => r.entries)
+          .filter((e) => e.date >= from && e.date <= to));
+        setRunning(rs.map((r) => r.running).find(Boolean) || null);
+        setError("");
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load time log"));
   };
 
-  useEffect(() => { load(month); }, [month]);
+  useEffect(() => { load(); }, [range.from, range.to]);
   useEffect(() => {
     const sync = () => setCtxSelState(loadCtxSelection());
     const reload = () => load();
@@ -104,7 +205,12 @@ export default function TimeTab() {
   };
 
   const startEntry = async (text: string) => {
-    try { await api.startTime(text); load(nowMonth()); setMonth(nowMonth()); announce(); }
+    try {
+      await api.startTime(text);
+      if (mode === "month") setMonth(nowMonth());
+      else if (mode === "week") setWeekAnchor(toISODate(new Date()));
+      load(); announce();
+    }
     catch (e) { setError(e instanceof Error ? e.message : "Failed to start"); }
   };
 
@@ -164,7 +270,7 @@ export default function TimeTab() {
   const copyInvoice = () => {
     if (!invoice) return;
     const lines = [
-      `# ${invoiceCompany} — ${month}`,
+      `# ${invoiceCompany} — ${periodLabel}`,
       "",
       ...invoice.rows.map((r) => `- ${r.date} — ${fmtH(r.minutes, quarterRound)}h: ${r.labels.join("; ")}`),
       "",
@@ -208,11 +314,33 @@ export default function TimeTab() {
       .map(([d, es]) => [d, es.sort((a, b) => b.start.localeCompare(a.start))] as const);
   }, [visible]);
 
-  const monthNav = (delta: number) => {
+  const periodNav = (delta: number) => {
+    if (mode === "week") {
+      const d = new Date(weekAnchor + "T12:00:00");
+      d.setDate(d.getDate() + delta * 7);
+      setWeekAnchor(toISODate(d));
+      return;
+    }
     const [y, m] = month.split("-").map(Number);
     const d = new Date(y, m - 1 + delta, 1);
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
+
+  // Donut data: top 7 + Other, colors follow the app's area colors when
+  // grouping by area, the themed viz palette when grouping by company
+  const [pieBy, setPieBy] = useState<"company" | "area">("company");
+  const pie = useMemo(() => {
+    const src = pieBy === "company" ? sums.byCompany : sums.byArea;
+    const sorted = [...src.entries()].filter(([, m]) => m > 0).sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, 7);
+    const rest = sorted.slice(7).reduce((n, [, m]) => n + m, 0);
+    const rows: [string, number][] = rest > 0 ? [...top, ["Other", rest]] : top;
+    return rows.map(([label, minutes], i) => ({
+      label, minutes,
+      color: pieBy === "area" ? ctxEdgeColor(label) : DONUT_COLORS[i % DONUT_COLORS.length],
+    }));
+  }, [sums, pieBy]);
+  const pieTotal = pie.reduce((n, s) => n + s.minutes, 0);
 
   void tick;
 
@@ -300,9 +428,30 @@ export default function TimeTab() {
 
       {/* Month nav + filters (same chips as the Plan tab) */}
       <div className="flex items-center gap-2 flex-wrap">
-        <button onClick={() => monthNav(-1)} className="px-1.5 rounded hover:bg-gray-100 text-gray-500">«</button>
-        <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>{month}</span>
-        <button onClick={() => monthNav(1)} className="px-1.5 rounded hover:bg-gray-100 text-gray-500">»</button>
+        <div className="flex items-center gap-0.5 rounded-md p-0.5" style={{ backgroundColor: "var(--bg-tertiary)" }}>
+          {(["week", "month", "custom"] as const).map((m) => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${mode === m ? "text-white" : ""}`}
+              style={mode === m ? { backgroundColor: "var(--accent)" } : { color: "var(--text-secondary)" }}>
+              {m}
+            </button>
+          ))}
+        </div>
+        {mode !== "custom" ? (
+          <>
+            <button onClick={() => periodNav(-1)} className="px-1.5 rounded hover:bg-gray-100 text-gray-500">«</button>
+            <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>{periodLabel}</span>
+            <button onClick={() => periodNav(1)} className="px-1.5 rounded hover:bg-gray-100 text-gray-500">»</button>
+          </>
+        ) : (
+          <>
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+              className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>→</span>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+              className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+          </>
+        )}
         <span className="w-px h-4 bg-gray-200" />
         {ctxEnabled && allContextNames(ctxMap, ctxTags).filter((n) =>
           ["work", "volunteer", "personal"].includes(n) || ctxSel.includes(n) ||
@@ -332,7 +481,40 @@ export default function TimeTab() {
       </div>
 
       {/* Sums */}
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold" style={{ color: "var(--text)" }}>Distribution</h3>
+            <div className="flex gap-0.5">
+              {(["company", "area"] as const).map((k) => (
+                <button key={k} onClick={() => setPieBy(k)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] capitalize ${pieBy === k ? "font-semibold" : ""}`}
+                  style={pieBy === k ? { backgroundColor: "var(--bg-active-solid)", color: "var(--text)" } : { color: "var(--text-secondary)" }}>
+                  {k}
+                </button>
+              ))}
+            </div>
+          </div>
+          {pie.length === 0 ? (
+            <p className="text-xs py-4 text-center" style={{ color: "var(--text-tertiary)" }}>No time in this period.</p>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <Donut slices={pie} />
+              <div className="w-full space-y-0.5">
+                {pie.map((s) => (
+                  <div key={s.label} className="flex items-center gap-1.5 text-[10px]">
+                    <span className="w-2 h-2 rounded-[2px] shrink-0" style={{ backgroundColor: s.color }} />
+                    <span className="flex-1 truncate capitalize" style={{ color: "var(--text)" }}>{s.label}</span>
+                    <span className="font-mono" style={{ color: "var(--text-secondary)" }}>{fmtH(s.minutes, false)}</span>
+                    <span className="font-mono w-7 text-right" style={{ color: "var(--text-tertiary)" }}>
+                      {Math.round((s.minutes / (pieTotal || 1)) * 100)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
           <h3 className="text-xs font-semibold mb-2" style={{ color: "var(--text)" }}>By area — total {fmtH(sums.total, false)}h</h3>
           {[...sums.byArea.entries()].sort((a, b) => b[1] - a[1]).map(([area, mins]) => (
@@ -444,7 +626,7 @@ export default function TimeTab() {
         ))}
         {byDay.length === 0 && (
           <p className="text-center text-xs py-6" style={{ color: "var(--text-tertiary)" }}>
-            No entries for {month}{companyFilter || ctxSel.length ? " with these filters" : ""}.
+            No entries for {periodLabel}{companyFilter || ctxSel.length ? " with these filters" : ""}.
           </p>
         )}
       </div>

@@ -43,6 +43,10 @@
   /* Primary accent (buttons, highlights) */
   --accent: #2563eb;      /* blue-600 */
   --accent-bg: #eff6ff;   /* blue-50 */
+
+  /* Data-viz categorical palette (CVD + contrast validated per mode) */
+  --viz-1: #2a78d6; --viz-2: #1baf7a; --viz-3: #eda100; --viz-4: #008300;
+  --viz-5: #4a3aa7; --viz-6: #e34948; --viz-7: #e87ba4; --viz-8: #eb6834;
 }
 
 .dark {
@@ -52,6 +56,9 @@
   --bg-hover: #334155;
   --bg-active: #1e3a5f;
   --bg-active-solid: #1e40af;
+
+  --viz-1: #3987e5; --viz-2: #199e70; --viz-3: #c98500; --viz-4: #008300;
+  --viz-5: #9085e9; --viz-6: #e66767; --viz-7: #d55181; --viz-8: #d95926;
 
   --text: #f1f5f9;             /* slate-100 */
   --text-secondary: #94a3b8;   /* slate-400 */
