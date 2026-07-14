@@ -139,6 +139,11 @@ export interface DayNotesResponse {
 export const api = {
   health: () => request<{ status: string }>("/health"),
   updateCheck: () => request<{ version: string | null }>("/update-check"),
+  saveDiaryFolder: (folder: string) =>
+    request<{ status: string; diary_folder: string }>("/api/settings/diary-folder", {
+      method: "POST",
+      body: JSON.stringify({ folder }),
+    }),
 
   getPlan: (targetDate?: string) =>
     request<PlanResponse>(targetDate ? `/plan?target_date=${targetDate}` : "/plan"),
@@ -354,6 +359,7 @@ export const api = {
       contexts: Record<string, string[]>;
       context_tags: Record<string, string>;
       coach_enabled?: boolean;
+      diary_folder?: string;
     }>("/api/settings"),
 
   // Habits

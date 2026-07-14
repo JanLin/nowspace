@@ -2,6 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from "react";
 import { api, type WeekPlanResponse, type DayTasks, type Task, type TaskLink, type Habit, type TimeEntry } from "../api";
 import TaskLinkPopup from "./TaskLinkPopup";
 import NotesPanel from "./NotesPanel";
+import DiaryPanel from "./DiaryPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import TaskCheck from "./TaskCheck";
@@ -179,6 +180,14 @@ function categoryLabel(sourceFile: string): string {
 }
 
 /** Auto-focus input when it appears */
+/** ISO date of the viewed day: Monday of the current real week + offset weeks + day index */
+function viewedDateISO(weekOffset: number, dayIdx: number): string {
+  const now = new Date();
+  const d = new Date(now);
+  d.setDate(now.getDate() - ((now.getDay() + 6) % 7) + weekOffset * 7 + dayIdx);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function AutoFocusInput({
   onSubmit,
   onCancel,
@@ -707,6 +716,9 @@ export default function WeekPlan() {
 
   // Notes panel state
   const [showNotesPanel, setShowNotesPanel] = useState(true);
+  // Diary: opened explicitly per day, closes on any navigation
+  const [diaryOpen, setDiaryOpen] = useState(false);
+  const [diaryFolder, setDiaryFolder] = useState("");
   const [notesPanelPct, setNotesPanelPct] = useState(50); // percentage width for notes panel
   const splitterDragging = useRef(false);
   const splitterContainer = useRef<HTMLDivElement | null>(null);
@@ -942,6 +954,7 @@ export default function WeekPlan() {
   // @f typed in Obsidian) and Settings-tab edits show up without a reload.
   useEffect(() => {
     const load = () => api.getSettings().then((s) => {
+      setDiaryFolder(s.diary_folder || "");
       setCtxMap(s.contexts || {});
       setCtxTags({ ...DEFAULT_CTX_TAGS, ...(s.context_tags || {}) });
     }).catch(() => {});
@@ -1144,6 +1157,9 @@ export default function WeekPlan() {
     const jsDay = new Date().getDay();
     setSelectedDayIdx(jsDay === 0 ? 6 : jsDay - 1);
   };
+
+  // Diary only stays open for the day it was opened on
+  useEffect(() => { setDiaryOpen(false); }, [selectedDayIdx, viewMode, weekOffset]);
 
   // Check if currently viewing today
   const isOnToday = weekOffset === 0 && selectedDayIdx === todayIdx;
@@ -2835,6 +2851,25 @@ export default function WeekPlan() {
               Notes
             </button>
           )}
+          {viewMode === "day" && diaryFolder && (
+            <button
+              onClick={() => {
+                const opening = !diaryOpen;
+                setDiaryOpen(opening);
+                if (opening) {
+                  setShowNotesPanel(true);
+                  if (window.innerWidth < 768) {
+                    setTimeout(() => document.getElementById("day-notes-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+                  }
+                }
+              }}
+              className={`text-xs px-2 py-0.5 rounded transition-colors ${diaryOpen ? "bg-purple-100 text-purple-700" : "hover:opacity-80"}`}
+              style={!diaryOpen ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+              title={diaryOpen ? "Back to notes" : "Open the diary for this day"}
+            >
+              Diary
+            </button>
+          )}
         </div>
 
         {/* Tasks — flat view */}
@@ -3072,12 +3107,16 @@ export default function WeekPlan() {
       {showNotesPanel && (
         <div id="day-notes-panel" className="min-w-0 md:pl-2 max-h-[calc(100vh-260px)] overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)]"
           style={{ "--notes-w": `${notesPanelPct}%` } as React.CSSProperties}>
-          <NotesPanel
-            dayName={day.day}
-            weekOffset={weekOffset}
-            isArchive={isArchive}
-            onOpenNote={(path, name) => setNoteEditor({ path, name })}
-          />
+          {diaryOpen && diaryFolder ? (
+            <DiaryPanel key={`diary-${weekOffset}-${selectedDayIdx}`} date={viewedDateISO(weekOffset, selectedDayIdx)} folder={diaryFolder} />
+          ) : (
+            <NotesPanel
+              dayName={day.day}
+              weekOffset={weekOffset}
+              isArchive={isArchive}
+              onOpenNote={(path, name) => setNoteEditor({ path, name })}
+            />
+          )}
         </div>
       )}
       </div>

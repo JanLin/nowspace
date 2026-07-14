@@ -132,6 +132,9 @@ class Config:
         # (e.g. https://<mini>.ts.net/version.json). Empty = check disabled.
         self.update_check_url: str = str(raw.get("update_check_url") or "").strip()
 
+        # Diary folder fallback (shared value lives in the vault settings file)
+        self._fallback_diary_folder: str = str(raw.get("diary_folder") or "").strip()
+
         self._fallback_contexts: Dict[str, list] = {
             str(name).lower(): [str(g).lower() for g in (groups or [])]
             for name, groups in raw_contexts.items()
@@ -263,6 +266,17 @@ class Config:
         for abbrev, name in {"w": "work", "v": "volunteer", "p": "personal"}.items():
             tags.setdefault(abbrev, name)
         return tags
+
+    @property
+    def diary_folder(self) -> str:
+        """Vault folder for daily diary files (<date> diary.md). Empty = off."""
+        val = self._vault_settings().get("diary_folder")
+        if isinstance(val, str):
+            return val.strip()
+        return self._fallback_diary_folder
+
+    def save_diary_folder(self, folder: str) -> None:
+        self._save_vault_settings({"diary_folder": folder.strip()})
 
     def save_reference_links(self, links: Dict[str, str]) -> None:
         """Persist reference_links into the vault settings file."""
