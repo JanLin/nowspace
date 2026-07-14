@@ -645,7 +645,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
             value={diaryFolder}
             onChange={(e) => { setDiaryFolder(e.target.value); setDiaryFolderSaved(false); }}
             onKeyDown={(e) => { if (e.key === "Enter") { api.saveDiaryFolder(diaryFolder.trim()).then(() => setDiaryFolderSaved(true)).catch(() => flash("err", "Failed to save diary folder")); } }}
-            placeholder="2-Areas/bPersonal/Personal Growth/Reflections"
+            placeholder="2-Areas/Personal/Diary"
             className="flex-1 min-w-0 text-sm px-3 py-2 rounded-lg font-mono outline-none focus:ring-1 focus:ring-blue-400"
             style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
           />
