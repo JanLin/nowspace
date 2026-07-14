@@ -114,12 +114,13 @@ function renderWikiText(text: string, onOpenNote?: (path: string, name: string) 
 function AutoFocusInput({ onSubmit, onCancel, placeholder, className }: {
   onSubmit: (v: string) => void; onCancel: () => void; placeholder?: string; className?: string;
 }) {
+  // Uncontrolled: Samsung/GBoard IME composition desyncs when React writes
+  // `value` per keystroke (backspace gets swallowed) — the DOM owns the text
   const ref = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState("");
   useEffect(() => { ref.current?.focus(); }, []);
-  const submit = () => { const t = value.trim(); if (t) { onSubmit(t); setValue(""); } else onCancel(); };
+  const submit = () => { const t = (ref.current?.value || "").trim(); if (t) { onSubmit(t); if (ref.current) ref.current.value = ""; } else onCancel(); };
   return (
-    <input ref={ref} type="text" value={value} onChange={(e) => setValue(e.target.value)}
+    <input ref={ref} type="text" defaultValue="" autoComplete="off" autoCorrect="off" spellCheck={false}
       onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") onCancel(); }}
       onBlur={submit} placeholder={placeholder} className={className} />
   );
@@ -128,12 +129,12 @@ function AutoFocusInput({ onSubmit, onCancel, placeholder, className }: {
 function EditInput({ initialValue, onSave, onCancel, className }: {
   initialValue: string; onSave: (v: string) => void; onCancel: () => void; className?: string;
 }) {
+  // Uncontrolled — see AutoFocusInput for the Samsung IME rationale
   const ref = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState(initialValue);
   useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
-  const save = () => { const t = value.trim(); if (t && t !== initialValue) onSave(t); else onCancel(); };
+  const save = () => { const t = (ref.current?.value || "").trim(); if (t && t !== initialValue) onSave(t); else onCancel(); };
   return (
-    <input ref={ref} type="text" value={value} onChange={(e) => setValue(e.target.value)}
+    <input ref={ref} type="text" defaultValue={initialValue} autoComplete="off" autoCorrect="off" spellCheck={false}
       onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") onCancel(); }}
       onBlur={save} className={className} />
   );
@@ -192,7 +193,7 @@ export default function Bucket() {
   const [filedNext, setFiledNext] = useState<string[]>([]);
   const [pinFilters, setPinFilters] = useState(true);
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
-  const [quickAddText, setQuickAddText] = useState("");
+  const quickAddRef = useRef<HTMLInputElement>(null);
   const [prioMenu, setPrioMenu] = useState<number | null>(null);
   const [editingTask, setEditingTask] = useState<number | null>(null);
   const [dayPicker, setDayPicker] = useState<number | null>(null);
@@ -964,17 +965,26 @@ export default function Bucket() {
         {/* Quick add — "Group: task" files it under that group */}
         <div className="flex items-center gap-1.5">
           <input
-            value={quickAddText}
-            onChange={(e) => setQuickAddText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && quickAddText.trim()) { quickAdd(quickAddText); setQuickAddText(""); } }}
+            ref={quickAddRef}
+            defaultValue=""
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              const v = (quickAddRef.current?.value || "").trim();
+              if (v) { quickAdd(v); if (quickAddRef.current) quickAddRef.current.value = ""; }
+            }}
             placeholder={'Add task — "Group: task" files it under the group'}
             className="flex-1 min-w-0 text-sm px-2.5 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-blue-400"
             style={{ background: "var(--bg-secondary)", color: "var(--text)", border: "1px solid var(--border)" }}
           />
           <button
-            onClick={() => { if (quickAddText.trim()) { quickAdd(quickAddText); setQuickAddText(""); } }}
-            disabled={!quickAddText.trim()}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 shrink-0"
+            onClick={() => {
+              const v = (quickAddRef.current?.value || "").trim();
+              if (v) { quickAdd(v); if (quickAddRef.current) quickAddRef.current.value = ""; }
+            }}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium text-white shrink-0"
             style={{ backgroundColor: "var(--accent)" }}
             title="Add to bucket"
           >

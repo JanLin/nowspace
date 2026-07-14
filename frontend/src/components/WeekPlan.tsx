@@ -190,18 +190,22 @@ function AutoFocusInput({
   placeholder?: string;
   className?: string;
 }) {
+  // Uncontrolled on purpose: Samsung/GBoard keyboards type through an IME
+  // composition, and React writing `value` back each keystroke desyncs it —
+  // insertions survive but backspace gets swallowed. The DOM owns the text;
+  // we only read it on submit. The autocomplete/correct attrs keep the
+  // keyboard out of composition mode where possible.
   const ref = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState("");
 
   useEffect(() => {
     ref.current?.focus();
   }, []);
 
   const submit = () => {
-    const trimmed = value.trim();
+    const trimmed = (ref.current?.value || "").trim();
     if (trimmed) {
       onSubmit(trimmed);
-      setValue("");
+      if (ref.current) ref.current.value = "";
     } else {
       onCancel();
     }
@@ -211,8 +215,10 @@ function AutoFocusInput({
     <input
       ref={ref}
       type="text"
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
+      defaultValue=""
+      autoComplete="off"
+      autoCorrect="off"
+      spellCheck={false}
       onKeyDown={(e) => {
         if (e.key === "Enter") submit();
         if (e.key === "Escape") onCancel();
@@ -236,8 +242,8 @@ function EditInput({
   onCancel: () => void;
   className?: string;
 }) {
+  // Uncontrolled — see AutoFocusInput for the Samsung IME rationale
   const ref = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState(initialValue);
 
   useEffect(() => {
     ref.current?.focus();
@@ -245,7 +251,7 @@ function EditInput({
   }, []);
 
   const save = () => {
-    const trimmed = value.trim();
+    const trimmed = (ref.current?.value || "").trim();
     if (trimmed && trimmed !== initialValue) {
       onSave(trimmed);
     } else {
@@ -257,8 +263,10 @@ function EditInput({
     <input
       ref={ref}
       type="text"
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
+      defaultValue={initialValue}
+      autoComplete="off"
+      autoCorrect="off"
+      spellCheck={false}
       onKeyDown={(e) => {
         if (e.key === "Enter") save();
         if (e.key === "Escape") onCancel();
@@ -415,7 +423,7 @@ export default function WeekPlan() {
   const [bucketOpen, setBucketOpen] = useState(false);
   const [bucketTasks, setBucketTasks] = useState<import("../api").BucketTask[]>([]);
   const [bucketExpandedGroups, setBucketExpandedGroups] = useState<Set<string>>(new Set());
-  const [bucketQuickAddText, setBucketQuickAddText] = useState("");
+  const bucketQuickAddRef = useRef<HTMLInputElement>(null);
   const [bucketAddingGroup, setBucketAddingGroup] = useState<string | null>(null);
   const bucketDragRef = useRef<{ bucketIdx: number } | null>(null);
 
@@ -4093,10 +4101,15 @@ export default function WeekPlan() {
         </div>
         <div className="px-2 pt-2">
           <input
-            value={bucketQuickAddText}
-            onChange={(e) => setBucketQuickAddText(e.target.value)}
+            ref={bucketQuickAddRef}
+            defaultValue=""
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && bucketQuickAddText.trim()) { addToBucket(bucketQuickAddText); setBucketQuickAddText(""); }
+              if (e.key !== "Enter") return;
+              const v = (bucketQuickAddRef.current?.value || "").trim();
+              if (v) { addToBucket(v); if (bucketQuickAddRef.current) bucketQuickAddRef.current.value = ""; }
             }}
             placeholder={'Add — "Group: task"'}
             className="w-full text-xs px-2 py-1 rounded outline-none focus:ring-1 focus:ring-blue-400"
