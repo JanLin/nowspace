@@ -31,6 +31,8 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
   const [vaultPath, setVaultPath] = useState("");
   const [vaultRoot, setVaultRoot] = useState("");
   const [referenceLinks, setReferenceLinks] = useState<Record<string, string>>({});
+  const [diaryFolder, setDiaryFolder] = useState("");
+  const [diaryFolderSaved, setDiaryFolderSaved] = useState(false);
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -118,6 +120,7 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
       setVaultStatus(s.vault_status);
       setApiKeyStatus(s.api_key_status);
       setCtxRows(buildCtxRows(s.contexts || {}, s.context_tags || {}));
+      setDiaryFolder(s.diary_folder || "");
       if (!s.api_key_status.configured) setShowApiKeyInput(true);
       setLoading(false);
     }).catch(() => {
@@ -619,6 +622,41 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
             </div>
           </div>
         )}
+      </section>
+
+      {/* ================================================================ */}
+      {/* Diary                                                            */}
+      {/* ================================================================ */}
+      <section
+        className="rounded-xl p-5 sm:p-6"
+        style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+      >
+        <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
+          Diary
+        </h2>
+        <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+          Vault folder for daily diary files (<span className="font-mono">&lt;date&gt; diary.md</span>).
+          Shown as a Diary button in day view; leave empty to hide the feature.
+          Stored in <span className="font-mono">Plan Week Configuration.md</span>, shared by every installation.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={diaryFolder}
+            onChange={(e) => { setDiaryFolder(e.target.value); setDiaryFolderSaved(false); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { api.saveDiaryFolder(diaryFolder.trim()).then(() => setDiaryFolderSaved(true)).catch(() => flash("err", "Failed to save diary folder")); } }}
+            placeholder="2-Areas/bPersonal/Personal Growth/Reflections"
+            className="flex-1 min-w-0 text-sm px-3 py-2 rounded-lg font-mono outline-none focus:ring-1 focus:ring-blue-400"
+            style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+          />
+          <button
+            onClick={() => api.saveDiaryFolder(diaryFolder.trim()).then(() => setDiaryFolderSaved(true)).catch(() => flash("err", "Failed to save diary folder"))}
+            className="px-3 py-2 rounded-lg text-sm font-medium text-white shrink-0"
+            style={{ backgroundColor: "var(--accent)" }}
+          >
+            {diaryFolderSaved ? "Saved ✓" : "Save"}
+          </button>
+        </div>
       </section>
 
       {/* ================================================================ */}

@@ -43,11 +43,16 @@ class SettingsResponse(BaseModel):
     contexts: Dict[str, list] = {}
     context_tags: Dict[str, str] = {}
     coach_enabled: bool = True
+    diary_folder: str = ""
 
 
 class ContextSettingsUpdate(BaseModel):
     contexts: Dict[str, list]
     context_tags: Dict[str, str]
+
+
+class DiaryFolderUpdate(BaseModel):
+    folder: str
 
 
 class VaultPathUpdate(BaseModel):
@@ -240,7 +245,15 @@ async def get_settings():
         contexts=config.contexts,
         context_tags=config.context_tags,
         coach_enabled=config.coach_enabled,
+        diary_folder=config.diary_folder,
     )
+
+
+@router.post("/diary-folder")
+async def save_diary_folder(body: DiaryFolderUpdate):
+    """Persist the diary folder (vault settings file — shared everywhere)."""
+    config.save_diary_folder(body.folder)
+    return {"status": "saved", "diary_folder": config.diary_folder}
 
 
 @router.post("/contexts")
