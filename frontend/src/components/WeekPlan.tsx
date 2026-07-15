@@ -424,6 +424,9 @@ export default function WeekPlan() {
     startedAt: number;
   } | null>(null);
   const [pomodoroPos, setPomodoroPos] = useState<{ x: number; y: number } | null>(null);
+  // Ultra focus: while the pomodoro runs, cover every other task with a
+  // redaction curtain; lifts when the pomodoro stops or on any navigation
+  const [ultraFocus, setUltraFocus] = useState(false);
   const pomodoroDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
   // Bucket state
@@ -1161,6 +1164,15 @@ export default function WeekPlan() {
   // Diary only stays open for the day it was opened on
   useEffect(() => { setDiaryOpen(false); }, [selectedDayIdx, viewMode, weekOffset]);
 
+  // Ultra focus drops on navigation and whenever the pomodoro goes away
+  useEffect(() => { setUltraFocus(false); }, [selectedDayIdx, viewMode, weekOffset]);
+  useEffect(() => { if (!pomodoro) setUltraFocus(false); }, [pomodoro]);
+  const ultraFocusActive = ultraFocus && !!pomodoro && viewMode === "day";
+  const ufRedactRow = (dayIdx: number, taskIdx: number) =>
+    ultraFocusActive && !(pomodoro!.dayIdx === dayIdx && pomodoro!.taskIdx === taskIdx) ? "uf-redact" : "";
+  const ufRedactGroup = (groupName: string) =>
+    ultraFocusActive && groupName.toLowerCase() !== (parseGroup(pomodoro!.taskText).group || "").toLowerCase() ? "uf-redact" : "";
+
   // Check if currently viewing today
   const isOnToday = weekOffset === 0 && selectedDayIdx === todayIdx;
 
@@ -1294,11 +1306,8 @@ export default function WeekPlan() {
   }, [pomodoroState, pomodoroStartedAt]);
 
   const startPomodoro = (dayIdx: number, taskIdx: number, taskText: string, minutes: number) => {
-    // A pomodoro means "I'm working on this now" — start time tracking too
-    api.startTime(stripBucketMeta(stripCtxTokens(taskText))).then((r) => {
-      setRunningTime(r.running);
-      window.dispatchEvent(new CustomEvent("time-changed"));
-    }).catch(() => {});
+    // Time tracking stays a separate, deliberate ▶ action — the pomodoro
+    // is a focus timer only.
     setPomodoro({
       taskIdx, dayIdx, taskText,
       duration: minutes * 60,
@@ -1499,6 +1508,11 @@ export default function WeekPlan() {
 
   const toggleDone = (dayIdx: number, taskIdx: number) => {
     if (!data) return;
+    const completing = !data.days[dayIdx]?.tasks[taskIdx]?.done;
+    // Completing the pomodoro's task ends the pomodoro (and ultra focus)
+    if (completing && pomodoro && pomodoro.dayIdx === dayIdx && pomodoro.taskIdx === taskIdx) {
+      setPomodoro(null);
+    }
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
       const tasks = [...d.tasks];
@@ -2820,7 +2834,7 @@ export default function WeekPlan() {
           if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task") || types.includes("daily-carry-task") || types.includes("daily-carry-day")) handleDrop(selectedDayIdx, day.tasks.length, e);
         }}>
         {/* Habit chips — current week only, shrink as the week goes well */}
-        {weekOffset === 0 && habits.length > 0 && (
+        {weekOffset === 0 && habits.length > 0 && !ultraFocusActive && (
           <HabitStrip habits={habits} onLog={logHabit} />
         )}
         {/* Day info bar */}
@@ -2887,7 +2901,7 @@ export default function WeekPlan() {
               const nextIdx = fi + 1 < sortedTasks.length ? day.tasks.indexOf(sortedTasks[fi + 1]) : day.tasks.length;
               const seq = seqNumbers.get(filteredTasks.indexOf(task)) ?? "";
               return (
-                <div key={`flat-${originalIdx}`}>
+                <div key={`flat-${originalIdx}`} className={ufRedactRow(selectedDayIdx, originalIdx)}>
                   {renderDayTaskItem(task, selectedDayIdx, originalIdx, getDisplayText(task), String(seq), null, nextIdx)}
                   {renderSubtasks(selectedDayIdx, originalIdx, task, false)}
                 </div>
@@ -2897,12 +2911,12 @@ export default function WeekPlan() {
             {dropTarget?.day === selectedDayIdx && dropTarget?.idx === day.tasks.length && (
               <div className="h-0.5 bg-blue-400 rounded" />
             )}
-            <button
+            {!ultraFocusActive && <button
               onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: day.tasks.length })}
               className="w-full text-xs text-gray-300 hover:text-blue-400 py-1 transition-colors text-left px-2"
             >
               + Add task
-            </button>
+            </button>}
             {addingAt?.dayIdx === selectedDayIdx && addingAt?.afterIdx === day.tasks.length && (
               <div className="py-0.5 px-2">
                 <AutoFocusInput
@@ -3007,7 +3021,7 @@ export default function WeekPlan() {
                       className={`flex items-center gap-1.5 py-2 px-2 cursor-grab active:cursor-grabbing rounded group/hdr hover:bg-gray-50 border-2 transition-colors ${
                         dropGroupTarget?.day === selectedDayIdx && dropGroupTarget?.groupName === section.name
                           ? "border-blue-400 bg-blue-50" : "border-transparent"
-                      }`}
+                      } ${ufRedactGroup(section.name)}`}
                     >
                       <span className="text-gray-300 group-hover/hdr:text-gray-400 text-xs select-none" title="Drag to move group">&#x2630;</span>
                       <button
@@ -3029,7 +3043,7 @@ export default function WeekPlan() {
                       {section.items.map((entry) => {
                         const seq = seqNumbers.get(filteredTasks.indexOf(entry.task)) || "";
                         return (
-                          <div key={`wrap-day-${entry.originalIdx}`}>
+                          <div key={`wrap-day-${entry.originalIdx}`} className={ufRedactRow(selectedDayIdx, entry.originalIdx)}>
                             {renderDayTaskItem(entry.task, selectedDayIdx, entry.originalIdx, entry.label, String(seq), section.name || null)}
                             {renderSubtasks(selectedDayIdx, entry.originalIdx, entry.task, false)}
                             {renderAddInput(selectedDayIdx, entry.originalIdx)}
@@ -3069,12 +3083,12 @@ export default function WeekPlan() {
               }`}
             />
             {/* Add task button */}
-            <button
+            {!ultraFocusActive && <button
               onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: day.tasks.length })}
               className="w-full text-xs text-gray-300 hover:text-blue-400 py-1 transition-colors text-left px-2"
             >
               + Add task
-            </button>
+            </button>}
             {addingAt?.dayIdx === selectedDayIdx && addingAt?.afterIdx === day.tasks.length && (
               <div className="py-0.5 px-2">
                 <AutoFocusInput
@@ -3816,6 +3830,17 @@ export default function WeekPlan() {
           <p className="text-xs text-gray-600 text-center mt-1 truncate" title={pomodoro.taskText}>
             🎺 {pomodoro.taskText}
           </p>
+
+          {/* Ultra focus — redact every other task until this pomodoro ends */}
+          <button
+            onClick={() => setUltraFocus((v) => !v)}
+            className={`w-full mt-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              ultraFocus ? "bg-gray-800 text-white hover:bg-gray-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+            title={ultraFocus ? "Lift the curtain" : "Cover every other task until this pomodoro ends"}
+          >
+            {ultraFocus ? "🕶 Ultra focus on" : "🕶 Ultra focus"}
+          </button>
 
           {/* Controls */}
           <div className="flex flex-col gap-1.5 mt-3">
