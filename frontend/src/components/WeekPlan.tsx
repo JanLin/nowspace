@@ -1306,11 +1306,8 @@ export default function WeekPlan() {
   }, [pomodoroState, pomodoroStartedAt]);
 
   const startPomodoro = (dayIdx: number, taskIdx: number, taskText: string, minutes: number) => {
-    // A pomodoro means "I'm working on this now" — start time tracking too
-    api.startTime(stripBucketMeta(stripCtxTokens(taskText))).then((r) => {
-      setRunningTime(r.running);
-      window.dispatchEvent(new CustomEvent("time-changed"));
-    }).catch(() => {});
+    // Time tracking stays a separate, deliberate ▶ action — the pomodoro
+    // is a focus timer only.
     setPomodoro({
       taskIdx, dayIdx, taskText,
       duration: minutes * 60,
