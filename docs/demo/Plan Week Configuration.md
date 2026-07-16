@@ -10,7 +10,8 @@ reference_links:
 contexts:
   work:
   - acme
-  - brightco
+  - linaltec
+  - erik
   volunteer:
   - rotary
 context_tags:

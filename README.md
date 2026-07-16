@@ -10,7 +10,7 @@ A task planning and coaching tool that reads your [Obsidian](https://obsidian.md
 
 ![The same plan in the app and as plain markdown on disk](docs/screenshots/app-and-vault.png)
 
-*Nowspace stores nothing of its own: the plan on the left is the markdown file on the right. The vault is the substrate — anything that can read a file can read your plan.*
+*Nowspace stores nothing of its own: the plan on the left is the markdown file on the right. The vault is the substrate — anything that can read a file can read your plan, including the AI agents whose output lands here as linked notes for review. Client detail never lives in the plan; the plan holds pointers into separated contexts, one per engagement.*
 
 *(Screenshots show staged demo data.)*
 

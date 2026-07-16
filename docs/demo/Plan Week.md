@@ -12,16 +12,17 @@ Week 2026-wk29
 - [x] C1: Rotary: send committee agenda
 
 ##### Wed 15
-- [x] B1: BrightCo: review Q3 sprint notes
+- [x] B1: Linaltec: quarterly access review
 - [ ] C1: Health: evening run 5k
 
 ##### Thu 16
 - [ ] A1: Acme: send integration proposal
 - [ ] B1: Acme: prep Friday demo environment
-- [x] C1: BrightCo: sign updated NDA
+- [ ] A2: Erik: review ARF→IA mapping draft [[ARF mapping v2]]
+- [x] C1: Linaltec: prep ISO surveillance audit
 - [ ] B2: Rotary: confirm exchange host families
 - [ ] C2: Rotary: draft newsletter section
-- [ ] A2: Family: book summer cabin
+- [ ] A3: Family: book summer cabin
 - [ ] C3: Health: evening run 5k
 
 ##### Fri 17
