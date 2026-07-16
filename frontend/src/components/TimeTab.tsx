@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
 import { api } from "../api";
 import type { TimeEntry } from "../api";
 import {
@@ -59,6 +60,71 @@ function monthsBetween(from: string, to: string): string[] {
     if (m > 12) { m = 1; y += 1; }
   }
   return out;
+}
+
+/** "90", "90m", "1:30", "1h30", "1.5h" → minutes */
+function parseDuration(raw: string): number | null {
+  const s = raw.trim().toLowerCase();
+  let m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) return +m[1] * 60 + +m[2];
+  m = s.match(/^(\d+(?:\.\d+)?)\s*h$/);
+  if (m) return Math.round(+m[1] * 60);
+  m = s.match(/^(\d+)\s*h\s*(\d{1,2})\s*m?$/);
+  if (m) return +m[1] * 60 + +m[2];
+  m = s.match(/^(\d+)\s*m?$/);
+  if (m) return +m[1];
+  return null;
+}
+
+function addMinutesTo(start: string, mins: number): string {
+  const [h, mm] = start.split(":").map(Number);
+  const t = ((h * 60 + mm + mins) % 1440 + 1440) % 1440;
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+}
+
+/* Click-to-edit field: click shows an input, Enter/blur saves, Escape
+   cancels. Uncontrolled (Samsung IME) — no Save buttons anywhere. */
+function InlineEdit({ value, display, title, className, inputClassName, style, onSave }: {
+  value: string;
+  display: React.ReactNode;
+  title: string;
+  className?: string;
+  inputClassName?: string;
+  style?: React.CSSProperties;
+  onSave: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+  const committed = useRef(false);
+  useEffect(() => {
+    if (editing) { committed.current = false; ref.current?.focus(); ref.current?.select(); }
+  }, [editing]);
+  if (!editing) {
+    return (
+      <span onClick={() => setEditing(true)} title={title}
+        className={`cursor-text hover:underline decoration-dotted underline-offset-2 ${className || ""}`}
+        style={style}>
+        {display}
+      </span>
+    );
+  }
+  const commit = () => {
+    if (committed.current) return;
+    committed.current = true;
+    const v = (ref.current?.value || "").trim();
+    setEditing(false);
+    if (v !== value) onSave(v);
+  };
+  return (
+    <input ref={ref} defaultValue={value} autoComplete="off" autoCorrect="off" spellCheck={false}
+      onKeyDown={(ev) => {
+        if (ev.key === "Enter") commit();
+        if (ev.key === "Escape") { committed.current = true; setEditing(false); }
+      }}
+      onBlur={commit}
+      className={inputClassName || "w-16 px-1 py-0.5 rounded font-mono text-xs"}
+      style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+  );
 }
 
 /* Donut palette — resolves via --viz-N CSS vars so dark mode swaps
@@ -132,11 +198,13 @@ export default function TimeTab() {
   const [quarterRound, setQuarterRound] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Inline entry editing
-  const [editKey, setEditKey] = useState<string | null>(null);
-  const [editStart, setEditStart] = useState("");
-  const [editEnd, setEditEnd] = useState("");
-  const [editText, setEditText] = useState("");
+  // Manual entry form
+  const [manualOpen, setManualOpen] = useState(false);
+  const manualDate = useRef<HTMLInputElement>(null);
+  const manualStart = useRef<HTMLInputElement>(null);
+  const manualEnd = useRef<HTMLInputElement>(null);
+  const manualDur = useRef<HTMLInputElement>(null);
+  const manualText = useRef<HTMLInputElement>(null);
 
   // Selected period → inclusive date range (a week or custom range can
   // span month files; load() fetches every month it touches)
@@ -287,17 +355,75 @@ export default function TimeTab() {
   const dayIndexOf = (e: TimeEntry) =>
     entries.filter((x) => x.date === e.date).sort((a, b) => a.start.localeCompare(b.start)).indexOf(e);
 
-  const saveEdit = async (e: TimeEntry) => {
-    const start = normTime(editStart);
-    const end = editEnd.trim() ? normTime(editEnd) : null;
-    if (!start || (editEnd.trim() && !end)) {
-      setError(`"${!start ? editStart : editEnd}" is not a time — use HH:MM or HHMM (e.g. 1945)`);
-      return;
+  const patchEntry = async (e: TimeEntry, fields: { start?: string; end?: string | null; text?: string }) => {
+    try {
+      await api.updateTimeEntry({
+        date: e.date,
+        index: dayIndexOf(e),
+        start: fields.start ?? e.start,
+        end: fields.end === undefined ? e.end : fields.end,
+        text: fields.text ?? e.text,
+      });
+      load(); announce();
+    } catch (err) { setError(err instanceof Error ? err.message : "Failed to update"); }
+  };
+
+  const saveStart = (e: TimeEntry, raw: string) => {
+    const s = normTime(raw);
+    if (!s) { setError(`"${raw}" is not a time — use HH:MM or HHMM (e.g. 1945)`); return; }
+    patchEntry(e, { start: s });
+  };
+
+  const saveEnd = (e: TimeEntry, raw: string) => {
+    if (!raw.trim()) { patchEntry(e, { end: null }); return; }
+    const s = normTime(raw);
+    if (!s) { setError(`"${raw}" is not a time — use HH:MM or HHMM (e.g. 1945)`); return; }
+    patchEntry(e, { end: s });
+  };
+
+  const saveDuration = (e: TimeEntry, raw: string) => {
+    const mins = parseDuration(raw);
+    if (mins == null || mins <= 0) { setError(`"${raw}" is not a duration — use minutes (90), H:MM (1:30) or 1h30`); return; }
+    patchEntry(e, { end: addMinutesTo(e.start, mins) });
+  };
+
+  const saveText = (e: TimeEntry, raw: string) => {
+    if (raw.trim()) patchEntry(e, { text: raw.trim() });
+  };
+
+  // Moving to another date = delete here + re-add there (handles months)
+  const moveEntryDate = async (e: TimeEntry, newDate: string) => {
+    if (!newDate || newDate === e.date) return;
+    try {
+      await api.updateTimeEntry({ date: e.date, index: dayIndexOf(e), start: e.start, end: e.end, text: e.text, delete: true });
+      await api.addTimeEntry({ date: newDate, start: e.start, end: e.end, text: e.text });
+      load(); announce();
+    } catch (err) { setError(err instanceof Error ? err.message : "Failed to move entry"); }
+  };
+
+  const addManualEntry = async () => {
+    const date = manualDate.current?.value || "";
+    const start = normTime(manualStart.current?.value || "");
+    const text = (manualText.current?.value || "").trim();
+    const endRaw = (manualEnd.current?.value || "").trim();
+    const durRaw = (manualDur.current?.value || "").trim();
+    if (!date || !start || !text) { setError("Manual entry needs a date, start time and description"); return; }
+    let end: string | null = null;
+    if (endRaw) {
+      end = normTime(endRaw);
+      if (!end) { setError(`"${endRaw}" is not a time — use HH:MM or HHMM`); return; }
+    } else if (durRaw) {
+      const mins = parseDuration(durRaw);
+      if (mins == null || mins <= 0) { setError(`"${durRaw}" is not a duration — use minutes (90), H:MM (1:30) or 1h30`); return; }
+      end = addMinutesTo(start, mins);
     }
     try {
-      await api.updateTimeEntry({ date: e.date, index: dayIndexOf(e), start, end, text: editText });
-      setEditKey(null); load(); announce();
-    } catch (err) { setError(err instanceof Error ? err.message : "Failed to update"); }
+      await api.addTimeEntry({ date, start, end, text });
+      if (manualText.current) manualText.current.value = "";
+      if (manualDur.current) manualDur.current.value = "";
+      if (manualEnd.current) manualEnd.current.value = "";
+      load(); announce();
+    } catch (err) { setError(err instanceof Error ? err.message : "Failed to add entry"); }
   };
 
   const deleteEntry = async (e: TimeEntry) => {
@@ -425,6 +551,29 @@ export default function TimeTab() {
           <button onClick={() => { if (adhocText.trim()) { startEntry(adhocCompany ? `${adhocCompany}: ${adhocText.trim()}` : adhocText.trim()); setAdhocText(""); } }}
             className="px-2.5 py-1 rounded bg-green-600 text-white text-xs font-medium hover:bg-green-700">▶ Start</button>
         </div>
+        {manualOpen ? (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <input ref={manualDate} type="date" defaultValue={toISODate(new Date())}
+              className="px-1.5 py-1 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+            <input ref={manualStart} placeholder="start 0900" autoComplete="off"
+              className="w-20 px-1.5 py-1 rounded text-xs font-mono" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+            <input ref={manualEnd} placeholder="end 1030" autoComplete="off"
+              className="w-20 px-1.5 py-1 rounded text-xs font-mono" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+            <input ref={manualDur} placeholder="or dur 1:30" autoComplete="off"
+              className="w-20 px-1.5 py-1 rounded text-xs font-mono" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+            <input ref={manualText} placeholder="description… (Company/Sub: works inline)" autoComplete="off" autoCorrect="off" spellCheck={false}
+              onKeyDown={(ev) => { if (ev.key === "Enter") addManualEntry(); }}
+              className="flex-1 min-w-[10rem] px-2 py-1 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+            <button onClick={addManualEntry}
+              className="px-2.5 py-1 rounded text-xs font-medium text-white" style={{ backgroundColor: "var(--accent)" }}>Add</button>
+            <button onClick={() => setManualOpen(false)} className="px-1 text-xs" style={{ color: "var(--text-tertiary)" }}>✕</button>
+          </div>
+        ) : (
+          <button onClick={() => setManualOpen(true)}
+            className="self-start text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+            + Manual entry (past activity with its own date and times)
+          </button>
+        )}
       </div>
 
       {/* Month nav + filters (same chips as the Plan tab) */}
@@ -603,28 +752,33 @@ export default function TimeTab() {
                 const key = `${e.date}|${e.start}|${e.text}`;
                 const { company } = parseEntry(e.text);
                 const area = resolveContext(`${company}: x`, ctxMap, ctxTags);
-                if (editKey === key) {
-                  return (
-                    <div key={key} className="flex items-center gap-1.5 px-2 py-1 rounded text-xs" style={{ backgroundColor: "var(--bg-secondary)" }}>
-                      <input value={editStart} onChange={(ev) => setEditStart(ev.target.value)} className="w-14 px-1 py-0.5 rounded font-mono" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
-                      <span style={{ color: "var(--text-tertiary)" }}>–</span>
-                      <input value={editEnd} onChange={(ev) => setEditEnd(ev.target.value)} placeholder="running" className="w-14 px-1 py-0.5 rounded font-mono" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
-                      <input value={editText} onChange={(ev) => setEditText(ev.target.value)} className="flex-1 px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
-                      <button onClick={() => saveEdit(e)} className="px-1.5 rounded bg-blue-600 text-white text-[10px]">Save</button>
-                      <button onClick={() => setEditKey(null)} className="px-1 text-[10px]" style={{ color: "var(--text-tertiary)" }}>✕</button>
-                    </div>
-                  );
-                }
                 return (
                   <div key={key} className="group flex items-center gap-2 px-2 py-1 rounded text-xs hover:bg-gray-50"
                     style={{ boxShadow: `inset 2px 0 0 ${ctxEdgeColor(area)}` }}>
-                    <span className="font-mono shrink-0" style={{ color: "var(--text-secondary)" }}>{e.start}–{e.end || "…"}</span>
-                    <span className="font-mono shrink-0" style={{ color: "var(--text-tertiary)" }}>{fmtH(e.minutes, false)}</span>
-                    <span className="flex-1 truncate" style={{ color: "var(--text)" }}>{e.text}</span>
+                    <span className="font-mono shrink-0 flex items-center gap-0.5" style={{ color: "var(--text-secondary)" }}>
+                      <InlineEdit value={e.start} display={e.start} title="Click to edit start time"
+                        onSave={(v) => saveStart(e, v)} />
+                      –
+                      <InlineEdit value={e.end || ""} display={e.end || "…"} title="Click to edit end time (empty = running)"
+                        onSave={(v) => saveEnd(e, v)} />
+                    </span>
+                    <InlineEdit value={fmtH(e.minutes, false)} display={fmtH(e.minutes, false)}
+                      title="Click to set duration (90, 1:30 or 1h30) — adjusts the end time"
+                      className="font-mono shrink-0" style={{ color: "var(--text-tertiary)" }}
+                      inputClassName="w-12 px-1 py-0.5 rounded font-mono text-xs"
+                      onSave={(v) => saveDuration(e, v)} />
+                    <InlineEdit value={e.text} display={e.text} title="Click to edit description"
+                      className="flex-1 truncate" style={{ color: "var(--text)" }}
+                      inputClassName="flex-1 min-w-0 w-full px-1.5 py-0.5 rounded text-xs"
+                      onSave={(v) => saveText(e, v)} />
+                    <span className="relative w-4 h-4 shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100" title="Move to another date">
+                      <span style={{ color: "var(--text-secondary)" }}>📅</span>
+                      <input type="date" defaultValue={e.date}
+                        onChange={(ev) => moveEntryDate(e, ev.target.value)}
+                        className="absolute inset-0 w-4 h-4 opacity-0 cursor-pointer" />
+                    </span>
                     <button onClick={() => startEntry(e.text)} title="Continue this activity now"
                       className="opacity-0 group-hover:opacity-60 hover:!opacity-100 text-green-600">▶</button>
-                    <button onClick={() => { setEditKey(key); setEditStart(e.start); setEditEnd(e.end || ""); setEditText(e.text); }}
-                      title="Edit times / text" className="opacity-0 group-hover:opacity-60 hover:!opacity-100" style={{ color: "var(--text-secondary)" }}>✎</button>
                     <button onClick={() => deleteEntry(e)} title="Delete entry"
                       className="opacity-0 group-hover:opacity-60 hover:!opacity-100 text-red-400">✕</button>
                   </div>
