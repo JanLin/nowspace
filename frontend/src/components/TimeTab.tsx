@@ -132,7 +132,11 @@ function InlineEdit({ value, display, title, className, inputClassName, style, o
    surface; the legend carries the values as text). */
 const DONUT_COLORS = Array.from({ length: 8 }, (_, i) => `var(--viz-${i + 1})`);
 
-function Donut({ slices }: { slices: { label: string; minutes: number; color: string }[] }) {
+function Donut({ slices, onHover, onSelect }: {
+  slices: { label: string; minutes: number; color: string }[];
+  onHover?: (label: string | null) => void;
+  onSelect?: (label: string) => void;
+}) {
   const total = slices.reduce((n, s) => n + s.minutes, 0);
   const size = 120, r = 56, ir = 32, c = size / 2;
   if (!total) return null;
@@ -140,7 +144,10 @@ function Donut({ slices }: { slices: { label: string; minutes: number; color: st
     return (
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" className="shrink-0">
         <title>{slices[0].label}</title>
-        <circle cx={c} cy={c} r={(r + ir) / 2} fill="none" stroke={slices[0].color} strokeWidth={r - ir} />
+        <circle cx={c} cy={c} r={(r + ir) / 2} fill="none" stroke={slices[0].color} strokeWidth={r - ir}
+          style={onSelect ? { cursor: "pointer" } : undefined}
+          onMouseEnter={() => onHover?.(slices[0].label)} onMouseLeave={() => onHover?.(null)}
+          onClick={() => onSelect?.(slices[0].label)} />
       </svg>
     );
   }
@@ -155,7 +162,10 @@ function Donut({ slices }: { slices: { label: string; minutes: number; color: st
         return (
           <path key={s.label}
             d={`M ${pt(a0, r)} A ${r} ${r} 0 ${large} 1 ${pt(a1, r)} L ${pt(a1, ir)} A ${ir} ${ir} 0 ${large} 0 ${pt(a0, ir)} Z`}
-            fill={s.color} stroke="var(--bg-secondary)" strokeWidth="2">
+            fill={s.color} stroke="var(--bg-secondary)" strokeWidth="2"
+            style={onSelect ? { cursor: "pointer" } : undefined}
+            onMouseEnter={() => onHover?.(s.label)} onMouseLeave={() => onHover?.(null)}
+            onClick={() => onSelect?.(s.label)}>
             <title>{`${s.label} — ${fmtH(s.minutes, false)}h (${Math.round((s.minutes / total) * 100)}%)`}</title>
           </path>
         );
@@ -189,22 +199,19 @@ export default function TimeTab() {
   };
   const [companyFilter, setCompanyFilter] = useState<string>("");
 
-  // Ad-hoc start (calls / meetings not in the task list)
-  const [adhocText, setAdhocText] = useState("");
-  const [adhocCompany, setAdhocCompany] = useState("");
+
 
   // Invoice view
   const [invoiceCompany, setInvoiceCompany] = useState("");
   const [quarterRound, setQuarterRound] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Manual entry form
-  const [manualOpen, setManualOpen] = useState(false);
-  const manualDate = useRef<HTMLInputElement>(null);
-  const manualStart = useRef<HTMLInputElement>(null);
-  const manualEnd = useRef<HTMLInputElement>(null);
-  const manualDur = useRef<HTMLInputElement>(null);
-  const manualText = useRef<HTMLInputElement>(null);
+  // The single entry row: idle = start/log form; running = live editor
+  const entryDate = useRef<HTMLInputElement>(null);
+  const entryStart = useRef<HTMLInputElement>(null);
+  const entryEnd = useRef<HTMLInputElement>(null);
+  const entryDur = useRef<HTMLInputElement>(null);
+  const entryText = useRef<HTMLInputElement>(null);
 
   // Selected period → inclusive date range (a week or custom range can
   // span month files; load() fetches every month it touches)
@@ -264,12 +271,19 @@ export default function TimeTab() {
 
   const announce = () => window.dispatchEvent(new CustomEvent("time-changed"));
 
-  // Draft of the running entry's description; null = untouched
-  const [runDesc, setRunDesc] = useState<string | null>(null);
-  const saveRunDesc = async () => {
-    const v = runDesc?.trim();
-    if (!v || !running || v === running.text) { setRunDesc(null); return; }
-    try { await api.adjustTime({ text: v }); setRunDesc(null); load(); announce(); }
+  // Running-entry edits committed from the unified row
+  const adjustRunningStart = async () => {
+    const raw = (entryStart.current?.value || "").trim();
+    const s = normTime(raw);
+    if (!s) { setError(`"${raw}" is not a time — use HH:MM or HHMM (e.g. 1945)`); return; }
+    if (running && s === running.start) return;
+    try { await api.adjustTime({ start: s }); load(); announce(); }
+    catch (err) { setError(err instanceof Error ? err.message : "Failed to adjust"); }
+  };
+  const adjustRunningText = async () => {
+    const v = (entryText.current?.value || "").trim();
+    if (!v || (running && v === running.text)) return;
+    try { await api.adjustTime({ text: v }); load(); announce(); }
     catch (err) { setError(err instanceof Error ? err.message : "Failed to rename"); }
   };
 
@@ -307,6 +321,7 @@ export default function TimeTab() {
     const byArea = new Map<string, number>();
     const byCompany = new Map<string, number>();
     const bySub = new Map<string, Map<string, number>>();
+    const byAreaGroups = new Map<string, Map<string, number>>();
     visible.forEach((e) => {
       const { company, sub } = parseEntry(e.text);
       const area = resolveContext(`${company}: x`, ctxMap, ctxTags);
@@ -316,8 +331,10 @@ export default function TimeTab() {
       if (!bySub.has(c)) bySub.set(c, new Map());
       const s = sub || "(general)";
       bySub.get(c)!.set(s, (bySub.get(c)!.get(s) || 0) + e.minutes);
+      if (!byAreaGroups.has(area)) byAreaGroups.set(area, new Map());
+      byAreaGroups.get(area)!.set(c, (byAreaGroups.get(area)!.get(c) || 0) + e.minutes);
     });
-    return { byArea, byCompany, bySub, total: visible.reduce((n, e) => n + e.minutes, 0) };
+    return { byArea, byCompany, bySub, byAreaGroups, total: visible.reduce((n, e) => n + e.minutes, 0) };
   }, [visible, ctxMap, ctxTags]);
 
   // ── Invoice: per-day summaries for one company ─────────────
@@ -401,29 +418,40 @@ export default function TimeTab() {
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to move entry"); }
   };
 
-  const addManualEntry = async () => {
-    const date = manualDate.current?.value || "";
-    const start = normTime(manualStart.current?.value || "");
-    const text = (manualText.current?.value || "").trim();
-    const endRaw = (manualEnd.current?.value || "").trim();
-    const durRaw = (manualDur.current?.value || "").trim();
-    if (!date || !start || !text) { setError("Manual entry needs a date, start time and description"); return; }
-    let end: string | null = null;
-    if (endRaw) {
-      end = normTime(endRaw);
-      if (!end) { setError(`"${endRaw}" is not a time — use HH:MM or HHMM`); return; }
-    } else if (durRaw) {
-      const mins = parseDuration(durRaw);
-      if (mins == null || mins <= 0) { setError(`"${durRaw}" is not a duration — use minutes (90), H:MM (1:30) or 1h30`); return; }
-      end = addMinutesTo(start, mins);
+  // One button: with an end or duration it logs a finished entry on the
+  // chosen date; without, it starts tracking now (back-dating the start
+  // when one was typed).
+  const submitEntry = async () => {
+    const text = (entryText.current?.value || "").trim();
+    if (!text) { setError("Describe the activity first"); return; }
+    const date = entryDate.current?.value || toISODate(new Date());
+    const startRaw = (entryStart.current?.value || "").trim();
+    const endRaw = (entryEnd.current?.value || "").trim();
+    const durRaw = (entryDur.current?.value || "").trim();
+    const start = startRaw ? normTime(startRaw) : null;
+    if (startRaw && !start) { setError(`"${startRaw}" is not a time — use HH:MM or HHMM`); return; }
+    const clear = () => [entryStart, entryEnd, entryDur, entryText].forEach((r) => { if (r.current) r.current.value = ""; });
+    if (endRaw || durRaw) {
+      if (!start) { setError("A finished entry needs a start time"); return; }
+      let end: string | null = null;
+      if (endRaw) {
+        end = normTime(endRaw);
+        if (!end) { setError(`"${endRaw}" is not a time — use HH:MM or HHMM`); return; }
+      } else {
+        const mins = parseDuration(durRaw);
+        if (mins == null || mins <= 0) { setError(`"${durRaw}" is not a duration — use minutes (90), H:MM (1:30) or 1h30`); return; }
+        end = addMinutesTo(start, mins);
+      }
+      try { await api.addTimeEntry({ date, start, end, text }); clear(); load(); announce(); }
+      catch (err) { setError(err instanceof Error ? err.message : "Failed to add entry"); }
+      return;
     }
+    if (date !== toISODate(new Date())) { setError("A past entry needs an end time or duration"); return; }
     try {
-      await api.addTimeEntry({ date, start, end, text });
-      if (manualText.current) manualText.current.value = "";
-      if (manualDur.current) manualDur.current.value = "";
-      if (manualEnd.current) manualEnd.current.value = "";
-      load(); announce();
-    } catch (err) { setError(err instanceof Error ? err.message : "Failed to add entry"); }
+      await api.startTime(text);
+      if (start) await api.adjustTime({ start });
+      clear(); load(); announce();
+    } catch (err) { setError(err instanceof Error ? err.message : "Failed to start"); }
   };
 
   const deleteEntry = async (e: TimeEntry) => {
@@ -468,6 +496,19 @@ export default function TimeTab() {
     }));
   }, [sums, pieBy]);
   const pieTotal = pie.reduce((n, s) => n + s.minutes, 0);
+  const [hoverSlice, setHoverSlice] = useState<string | null>(null);
+  useEffect(() => { setHoverSlice(null); }, [pieBy, range.from, range.to]);
+  const breakdown = useMemo(() => {
+    if (!hoverSlice) return null;
+    const m = pieBy === "company" ? sums.bySub.get(hoverSlice) : sums.byAreaGroups.get(hoverSlice);
+    if (!m) return null;
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  }, [hoverSlice, pieBy, sums]);
+  const selectSlice = (label: string) => {
+    if (label === "Other") return;
+    if (pieBy === "company") setCompanyFilter(companyFilter.toLowerCase() === label.toLowerCase() ? "" : label);
+    else toggleCtx(label);
+  };
 
   void tick;
 
@@ -475,104 +516,46 @@ export default function TimeTab() {
     <div className="space-y-5 pb-12">
       {error && <div className="p-2 bg-red-50 text-red-700 rounded text-xs">{error}</div>}
 
-      {/* Running entry + ad-hoc start */}
-      <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-        {running ? (
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            <input
-              value={runDesc ?? running.text}
-              onChange={(ev) => setRunDesc(ev.target.value)}
-              onKeyDown={(ev) => {
-                if (ev.key === "Enter") saveRunDesc();
-                if (ev.key === "Escape") setRunDesc(null);
-              }}
-              onBlur={saveRunDesc}
-              title="Edit the description — saves when you press Enter or click away"
-              className="flex-1 min-w-[10rem] text-sm font-medium px-1.5 py-0.5 rounded"
-              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
-            />
-            {runDesc !== null && runDesc.trim() && runDesc.trim() !== running.text && (
-              <button
-                onMouseDown={(ev) => ev.preventDefault()}
-                onClick={saveRunDesc}
-                className="px-2 py-0.5 rounded text-xs font-medium text-white shrink-0"
-                style={{ backgroundColor: "var(--accent)" }}
-              >
-                Save ↵
-              </button>
-            )}
-            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>started</span>
-            <input
-              key={running.start}
-              defaultValue={running.start}
-              onKeyDown={async (ev) => {
-                if (ev.key !== "Enter") return;
-                const t = normTime((ev.target as HTMLInputElement).value);
-                if (!t) { setError("Start must be HH:MM or HHMM (e.g. 1945)"); return; }
-                try { await api.adjustTime({ start: t }); load(); announce(); }
-                catch (err) { setError(err instanceof Error ? err.message : "Failed to adjust"); }
-              }}
-              title="Started earlier? Type the real start time (1945 works) and press Enter"
-              className="w-16 px-1.5 py-0.5 rounded text-xs font-mono"
-              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
-            />
-            {[-15, -30, -60].map((d) => (
-              <button key={d}
-                onClick={async () => {
-                  const [h, m] = running.start.split(":").map(Number);
-                  const t = Math.max(0, h * 60 + m + d);
-                  try { await api.adjustTime({ start: `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}` }); load(); announce(); }
-                  catch (err) { setError(err instanceof Error ? err.message : "Failed to adjust"); }
-                }}
-                title={`Started ${-d} minutes earlier than recorded`}
-                className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
-                {d}m
-              </button>
-            ))}
-            <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-              → now · {fmtH(running.minutes, false)}h
-            </span>
-            <button onClick={stopEntry} className="px-2 py-0.5 rounded bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200">■ Stop</button>
-          </div>
-        ) : (
-          <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>Nothing running — press ▶ on a task in the Plan tab, replay an entry below, or start an ad-hoc activity:</p>
-        )}
+      {/* One entry row — idle: start or log; running: live editor */}
+      <div key={running ? `run-${running.start}|${running.text}` : "idle"}
+        className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
         <div className="flex items-center gap-1.5 flex-wrap">
-          <select value={adhocCompany} onChange={(e) => setAdhocCompany(e.target.value)}
-            className="px-1.5 py-1 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}>
-            <option value="">no company</option>
-            {companies.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <input type="text" value={adhocText} placeholder="call / meeting / activity… (Company/Sub: also works inline)"
-            onChange={(e) => setAdhocText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && adhocText.trim()) { startEntry(adhocCompany ? `${adhocCompany}: ${adhocText.trim()}` : adhocText.trim()); setAdhocText(""); } }}
-            className="flex-1 min-w-[12rem] px-2 py-1 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
-          <button onClick={() => { if (adhocText.trim()) { startEntry(adhocCompany ? `${adhocCompany}: ${adhocText.trim()}` : adhocText.trim()); setAdhocText(""); } }}
-            className="px-2.5 py-1 rounded bg-green-600 text-white text-xs font-medium hover:bg-green-700">▶ Start</button>
+          {running && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />}
+          <input ref={entryDate} type="date" defaultValue={running ? running.date : toISODate(new Date())} disabled={!!running}
+            className="px-1.5 py-1 rounded text-xs disabled:opacity-40"
+            style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+          <input ref={entryStart} placeholder="start (= now)" autoComplete="off" defaultValue={running ? running.start : ""}
+            onKeyDown={running ? (ev) => { if (ev.key === "Enter") adjustRunningStart(); } : undefined}
+            onBlur={running ? adjustRunningStart : undefined}
+            title={running ? "Started earlier? Type the real start time and press Enter" : "Leave empty to start now"}
+            className="w-24 px-1.5 py-1 rounded text-xs font-mono"
+            style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+          <input ref={entryEnd} placeholder="end" autoComplete="off" disabled={!!running}
+            className="w-16 px-1.5 py-1 rounded text-xs font-mono disabled:opacity-40"
+            style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+          {running ? (
+            <span className="w-16 text-center text-xs font-mono py-1" style={{ color: "var(--text-secondary)" }}>{fmtH(running.minutes, false)}h</span>
+          ) : (
+            <input ref={entryDur} placeholder="dur 1:30" autoComplete="off"
+              className="w-16 px-1.5 py-1 rounded text-xs font-mono"
+              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+          )}
+          <input ref={entryText} placeholder="what are you doing… (Company/Sub: works inline)" defaultValue={running ? running.text : ""}
+            autoComplete="off" autoCorrect="off" spellCheck={false}
+            onKeyDown={(ev) => { if (ev.key === "Enter") { if (running) adjustRunningText(); else submitEntry(); } }}
+            onBlur={running ? adjustRunningText : undefined}
+            className="flex-1 min-w-[10rem] px-2 py-1 rounded text-xs font-medium"
+            style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+          {running ? (
+            <button onClick={stopEntry} className="px-2.5 py-1 rounded bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200 shrink-0">■ Stop</button>
+          ) : (
+            <button onClick={submitEntry} className="px-2.5 py-1 rounded bg-green-600 text-white text-xs font-medium hover:bg-green-700 shrink-0">▶ Start</button>
+          )}
         </div>
-        {manualOpen ? (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <input ref={manualDate} type="date" defaultValue={toISODate(new Date())}
-              className="px-1.5 py-1 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
-            <input ref={manualStart} placeholder="start 0900" autoComplete="off"
-              className="w-20 px-1.5 py-1 rounded text-xs font-mono" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
-            <input ref={manualEnd} placeholder="end 1030" autoComplete="off"
-              className="w-20 px-1.5 py-1 rounded text-xs font-mono" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
-            <input ref={manualDur} placeholder="or dur 1:30" autoComplete="off"
-              className="w-20 px-1.5 py-1 rounded text-xs font-mono" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
-            <input ref={manualText} placeholder="description… (Company/Sub: works inline)" autoComplete="off" autoCorrect="off" spellCheck={false}
-              onKeyDown={(ev) => { if (ev.key === "Enter") addManualEntry(); }}
-              className="flex-1 min-w-[10rem] px-2 py-1 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
-            <button onClick={addManualEntry}
-              className="px-2.5 py-1 rounded text-xs font-medium text-white" style={{ backgroundColor: "var(--accent)" }}>Add</button>
-            <button onClick={() => setManualOpen(false)} className="px-1 text-xs" style={{ color: "var(--text-tertiary)" }}>✕</button>
-          </div>
-        ) : (
-          <button onClick={() => setManualOpen(true)}
-            className="self-start text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-            + Manual entry (past activity with its own date and times)
-          </button>
+        {!running && (
+          <p className="text-[10px] mt-1" style={{ color: "var(--text-tertiary)" }}>
+            Empty start = now. Fill an end time or duration to log a finished activity instead — Start becomes a plain add.
+          </p>
         )}
       </div>
 
@@ -638,107 +621,6 @@ export default function TimeTab() {
         </span>
       </div>
 
-      {/* Sums */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-semibold" style={{ color: "var(--text)" }}>Distribution</h3>
-            <div className="flex gap-0.5">
-              {(["company", "area"] as const).map((k) => (
-                <button key={k} onClick={() => setPieBy(k)}
-                  className={`px-1.5 py-0.5 rounded text-[10px] capitalize ${pieBy === k ? "font-semibold" : ""}`}
-                  style={pieBy === k ? { backgroundColor: "var(--bg-active-solid)", color: "var(--text)" } : { color: "var(--text-secondary)" }}>
-                  {k}
-                </button>
-              ))}
-            </div>
-          </div>
-          {pie.length === 0 ? (
-            <p className="text-xs py-4 text-center" style={{ color: "var(--text-tertiary)" }}>No time in this period.</p>
-          ) : (
-            <div className="flex flex-col items-center gap-2">
-              <Donut slices={pie} />
-              <div className="w-full space-y-0.5">
-                {pie.map((s) => (
-                  <div key={s.label} className="flex items-center gap-1.5 text-[10px]">
-                    <span className="w-2 h-2 rounded-[2px] shrink-0" style={{ backgroundColor: s.color }} />
-                    <span className="flex-1 truncate capitalize" style={{ color: "var(--text)" }}>{s.label}</span>
-                    <span className="font-mono" style={{ color: "var(--text-secondary)" }}>{fmtH(s.minutes, false)}</span>
-                    <span className="font-mono w-7 text-right" style={{ color: "var(--text-tertiary)" }}>
-                      {Math.round((s.minutes / (pieTotal || 1)) * 100)}%
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-          <h3 className="text-xs font-semibold mb-2" style={{ color: "var(--text)" }}>By area — total {fmtH(sums.total, false)}h</h3>
-          {[...sums.byArea.entries()].sort((a, b) => b[1] - a[1]).map(([area, mins]) => (
-            <div key={area} className="flex items-center gap-2 py-0.5 text-xs">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ctxEdgeColor(area) }} />
-              <span className="flex-1 capitalize" style={{ color: "var(--text)" }}>{area}</span>
-              <span className="font-mono" style={{ color: "var(--text-secondary)" }}>{fmtH(mins, false)}h</span>
-            </div>
-          ))}
-        </div>
-        <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-          <h3 className="text-xs font-semibold mb-2" style={{ color: "var(--text)" }}>By company / sub-project</h3>
-          {[...sums.byCompany.entries()].sort((a, b) => b[1] - a[1]).map(([c, mins]) => (
-            <div key={c} className="py-0.5">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="flex-1 font-medium" style={{ color: "var(--text)" }}>{c}</span>
-                <span className="font-mono" style={{ color: "var(--text-secondary)" }}>{fmtH(mins, false)}h</span>
-              </div>
-              {(sums.bySub.get(c)?.size || 0) > 1 && (
-                <div className="ml-3 border-l pl-2" style={{ borderColor: "var(--border)" }}>
-                  {[...sums.bySub.get(c)!.entries()].sort((a, b) => b[1] - a[1]).map(([s, m]) => (
-                    <div key={s} className="flex items-center gap-2 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                      <span className="flex-1">{s}</span>
-                      <span className="font-mono">{fmtH(m, false)}h</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Invoice summary */}
-      <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <h3 className="text-xs font-semibold" style={{ color: "var(--text)" }}>Invoice summary</h3>
-          <select value={invoiceCompany} onChange={(e) => setInvoiceCompany(e.target.value)}
-            className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}>
-            <option value="">choose company…</option>
-            {companies.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-            <input type="checkbox" checked={quarterRound} onChange={(e) => setQuarterRound(e.target.checked)} />
-            round to 15 min
-          </label>
-          {invoice && invoice.rows.length > 0 && (
-            <button onClick={copyInvoice} className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-medium hover:bg-blue-700">
-              {copied ? "Copied ✓" : "Copy as markdown"}
-            </button>
-          )}
-        </div>
-        {invoice && invoice.rows.map((r) => (
-          <div key={r.date} className="flex items-start gap-2 text-xs">
-            <span className="font-mono shrink-0" style={{ color: "var(--text-secondary)" }}>{r.date}</span>
-            <span className="font-mono shrink-0" style={{ color: "var(--text)" }}>{fmtH(r.minutes, quarterRound)}h</span>
-            <span className="flex-1" style={{ color: "var(--text-secondary)" }}>{r.labels.join("; ")}</span>
-          </div>
-        ))}
-        {invoice && (
-          <div className="text-xs font-semibold pt-1 border-t" style={{ color: "var(--text)", borderColor: "var(--border)" }}>
-            Total: {fmtH(invoice.total, quarterRound)}h
-          </div>
-        )}
-      </div>
-
       {/* Entries by day — replay ▶, edit, delete */}
       <div className="space-y-3">
         {byDay.map(([d, es]) => (
@@ -793,6 +675,93 @@ export default function TimeTab() {
           </p>
         )}
       </div>
+      {/* Invoice summary */}
+      <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="text-xs font-semibold" style={{ color: "var(--text)" }}>Invoice summary</h3>
+          <select value={invoiceCompany} onChange={(e) => setInvoiceCompany(e.target.value)}
+            className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}>
+            <option value="">choose company…</option>
+            {companies.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+            <input type="checkbox" checked={quarterRound} onChange={(e) => setQuarterRound(e.target.checked)} />
+            round to 15 min
+          </label>
+          {invoice && invoice.rows.length > 0 && (
+            <button onClick={copyInvoice} className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-medium hover:bg-blue-700">
+              {copied ? "Copied ✓" : "Copy as markdown"}
+            </button>
+          )}
+        </div>
+        {invoice && invoice.rows.map((r) => (
+          <div key={r.date} className="flex items-start gap-2 text-xs">
+            <span className="font-mono shrink-0" style={{ color: "var(--text-secondary)" }}>{r.date}</span>
+            <span className="font-mono shrink-0" style={{ color: "var(--text)" }}>{fmtH(r.minutes, quarterRound)}h</span>
+            <span className="flex-1" style={{ color: "var(--text-secondary)" }}>{r.labels.join("; ")}</span>
+          </div>
+        ))}
+        {invoice && (
+          <div className="text-xs font-semibold pt-1 border-t" style={{ color: "var(--text)", borderColor: "var(--border)" }}>
+            Total: {fmtH(invoice.total, quarterRound)}h
+          </div>
+        )}
+      </div>
+
+      {/* Distribution — hover a slice for its breakdown, click to filter */}
+      <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-semibold" style={{ color: "var(--text)" }}>Distribution — total {fmtH(pieTotal, false)}h</h3>
+          <div className="flex gap-0.5">
+            {(["company", "area"] as const).map((k) => (
+              <button key={k} onClick={() => setPieBy(k)}
+                className={`px-1.5 py-0.5 rounded text-[10px] capitalize ${pieBy === k ? "font-semibold" : ""}`}
+                style={pieBy === k ? { backgroundColor: "var(--bg-active-solid)", color: "var(--text)" } : { color: "var(--text-secondary)" }}>
+                {k}
+              </button>
+            ))}
+          </div>
+        </div>
+        {pie.length === 0 ? (
+          <p className="text-xs py-4 text-center" style={{ color: "var(--text-tertiary)" }}>No time in this period.</p>
+        ) : (
+          <div className="flex items-start gap-4">
+            <Donut slices={pie} onHover={setHoverSlice} onSelect={selectSlice} />
+            <div className="flex-1 min-w-0 space-y-0.5">
+              {hoverSlice && breakdown ? (
+                <>
+                  <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: "var(--text-tertiary)" }}>
+                    {hoverSlice} — {pieBy === "company" ? "sub-projects" : "groups"}
+                  </div>
+                  {breakdown.map(([name, mins]) => (
+                    <div key={name} className="flex items-center gap-1.5 text-[10px]">
+                      <span className="flex-1 truncate" style={{ color: "var(--text)" }}>{name}</span>
+                      <span className="font-mono" style={{ color: "var(--text-secondary)" }}>{fmtH(mins, false)}</span>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                pie.map((s) => (
+                  <div key={s.label} onClick={() => selectSlice(s.label)}
+                    className="flex items-center gap-1.5 text-[10px] cursor-pointer hover:opacity-75"
+                    title={s.label === "Other" ? undefined : "Click to filter the entries"}>
+                    <span className="w-2 h-2 rounded-[2px] shrink-0" style={{ backgroundColor: s.color }} />
+                    <span className="flex-1 truncate capitalize" style={{ color: "var(--text)" }}>{s.label}</span>
+                    <span className="font-mono" style={{ color: "var(--text-secondary)" }}>{fmtH(s.minutes, false)}</span>
+                    <span className="font-mono w-7 text-right" style={{ color: "var(--text-tertiary)" }}>
+                      {Math.round((s.minutes / (pieTotal || 1)) * 100)}%
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+        <p className="text-[10px] mt-2" style={{ color: "var(--text-tertiary)" }}>
+          Click a slice or legend row to filter the entries above; hover a slice for {pieBy === "company" ? "its sub-projects" : "its groups"}.
+        </p>
+      </div>
+
     </div>
   );
 }
