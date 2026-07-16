@@ -497,6 +497,8 @@ export default function TimeTab() {
   }, [sums, pieBy]);
   const pieTotal = pie.reduce((n, s) => n + s.minutes, 0);
   const [hoverSlice, setHoverSlice] = useState<string | null>(null);
+  // Pinned = stuck to the bottom of the screen while entries scroll above
+  const [pinDistribution, setPinDistribution] = useState(true);
   useEffect(() => { setHoverSlice(null); }, [pieBy, range.from, range.to]);
   const breakdown = useMemo(() => {
     if (!hoverSlice) return null;
@@ -708,11 +710,14 @@ export default function TimeTab() {
         )}
       </div>
 
-      {/* Distribution — hover a slice for its breakdown, click to filter */}
-      <div className="rounded-lg p-3" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+      {/* Distribution — pinned to the screen bottom while entries scroll;
+          the 📌 lets it flow with the page like the other pinnable bars */}
+      <div className={pinDistribution ? "sticky bottom-0 z-20 rounded-lg p-3" : "rounded-lg p-3"}
+        style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)",
+          ...(pinDistribution ? { boxShadow: "0 -4px 12px rgba(0,0,0,0.18)" } : {}) }}>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold" style={{ color: "var(--text)" }}>Distribution — total {fmtH(pieTotal, false)}h</h3>
-          <div className="flex gap-0.5">
+          <div className="flex items-center gap-0.5">
             {(["company", "area"] as const).map((k) => (
               <button key={k} onClick={() => setPieBy(k)}
                 className={`px-1.5 py-0.5 rounded text-[10px] capitalize ${pieBy === k ? "font-semibold" : ""}`}
@@ -720,6 +725,11 @@ export default function TimeTab() {
                 {k}
               </button>
             ))}
+            <button onClick={() => setPinDistribution(!pinDistribution)}
+              className={`px-1 py-0.5 rounded text-[11px] transition-colors ${pinDistribution ? "text-blue-400 hover:text-blue-600" : "text-gray-400 hover:text-gray-600"}`}
+              title={pinDistribution ? "Unpin — scroll with the page" : "Pin to the bottom of the screen"}>
+              {pinDistribution ? "✦" : "✧"}
+            </button>
           </div>
         </div>
         {pie.length === 0 ? (
