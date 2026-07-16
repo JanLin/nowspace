@@ -4,6 +4,16 @@
 
 A task planning and coaching tool that reads your [Obsidian](https://obsidian.md/) vault, prioritises tasks using AI, and helps you stay focused through coaching questions.
 
+![Day view — work, volunteer and personal contexts side by side](docs/screenshots/planning-day-view.png)
+
+*One day, three contexts — work, volunteer and personal tasks visibly separated, with the day's notes beside them.*
+
+![The same plan in the app and as plain markdown on disk](docs/screenshots/app-and-vault.png)
+
+*Nowspace stores nothing of its own: the plan on the left is the markdown file on the right. The vault is the substrate — anything that can read a file can read your plan.*
+
+*(Screenshots show staged demo data.)*
+
 ## Table of Contents
 
 - [What It Does](#what-it-does)
