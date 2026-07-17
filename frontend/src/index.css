@@ -197,7 +197,16 @@ select.bg-white,
        own full-strength styling and stand out against these */
     opacity: 0.35;
   }
+  /* Text glyphs (→ Plan, ✕) have no inherent color like emoji do —
+     at 0.35 over gray-300 they vanish; give them a bit more presence */
+  .glyph-action.opacity-0[class*="group-hover"] {
+    opacity: 0.6;
+  }
 }
+
+/* Text-glyph action buttons (→ Plan, ✕): theme-aware base color.
+   Tailwind hover:text-* classes still win on hover (higher specificity). */
+.glyph-action { color: var(--text-secondary); }
 
 /* Day navigation: content arrives from the direction of travel */
 @keyframes day-enter-fwd { from { transform: translateX(7%); opacity: 0.25; } }
