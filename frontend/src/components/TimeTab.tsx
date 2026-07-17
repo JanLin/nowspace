@@ -8,7 +8,7 @@ import {
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
 import { normTime } from "../timefmt";
-import { CLUSTER, CLUSTER_LABEL } from "../clusters";
+import { Cluster } from "../clusters";
 
 /* Where the time goes: month log, per-area/company/sub-project sums, and a
    per-day invoice summary per company. Filtering mirrors the Plan tab
@@ -176,6 +176,8 @@ function Donut({ slices, onHover, onSelect }: {
 
 export default function TimeTab() {
   const [mode, setMode] = useState<"week" | "month" | "custom">("month");
+  const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | null>(null);
+  const toggleCluster = (k: "tag" | "view" | "filter") => setOpenCluster((prev) => (prev === k ? null : k));
   const [month, setMonth] = useState(nowMonth());
   const [weekAnchor, setWeekAnchor] = useState(() => toISODate(new Date()));
   const [customFrom, setCustomFrom] = useState(() => `${nowMonth()}-01`);
@@ -575,8 +577,8 @@ export default function TimeTab() {
 
       {/* Month nav + filters (same chips as the Plan tab) */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="flex items-center gap-1.5 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.view}>
-        <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>View</span>
+        <Cluster kind="view" label="View" open={openCluster === "view"} onToggle={() => toggleCluster("view")}
+          summary={mode.charAt(0).toUpperCase() + mode.slice(1)}>
         <div className="flex items-center gap-0.5 rounded-md p-0.5" style={{ backgroundColor: "var(--bg-tertiary)" }}>
           {(["week", "month", "custom"] as const).map((m) => (
             <button key={m} onClick={() => setMode(m)}
@@ -601,10 +603,10 @@ export default function TimeTab() {
               className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
           </>
         )}
-        </span>
+        </Cluster>
         {ctxEnabled && (
-        <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.tag}>
-        <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Tag</span>
+        <Cluster kind="tag" label="Tag" open={openCluster === "tag"} onToggle={() => toggleCluster("tag")}
+          summary={ctxSel.length ? ctxSel.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join("+") : "All"}>
         {allContextNames(ctxMap, ctxTags).filter((n) =>
           ["work", "volunteer", "personal"].includes(n) || ctxSel.includes(n) ||
           entries.some((e) => resolveContext(`${parseEntry(e.text).company}: x`, ctxMap, ctxTags) === n)
@@ -623,17 +625,17 @@ export default function TimeTab() {
             style={ctxSel.length !== 0 ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}>
             All
           </button>
-        </span>
+        </Cluster>
         )}
-        <span className="flex items-center gap-1 rounded-lg px-1.5 py-1" style={CLUSTER.filter}>
-        <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Filter</span>
+        <Cluster kind="filter" label="Filter" open={openCluster === "filter"} onToggle={() => toggleCluster("filter")}
+          summary={companyFilter || "All"}>
         <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}
           className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "none" }}>
           <option value="">All companies</option>
           <option value="(no company)">(no company)</option>
           {companies.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        </span>
+        </Cluster>
       </div>
 
       {/* Entries by day — replay ▶, edit, delete */}

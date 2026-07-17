@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink } from "../api";
 import TaskCheck from "./TaskCheck";
-import { CLUSTER, CLUSTER_LABEL } from "../clusters";
+import { Cluster } from "../clusters";
 
 // Same annotation as the Plan tab; "-" = unassigned
 const PRIORITIES = ["A", "B", "C", "D"] as const;
@@ -152,6 +152,8 @@ export default function Bucket() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
+  const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | null>(null);
+  const toggleCluster = (k: "tag" | "view" | "filter") => setOpenCluster((prev) => (prev === k ? null : k));
 
   // Context filter — follows the selection set in the week view (shared via localStorage)
   const [ctxMap, setCtxMap] = useState<CtxMap>({});
@@ -791,8 +793,8 @@ export default function Bucket() {
       <div className="flex items-start flex-wrap gap-x-2 gap-y-1.5 text-xs pr-6" style={{ color: 'var(--text-secondary)' }}>
         <span className="whitespace-nowrap py-1.5">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""}</span>
         {ctxEnabled && (
-          <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.tag}>
-            <span className={CLUSTER_LABEL} style={{ color: 'var(--text-tertiary)' }}>Tag</span>
+          <Cluster kind="tag" label="Tag" open={openCluster === "tag"} onToggle={() => toggleCluster("tag")}
+            summary={ctxSel.length ? ctxSel.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join("+") : "All"}>
             {allContextNames(ctxMap, ctxTags).filter((name) => {
               if (["work", "volunteer", "personal"].includes(name)) return true;
               if (ctxSel.includes(name)) return true;
@@ -812,10 +814,10 @@ export default function Bucket() {
               style={ctxSel.length !== 0 ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
               All
             </button>
-          </span>
+          </Cluster>
         )}
-        <span className="flex items-center gap-1 rounded-lg px-1.5 py-1" style={CLUSTER.view}>
-          <span className={CLUSTER_LABEL} style={{ color: 'var(--text-tertiary)' }}>View</span>
+        <Cluster kind="view" label="View" open={openCluster === "view"} onToggle={() => toggleCluster("view")}
+          summary={boardView ? "Board" : "List"}>
           <button onClick={toggleBoardView}
             className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${boardView ? "bg-blue-100 text-blue-700" : ""}`}
             style={!boardView ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}
@@ -826,12 +828,13 @@ export default function Bucket() {
             className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
             {allCollapsed ? "Expand all" : "Collapse all"}
           </button>
-        </span>
+        </Cluster>
       </div>
 
       {/* Filter cluster — group chips */}
-      <div className="flex gap-1 items-center flex-wrap mt-1.5 rounded-lg px-1.5 py-1" style={CLUSTER.filter}>
-        <span className={CLUSTER_LABEL} style={{ color: 'var(--text-tertiary)' }}>Filter</span>
+      <div className="flex gap-1 items-center flex-wrap mt-1.5">
+      <Cluster kind="filter" label="Filter" open={openCluster === "filter"} onToggle={() => toggleCluster("filter")}
+        summary={filterGroup || "All"}>
         <button onClick={() => setFilterGroup(null)}
           className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
             !filterGroup ? "bg-blue-100 text-blue-700" : ""
@@ -850,6 +853,7 @@ export default function Bucket() {
             </button>
           </div>
         ))}
+      </Cluster>
       </div>
       <button
         onClick={() => setPinFilters(!pinFilters)}
