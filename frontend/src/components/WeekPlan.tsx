@@ -4077,7 +4077,9 @@ export default function WeekPlan() {
     {/* Status bar — always at very bottom */}
     {data && (
       <div className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1" style={{ backgroundColor: "color-mix(in srgb, var(--bg) 95%, transparent)", borderColor: "var(--border)" }}>
-        <div className="max-w-6xl mx-auto flex items-center gap-2">
+        {/* flex-wrap: on phones the running-timer pill drops to its own row
+            instead of pushing the stop button off the right edge */}
+        <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-x-2 gap-y-1">
           {!isArchive && (
             <button
               onClick={() => {
@@ -4130,7 +4132,7 @@ export default function WeekPlan() {
               <div className="relative flex items-center gap-1">
                 <button
                   onClick={() => { setTimeAdjustVal(runningTime.start); setTimeAdjustText(runningTime.text); setTimeAdjustOpen(!timeAdjustOpen); }}
-                  className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 hover:bg-green-200 max-w-[16rem] truncate"
+                  className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 hover:bg-green-200 max-w-[9rem] sm:max-w-[16rem] truncate"
                   title={`Tracking since ${runningTime.start} — click to adjust the start time or description`}
                 >
                   ⏱ {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")} · {runningTime.text}
@@ -4143,7 +4145,7 @@ export default function WeekPlan() {
                       onKeyDown={(e) => { if (e.key === "Enter") adjustTracking({ start: timeAdjustVal, text: timeAdjustText.trim() || undefined }); if (e.key === "Escape") setTimeAdjustOpen(false); }}
                       placeholder="description"
                       title="Edit what this time entry is about"
-                      className="w-64 px-1.5 py-0.5 rounded text-[10px] border" style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
+                      className="w-64 max-w-[70vw] px-1.5 py-0.5 rounded text-[10px] border" style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
                     <div className="flex items-center gap-1.5">
                       <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>started</span>
                       <input value={timeAdjustVal} onChange={(e) => setTimeAdjustVal(e.target.value)}

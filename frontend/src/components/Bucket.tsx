@@ -127,8 +127,8 @@ function AutoFocusInput({ onSubmit, onCancel, placeholder, className }: {
   );
 }
 
-function EditInput({ initialValue, onSave, onCancel, className }: {
-  initialValue: string; onSave: (v: string) => void; onCancel: () => void; className?: string;
+function EditInput({ initialValue, onSave, onCancel, className, style }: {
+  initialValue: string; onSave: (v: string) => void; onCancel: () => void; className?: string; style?: React.CSSProperties;
 }) {
   // Uncontrolled — see AutoFocusInput for the Samsung IME rationale
   const ref = useRef<HTMLInputElement>(null);
@@ -137,7 +137,7 @@ function EditInput({ initialValue, onSave, onCancel, className }: {
   return (
     <input ref={ref} type="text" defaultValue={initialValue} autoComplete="off" autoCorrect="off" spellCheck={false}
       onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") onCancel(); }}
-      onBlur={save} className={className} />
+      onBlur={save} className={className} style={style} />
   );
 }
 
@@ -196,6 +196,16 @@ export default function Bucket() {
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
   const quickAddRef = useRef<HTMLInputElement>(null);
   const [prioMenu, setPrioMenu] = useState<number | null>(null);
+  // Any click outside the badge/menu dismisses the picker — the wrapper
+  // spans carry .prio-pop so clicks inside the menu don't self-close
+  useEffect(() => {
+    if (prioMenu === null) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.(".prio-pop")) setPrioMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [prioMenu]);
   const [horizonFilter, setHorizonFilter] = useState<"" | "n" | "nw" | "m" | "none">("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
   const [dayPicker, setDayPicker] = useState<number | null>(null);
@@ -474,6 +484,49 @@ export default function Bucket() {
     setEditingTask(null);
   };
 
+  // One picker for both views — list rows and board cards open the same menu.
+  // withPlan adds a day row (board cards have no separate → Plan affordance)
+  const prioHorizonMenu = (task: BucketTask, idx: number, withPlan = false) => (
+    <div className="absolute left-0 top-full mt-0.5 z-20 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+      <div className="flex gap-0.5">
+        {PRIORITIES.filter((pr) => pr !== task.priority).map((pr) => (
+          <button key={pr} onClick={(e) => { e.stopPropagation(); setPriority(idx, pr); }}
+            className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[pr]}`}>
+            {pr}
+          </button>
+        ))}
+        {task.priority && (
+          <button onClick={(e) => { e.stopPropagation(); setPriority(idx, ""); }}
+            className="px-1 py-0 rounded text-[10px] font-bold text-gray-400" style={{ border: "1px solid var(--border)" }}>
+            -
+          </button>
+        )}
+      </div>
+      <div className="flex gap-0.5">
+        {HORIZONS.map(([h, name]) => (
+          <button key={h} onClick={(e) => { e.stopPropagation(); setTaskHorizon(idx, task.horizon === h ? "" : h); }}
+            title={name}
+            className={`px-1 py-0 rounded text-[10px] font-mono ${task.horizon === h ? "bg-blue-100 text-blue-700 font-bold" : "text-gray-500"}`}
+            style={task.horizon !== h ? { border: "1px solid var(--border)" } : undefined}>
+            {h}
+          </button>
+        ))}
+      </div>
+      {withPlan && (
+        <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
+          {dayNames.map((d, di) => (
+            <button key={d} onClick={(e) => { e.stopPropagation(); setPrioMenu(null); moveToPlan(idx, di); }}
+              title={`Move into ${d} (leaves the bucket)`}
+              className="px-1 py-0 rounded text-[10px] hover:bg-blue-100 hover:text-blue-700"
+              style={{ color: "var(--text-secondary)" }}>
+              {d.slice(0, 2)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   const moveToGroup = (idx: number, newGroup: string | null) => {
     const next = [...tasks];
     const task = { ...next[idx] };
@@ -601,6 +654,8 @@ export default function Bucket() {
 
   const moveToPlan = async (taskIdx: number, dayIdx: number) => {
     try {
+      // Flush pending edits first — the move endpoint indexes into the file
+      if (dirty) await saveBucket();
       await api.moveFromBucket(taskIdx, dayIdx, 0);
       await fetchBucket();
       setDayPicker(null);
@@ -762,18 +817,6 @@ export default function Bucket() {
 
   // File a bucket task into this week (offset 0, today) or next week (offset 1, Monday).
   // Flush any unsaved local edits first so the server-side move sees current state.
-  const fileToWeek = async (idx: number, offset: 0 | 1) => {
-    try {
-      if (dirty) await saveBucket();
-      if (offset === 1) { try { await api.createNextWeek(); } catch { /* already exists */ } }
-      await api.moveFromBucket(idx, offset === 0 ? todayIdx : 0, offset);
-      await fetchBucket();
-      window.dispatchEvent(new CustomEvent("week-changed"));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to file task");
-    }
-  };
-
   // Duplicate sweep: same normalized text (group + label, tokens stripped)
   const dupeGroups = (() => {
     const byNorm = new Map<string, number[]>();
@@ -915,10 +958,14 @@ export default function Bucket() {
                 .sort((a, b) => bucketAgeKey(a.t.text) - bucketAgeKey(b.t.text));
               // Legacy ~m month tokens count as the "m" horizon
               const horizonOf = (task: BucketTask) => (task.horizon || (isMonthHorizon(task.text) ? "m" : ""));
-              const cols: [string, string][] = [["n", "This week"], ["nw", "Next week"], ["m", "Next month"], ["", "Someday"]];
 
               const card = ({ t, i }: { t: BucketTask; i: number }) => {
                 const { label } = parseGroup(stripBucketMeta(stripCtxTokens(t.text)));
+                const links = extractLinks(t.text);
+                // [[wiki links]] collapse to the 🔗 icon; a link-only task
+                // falls back to the note's name so the card isn't blank
+                const displayLabel = label.replace(WIKI_LINK_RE, "").trim()
+                  || (links[0] ? (links[0].display_text || links[0].name) : label);
                 const entered = bucketEnteredWeek(t.text);
                 const ctx = ctxEnabled ? resolveContext(t.text, ctxMap, ctxTags) : null;
                 const hz = horizonOf(t);
@@ -927,12 +974,40 @@ export default function Bucket() {
                     style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)",
                       boxShadow: ctx ? `inset 2px 0 0 ${ctxEdgeColor(ctx)}` : undefined }}>
                     <div className="flex items-start gap-1">
-                      <span className={`shrink-0 px-1 rounded text-[9px] font-bold ${t.priority ? PRIORITY_BADGE[t.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
-                        style={t.priority === "A" && hz !== "n" ? { boxShadow: "0 0 0 1.5px rgb(245 158 11 / 0.7)" } : undefined}
-                        title={t.priority === "A" && hz !== "n" ? "An A shouldn't wait — this week or downgrade" : undefined}>
-                        {hz + (t.priority || "-")}
+                      <span className="prio-pop relative shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setPrioMenu(prioMenu === i ? null : i); }}
+                          className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${t.priority ? PRIORITY_BADGE[t.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
+                          style={{
+                            ...(!t.priority ? { border: "1px solid var(--border)" } : {}),
+                            ...(t.priority === "A" && hz !== "n" ? { boxShadow: "0 0 0 1.5px rgb(245 158 11 / 0.7)" } : {}),
+                          }}
+                          title={t.priority === "A" && hz !== "n" ? "An A shouldn't wait — this week or downgrade" : "Click to set priority and horizon"}>
+                          {hz + (t.priority || "-")}
+                        </button>
+                        {prioMenu === i && prioHorizonMenu(t, i, true)}
                       </span>
-                      <span className="flex-1 leading-snug" style={{ color: "var(--text)" }}>{label}</span>
+                      {editingTask === i ? (
+                        <EditInput initialValue={label.replace(WIKI_LINK_RE, "").trim()} onSave={(nt) => editTask(i, nt)} onCancel={() => setEditingTask(null)}
+                          className="flex-1 text-xs px-1 py-0.5 border rounded outline-none focus:ring-1 focus:ring-blue-400"
+                          style={{ borderColor: "var(--border-strong)", background: "var(--bg)", color: "var(--text)" }} />
+                      ) : (
+                        <span onClick={() => setEditingTask(i)} className="flex-1 leading-snug cursor-text hover:text-blue-600" style={{ color: "var(--text)" }}>{displayLabel}</span>
+                      )}
+                      {links.length > 0 && (
+                        <button onClick={(e) => {
+                          e.stopPropagation();
+                          const rect = (e.target as HTMLElement).getBoundingClientRect();
+                          const { group } = parseGroup(t.text);
+                          setNotePicker(notePicker?.idx === i ? null : {
+                            idx: i, group, links,
+                            pos: { top: rect.bottom + 4, left: rect.left - 100 }
+                          });
+                        }}
+                          className="shrink-0 text-[10px] opacity-80 hover:opacity-100" title="Linked notes">
+                          🔗{links.length > 1 && <sup className="text-[8px] font-bold">{links.length}</sup>}
+                        </button>
+                      )}
                       <button onClick={() => deleteTask(i)} title="Drop — delete this task"
                         className="shrink-0 text-gray-300 hover:text-red-500">✕</button>
                     </div>
@@ -946,18 +1021,6 @@ export default function Bucket() {
                         );
                       })()}
                       {t.waiting && <span>⏳</span>}
-                    </div>
-                    <div className="flex gap-1">
-                      {cols.filter(([h]) => h !== hz).map(([h, name]) => (
-                        <button key={h || "none"} onClick={() => setTaskHorizon(i, h)}
-                          title={h ? `Move to ${name} (virtual — stays in the bucket)` : "Clear the horizon — back to Someday"}
-                          className="flex-1 px-1 py-0.5 rounded text-[9px] font-medium"
-                          style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
-                          {h || "—"}
-                        </button>
-                      ))}
-                      <button onClick={() => fileToWeek(i, 0)} title="Actually move into today's plan (leaves the bucket)"
-                        className="flex-1 px-1 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 text-[9px] font-medium">→ Plan</button>
                     </div>
                   </div>
                 );
@@ -1008,7 +1071,7 @@ export default function Bucket() {
             })()}
           </div>
           <p className="text-[10px] text-center" style={{ color: "var(--text-tertiary)" }}>
-            Columns are virtual horizons (nA / nwA / mA prefixes in the file) — nothing leaves the bucket until you press → Plan.
+            Columns are virtual horizons (nA / nwA / mA prefixes in the file) — nothing leaves the bucket until you pick a weekday in a card's badge menu.
           </p>
         </div>
       )}
@@ -1107,7 +1170,7 @@ export default function Bucket() {
                       )}
 
                       {/* Priority badge — click to set (A/B/C/D, - clears) */}
-                      <span className="relative shrink-0">
+                      <span className="prio-pop relative shrink-0">
                         <button
                           onClick={(e) => { e.stopPropagation(); setPrioMenu(prioMenu === originalIdx ? null : originalIdx); }}
                           className={`px-1 py-0 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${
@@ -1123,34 +1186,7 @@ export default function Bucket() {
                         >
                           {(task.horizon || "") + (task.priority || "-")}
                         </button>
-                        {prioMenu === originalIdx && (
-                          <div className="absolute left-0 top-full mt-0.5 z-20 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-                            <div className="flex gap-0.5">
-                              {PRIORITIES.filter((pr) => pr !== task.priority).map((pr) => (
-                                <button key={pr} onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, pr); }}
-                                  className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[pr]}`}>
-                                  {pr}
-                                </button>
-                              ))}
-                              {task.priority && (
-                                <button onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, ""); }}
-                                  className="px-1 py-0 rounded text-[10px] font-bold text-gray-400" style={{ border: "1px solid var(--border)" }}>
-                                  -
-                                </button>
-                              )}
-                            </div>
-                            <div className="flex gap-0.5">
-                              {HORIZONS.map(([h, name]) => (
-                                <button key={h} onClick={(e) => { e.stopPropagation(); setTaskHorizon(originalIdx, task.horizon === h ? "" : h); }}
-                                  title={name}
-                                  className={`px-1 py-0 rounded text-[10px] font-mono ${task.horizon === h ? "bg-blue-100 text-blue-700 font-bold" : "text-gray-500"}`}
-                                  style={task.horizon !== h ? { border: "1px solid var(--border)" } : undefined}>
-                                  {h}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                        {prioMenu === originalIdx && prioHorizonMenu(task, originalIdx)}
                       </span>
 
                       {/* Task text */}
@@ -1367,7 +1403,20 @@ export default function Bucket() {
         )}
       </div>
 
-      {/* NoteFilePicker popup */}
+      {/* Vault browser side panel */}
+      {vaultBrowserOpen && (
+        <div className="hidden md:block w-80 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-80px)] sticky top-[80px] self-start relative" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+          <VaultBrowser
+            onClose={() => setVaultBrowserOpen(false)}
+            stateRef={vaultBrowserStateRef}
+            onOpenNote={(path, name) => setNoteEditor({ path, name })}
+          />
+        </div>
+      )}
+      </div>{/* end flex container */}
+
+      {/* NoteFilePicker popup — outside the list container, which is
+          display:none in board view (that would hide even this fixed popup) */}
       {notePicker && (
         <NoteFilePicker
           existingLinks={notePicker.links}
@@ -1382,18 +1431,6 @@ export default function Bucket() {
           onClose={() => setNotePicker(null)}
         />
       )}
-
-      {/* Vault browser side panel */}
-      {vaultBrowserOpen && (
-        <div className="hidden md:block w-80 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-80px)] sticky top-[80px] self-start relative" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
-          <VaultBrowser
-            onClose={() => setVaultBrowserOpen(false)}
-            stateRef={vaultBrowserStateRef}
-            onOpenNote={(path, name) => setNoteEditor({ path, name })}
-          />
-        </div>
-      )}
-      </div>{/* end flex container */}
 
       {/* Note editor modal */}
       {noteEditor && (

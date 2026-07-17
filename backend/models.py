@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class Subtask(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     text: str
     done: bool = False
 
@@ -97,6 +99,13 @@ class SaveWeekRequest(BaseModel):
 
 
 class BucketTask(BaseModel):
+    # extra="forbid": a save carrying fields this backend doesn't know means
+    # the client is NEWER — accepting it would silently strip those fields
+    # from every task and sync the loss to all devices (a stale Mac Mini
+    # backend erased all horizon prefixes this way on 2026-07-17). Refusing
+    # with 422 turns data loss into a visible "backend outdated" error.
+    model_config = ConfigDict(extra="forbid")
+
     text: str  # full text including "Group: description"
     priority: str = ""  # A, B, C, D — empty = unassigned ("-" in the UI)
     horizon: str = ""   # "" (stays) | "n" this week | "nw" next week | "m" next month
