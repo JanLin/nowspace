@@ -980,10 +980,16 @@ export default function Bucket() {
                     </div>
                     {[...byGroup.entries()].map(([g, its]) => (
                       <div key={g || "ungrouped"} className="space-y-1.5">
-                        <div className="px-1 text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                        <button
+                          onClick={() => toggleCollapseGroup(g)}
+                          className="w-full text-left px-1 text-[10px] font-semibold flex items-center gap-1 hover:opacity-80"
+                          style={{ color: "var(--text-secondary)" }}
+                          title={isGroupCollapsed(g) ? "Expand group" : "Collapse group"}
+                        >
+                          <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{isGroupCollapsed(g) ? "▸" : "▾"}</span>
                           {g || "Un-grouped"} <span className="font-normal" style={{ color: "var(--text-tertiary)" }}>({its.length})</span>
-                        </div>
-                        {its.map(card)}
+                        </button>
+                        {!isGroupCollapsed(g) && its.map(card)}
                       </div>
                     ))}
                     {items.length === 0 && <p className="text-[9px] text-center py-3" style={{ color: "var(--text-tertiary)" }}>{hint}</p>}
