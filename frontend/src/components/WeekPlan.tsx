@@ -6,7 +6,7 @@ import DiaryPanel from "./DiaryPanel";
 import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import TaskCheck from "./TaskCheck";
-import { CLUSTER, CLUSTER_LABEL } from "../clusters";
+import { Cluster } from "../clusters";
 import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
@@ -719,6 +719,10 @@ export default function WeekPlan() {
 
   // Notes panel state
   const [showNotesPanel, setShowNotesPanel] = useState(true);
+  // Mobile: toolbar clusters collapse to chips; one open at a time
+  const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | null>(null);
+  const toggleCluster = (k: "tag" | "view" | "filter") => setOpenCluster((prev) => (prev === k ? null : k));
+  const [habitsOpen, setHabitsOpen] = useState(false);
   // Diary: opened explicitly per day, closes on any navigation
   const [diaryOpen, setDiaryOpen] = useState(false);
   const [diaryFolder, setDiaryFolder] = useState("");
@@ -2835,7 +2839,22 @@ export default function WeekPlan() {
         }}>
         {/* Habit chips — current week only, shrink as the week goes well */}
         {weekOffset === 0 && habits.length > 0 && !ultraFocusActive && (
-          <HabitStrip habits={habits} onLog={logHabit} />
+          <>
+            <button
+              onClick={() => setHabitsOpen((o) => !o)}
+              className="sm:hidden flex items-center gap-1.5 text-[11px] px-1.5 py-1 rounded-lg"
+              style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+            >
+              🌱 Habits
+              <span style={{ color: "var(--text-tertiary)" }}>
+                {habits.filter((h) => (h.period === "day" ? h.today_count > 0 : h.week_count >= h.target)).length}/{habits.length} on track
+              </span>
+              <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{habitsOpen ? "▾" : "▸"}</span>
+            </button>
+            <div className={`${habitsOpen ? "block" : "hidden"} sm:block`}>
+              <HabitStrip habits={habits} onLog={logHabit} />
+            </div>
+          </>
         )}
         {/* Day info bar */}
         <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -3408,8 +3427,8 @@ export default function WeekPlan() {
               {/* Context filter — toggleable chips, combine freely; only when contexts are configured.
                   Core three always show; custom contexts only when present in this week or selected. */}
               {ctxEnabled && (
-                <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.tag}>
-                  <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Tag</span>
+                <Cluster kind="tag" label="Tag" open={openCluster === "tag"} onToggle={() => toggleCluster("tag")}
+                  summary={ctxSel.length ? ctxSel.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join("+") : "All"}>
                   {allContextNames(ctxMap, ctxTags).filter((name) => {
                     if (["work", "volunteer", "personal"].includes(name)) return true;
                     if (ctxSel.includes(name)) return true;
@@ -3436,11 +3455,11 @@ export default function WeekPlan() {
                   >
                     All
                   </button>
-                </span>
+                </Cluster>
               )}
               {/* Filter cluster: grouping, group dropdown, done visibility */}
-              <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.filter}>
-              <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>Filter</span>
+              <Cluster kind="filter" label="Filter" open={openCluster === "filter"} onToggle={() => toggleCluster("filter")}
+                summary={filterGroup || (groupView ? "Grouped" : "Flat")}>
               <button
                 onClick={() => setGroupView(!groupView)}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
@@ -3479,11 +3498,11 @@ export default function WeekPlan() {
                 </button>
               )}
 
-              </span>
+              </Cluster>
 
               {/* View cluster — layout modes */}
-              <span className="flex items-center gap-1 flex-wrap rounded-lg px-1.5 py-1" style={CLUSTER.view}>
-              <span className={CLUSTER_LABEL} style={{ color: "var(--text-tertiary)" }}>View</span>
+              <Cluster kind="view" label="View" open={openCluster === "view"} onToggle={() => toggleCluster("view")}
+                summary={viewMode === "day" ? "Day" : viewMode === "3day" ? "3 Day" : viewMode === "5day" ? "Mon-Fri" : viewMode === "7day" ? "Full week" : "Weekend"}>
               <button
                 onClick={() => setViewMode("day")}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
@@ -3505,7 +3524,7 @@ export default function WeekPlan() {
                   {mode === "3day" ? "3 Day" : mode === "5day" ? "Mon-Fri" : mode === "7day" ? "Full week" : "Weekend"}
                 </button>
               ))}
-              </span>
+              </Cluster>
               {/* Pin/unpin toggle */}
               <button
                 onClick={() => setPinFilters(!pinFilters)}
