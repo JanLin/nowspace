@@ -1335,6 +1335,7 @@ async def move_bucket_task(req: BucketMoveRequest):
         new_bucket_task = BucketTask(
             text=_stamp_bucket_week(task.text),
             priority=task.priority or "C",
+            horizon=req.horizon if req.horizon in ("n", "nw", "m") else "",
             focused=task.focused,
             waiting=task.waiting,
         )

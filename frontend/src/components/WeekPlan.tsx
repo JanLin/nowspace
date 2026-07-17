@@ -305,6 +305,16 @@ export default function WeekPlan() {
   const [autoSavePaused, setAutoSavePaused] = useState(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [priorityMenu, setPriorityMenu] = useState<{ day: number; task: number } | null>(null);
+  // Any click outside the badge/menu dismisses the picker (same pattern as
+  // the Bucket tab) — wrappers carry .plan-pop so in-menu clicks survive
+  useEffect(() => {
+    if (!priorityMenu) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.(".plan-pop")) setPriorityMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [priorityMenu]);
   const [groupView, setGroupView] = useState(true);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -1580,11 +1590,11 @@ export default function WeekPlan() {
     applyTaskChange(days);
   };
 
-  const sendToBucket = async (dayIdx: number, taskIdx: number) => {
+  const sendToBucket = async (dayIdx: number, taskIdx: number, horizon: string = "") => {
     if (!data || isArchive) return;
     pushUndo("tasks");
     try {
-      const result = await api.moveToBucket(taskIdx, dayIdx, weekOffset);
+      const result = await api.moveToBucket(taskIdx, dayIdx, weekOffset, horizon);
       setBucketCount(result.bucket_count);
       // Remove from local state
       const days = data.days.map((d, di) => {
@@ -1837,6 +1847,42 @@ export default function WeekPlan() {
     applyTaskChange(days);
     setPriorityMenu(null);
   };
+
+  // Badge menu for a planned task — priority row, park-in-bucket row
+  // (n/nw/m horizons or plain 🪣), and move-to-weekday row. Mirrors the
+  // Bucket tab's picker so both tabs steer tasks the same way.
+  const planTaskMenu = (dayIdx: number, taskIdx: number, task: Task) => (
+    <div className="absolute left-0 top-full mt-0.5 z-20 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+      <div className="flex gap-0.5">
+        {PRIORITIES.filter((p) => p !== task.priority).map((p) => (
+          <button key={p} onClick={(e) => { e.stopPropagation(); setPriority(dayIdx, taskIdx, p); }}
+            className={`px-1 py-0 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${PRIORITY_BADGE[p]}`}>
+            {p}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
+        {([["", "🪣", "Back into the bucket"], ["n", "n", "Bucket — this week"], ["nw", "nw", "Bucket — next week"], ["m", "m", "Bucket — next month"]] as const).map(([hz, lbl, tip]) => (
+          <button key={lbl} onClick={(e) => { e.stopPropagation(); setPriorityMenu(null); sendToBucket(dayIdx, taskIdx, hz); }}
+            title={tip}
+            className="px-1 py-0 rounded text-[10px] font-mono text-gray-500 hover:bg-blue-100 hover:text-blue-700"
+            style={{ border: "1px solid var(--border)" }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
+        {DAY_SHORT.map((d, di) => di !== dayIdx && (
+          <button key={d} onClick={(e) => { e.stopPropagation(); setPriorityMenu(null); moveTaskToDay(dayIdx, taskIdx, di); }}
+            title={`Move to ${d}`}
+            className="px-1 py-0 rounded text-[10px] hover:bg-blue-100 hover:text-blue-700"
+            style={{ color: "var(--text-secondary)" }}>
+            {d.slice(0, 2)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   // --- Task drag handlers ---
   const handleDragStart = (dayIdx: number, taskIdx: number, group: string | null = null, e?: React.DragEvent) => {
@@ -2400,7 +2446,7 @@ export default function WeekPlan() {
       >
         <TaskCheck done={task.done} size={13} />
       </button>
-      <div className="relative shrink-0">
+      <div className="plan-pop relative shrink-0">
         {task.done ? (
           <span className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C}`}>
             {task.priority || "C"}{seqLabel}
@@ -2415,19 +2461,7 @@ export default function WeekPlan() {
             >
               {task.priority || "C"}{seqLabel}
             </button>
-            {priorityMenu?.day === dayIdx && priorityMenu?.task === taskIdx && (
-              <div className="absolute left-0 top-full mt-0.5 flex gap-0.5 z-20 rounded shadow-md p-0.5" style={{ backgroundColor: "var(--card)" }}>
-                {PRIORITIES.filter((p) => p !== task.priority).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setPriority(dayIdx, taskIdx, p)}
-                    className={`px-1 py-0 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${PRIORITY_BADGE[p]}`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            )}
+            {priorityMenu?.day === dayIdx && priorityMenu?.task === taskIdx && planTaskMenu(dayIdx, taskIdx, task)}
           </>
         )}
       </div>
@@ -2577,7 +2611,7 @@ export default function WeekPlan() {
         >
           <TaskCheck done={task.done} size={15} />
         </button>
-        <div className="relative shrink-0">
+        <div className="plan-pop relative shrink-0">
           {task.done ? (
             <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C}`}>
               {task.priority || "C"}{seqLabel}
@@ -2593,19 +2627,7 @@ export default function WeekPlan() {
               >
                 {task.priority || "C"}{seqLabel}
               </button>
-              {priorityMenu?.day === dayIdx && priorityMenu?.task === taskIdx && (
-                <div className="absolute left-0 top-full mt-1 flex gap-0.5 z-10 rounded shadow-md p-1" style={{ backgroundColor: "var(--card)" }}>
-                  {PRIORITIES.filter((p) => p !== task.priority).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPriority(dayIdx, taskIdx, p)}
-                      className={`px-1.5 py-0.5 rounded text-xs font-bold cursor-pointer hover:opacity-70 transition-opacity ${PRIORITY_BADGE[p]}`}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {priorityMenu?.day === dayIdx && priorityMenu?.task === taskIdx && planTaskMenu(dayIdx, taskIdx, task)}
             </>
           )}
         </div>

@@ -223,10 +223,10 @@ export const api = {
       body: JSON.stringify({ tasks, pinned_groups, expected_mtime: expectedMtime ?? null }),
     }),
 
-  moveToBucket: (task_index: number, day_idx: number, week_offset: number = 0) =>
+  moveToBucket: (task_index: number, day_idx: number, week_offset: number = 0, horizon: string = "") =>
     request<{ status: string; bucket_count: number }>("/plan/bucket/move", {
       method: "POST",
-      body: JSON.stringify({ task_index, direction: "to_bucket", day_idx, week_offset }),
+      body: JSON.stringify({ task_index, direction: "to_bucket", day_idx, week_offset, horizon }),
     }),
 
   moveFromBucket: (task_index: number, day_idx: number, week_offset: number = 0) =>
