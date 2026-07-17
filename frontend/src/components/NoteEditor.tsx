@@ -59,6 +59,33 @@ function WikiSuggestions({
   );
 }
 
+/* ── Conflict diff: LCS line diff, capped for huge files ──── */
+
+type DiffRow = { type: "same" | "mine" | "disk"; text: string };
+
+function lineDiff(mine: string, disk: string): DiffRow[] | null {
+  const a = mine.split("\n");
+  const b = disk.split("\n");
+  if (a.length * b.length > 250000) return null; // too big — panel falls back
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const rows: DiffRow[] = [];
+  let i = 0, j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) { rows.push({ type: "same", text: a[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push({ type: "mine", text: a[i] }); i++; }
+    else { rows.push({ type: "disk", text: b[j] }); j++; }
+  }
+  while (i < m) { rows.push({ type: "mine", text: a[i] }); i++; }
+  while (j < n) { rows.push({ type: "disk", text: b[j] }); j++; }
+  return rows;
+}
+
 /* ── Navigation history entry ────────────────────────────── */
 
 interface HistoryEntry {
@@ -81,6 +108,11 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
   const [error, setError] = useState("");
   const [lastModified, setLastModified] = useState("");
   const [hasUnsaved, setHasUnsaved] = useState(false);
+  // External-change conflict: hold BOTH versions and let the user choose —
+  // the buffer is never replaced without an explicit decision
+  const [conflict, setConflict] = useState<{ disk: string; diskModified: string } | null>(null);
+  const conflictRef = useRef<typeof conflict>(null);
+  conflictRef.current = conflict;
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [currentName, setCurrentName] = useState(initialName || pathToName(initialPath));
 
@@ -157,6 +189,7 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
     setLoading(true);
     setError("");
     setHasUnsaved(false);
+    setConflict(null);
     try {
       const res = await api.readNote(path);
       setContent(res.content);
@@ -177,12 +210,22 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
 
   // Auto-save with 2s debounce
   const autoSave = useCallback(async (text: string) => {
+    if (conflictRef.current) return; // resolve the open conflict first
     setSaving(true);
     try {
-      // Conflict check: re-read modified timestamp
+      // Conflict check: re-read before writing
       const check = await api.readNote(currentPath);
       if (check.modified !== lastModified && check.content !== serverContentRef.current) {
-        setError("File was modified externally. Reload to see changes.");
+        if (check.content === text) {
+          // Disk already holds exactly what we were about to write — adopt it
+          setLastModified(check.modified);
+          serverContentRef.current = text;
+          setHasUnsaved(false);
+          setSaving(false);
+          return;
+        }
+        // Genuine divergence: keep the buffer untouched, offer a choice
+        setConflict({ disk: check.content, diskModified: check.modified });
         setSaving(false);
         return;
       }
@@ -197,6 +240,40 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
       setSaving(false);
     }
   }, [currentPath, lastModified]);
+
+  // ── Conflict resolution — every path is explicit and loss-free ──
+  const resolveKeepMine = async () => {
+    try {
+      const res = await api.writeNote(currentPath, content);
+      setLastModified(res.modified);
+      serverContentRef.current = content;
+      setHasUnsaved(false);
+      setConflict(null);
+      setError("");
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed to save"); }
+  };
+  const resolveTakeDisk = () => {
+    if (!conflict) return;
+    setContent(conflict.disk);
+    serverContentRef.current = conflict.disk;
+    setLastModified(conflict.diskModified);
+    setHasUnsaved(false);
+    setConflict(null);
+    setError("");
+  };
+  const resolveKeepBoth = async () => {
+    if (!conflict) return;
+    const merged = `${content.trimEnd()}\n\n---\n\n> Version from disk, kept during conflict:\n\n${conflict.disk.trimEnd()}\n`;
+    try {
+      const res = await api.writeNote(currentPath, merged);
+      setContent(merged);
+      serverContentRef.current = merged;
+      setLastModified(res.modified);
+      setHasUnsaved(false);
+      setConflict(null);
+      setError("");
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed to save"); }
+  };
 
   const handleChange = (val: string | undefined) => {
     const text = val ?? "";
@@ -536,11 +613,57 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
         {error && (
           <div className="px-4 py-1 bg-red-50 text-red-600 text-xs flex items-center gap-2">
             <span>{error}</span>
-            {error.includes("externally") && (
-              <button onClick={() => loadFile(currentPath)} className="text-red-700 underline text-[10px]">Reload</button>
-            )}
           </div>
         )}
+
+        {/* External-change conflict: compare and choose, nothing is lost */}
+        {conflict && (() => {
+          const rows = lineDiff(content, conflict.disk);
+          return (
+            <div className="px-4 py-2 bg-amber-50 border-y border-amber-200 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-semibold text-amber-800">
+                  ⚠ This note changed on disk while you were editing.
+                </span>
+                <span className="text-[10px] text-amber-700">
+                  <span className="px-1 rounded bg-green-100 text-green-800">green = only in your version</span>{" "}
+                  <span className="px-1 rounded bg-red-100 text-red-700">red = only on disk</span>
+                </span>
+              </div>
+              {rows ? (
+                <div className="max-h-56 overflow-auto rounded border border-amber-200 bg-white font-mono text-[11px] leading-snug">
+                  {rows.map((r, i) => (
+                    <div key={i} className={`px-2 whitespace-pre-wrap ${
+                      r.type === "mine" ? "bg-green-50 text-green-900" :
+                      r.type === "disk" ? "bg-red-50 text-red-800 line-through decoration-red-300" : "text-gray-500"
+                    }`}>
+                      {r.type === "mine" ? "+ " : r.type === "disk" ? "− " : "  "}{r.text || " "}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="max-h-56 overflow-auto rounded border border-amber-200 bg-white p-2 text-[11px] font-mono whitespace-pre-wrap text-gray-600">
+                  {conflict.disk}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <button onClick={resolveKeepMine}
+                  className="px-2.5 py-1 rounded bg-green-600 text-white text-[11px] font-medium hover:bg-green-700">
+                  Keep mine
+                </button>
+                <button onClick={resolveTakeDisk}
+                  className="px-2.5 py-1 rounded bg-white border border-amber-300 text-amber-800 text-[11px] font-medium hover:bg-amber-100">
+                  Take disk version
+                </button>
+                <button onClick={resolveKeepBoth}
+                  className="px-2.5 py-1 rounded bg-white border border-amber-300 text-amber-800 text-[11px] font-medium hover:bg-amber-100">
+                  Keep both
+                </button>
+                <span className="text-[10px] text-amber-700">Your text stays in the editor until you choose.</span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Editor */}
         <div ref={editorRef} className="flex-1 overflow-hidden" onKeyUp={handleEditorKeyUp} data-color-mode="light">
