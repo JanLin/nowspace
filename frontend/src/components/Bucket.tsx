@@ -192,8 +192,6 @@ export default function Bucket() {
     setBoardView((v) => { localStorage.setItem("nowspace-bucket-board", v ? "0" : "1"); return !v; });
   };
   // Tasks filed to a week this session (labels only, for visible progress)
-  const [filedWeek, setFiledWeek] = useState<string[]>([]);
-  const [filedNext, setFiledNext] = useState<string[]>([]);
   const [pinFilters, setPinFilters] = useState(true);
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
   const quickAddRef = useRef<HTMLInputElement>(null);
@@ -754,23 +752,15 @@ export default function Bucket() {
   // File a bucket task into this week (offset 0, today) or next week (offset 1, Monday).
   // Flush any unsaved local edits first so the server-side move sees current state.
   const fileToWeek = async (idx: number, offset: 0 | 1) => {
-    const label = stripBucketMeta(stripCtxTokens(parseGroup(tasks[idx]?.text || "").label));
     try {
       if (dirty) await saveBucket();
       if (offset === 1) { try { await api.createNextWeek(); } catch { /* already exists */ } }
       await api.moveFromBucket(idx, offset === 0 ? todayIdx : 0, offset);
-      if (offset === 0) setFiledWeek((p) => [...p, label]); else setFiledNext((p) => [...p, label]);
       await fetchBucket();
       window.dispatchEvent(new CustomEvent("week-changed"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to file task");
     }
-  };
-
-  const setHorizon = (idx: number, month: boolean) => {
-    const next = [...tasks];
-    next[idx] = { ...next[idx], text: setMonthHorizon(next[idx].text, month) };
-    updateTasks(next);
   };
 
   // Duplicate sweep: same normalized text (group + label, tokens stripped)
@@ -836,7 +826,7 @@ export default function Bucket() {
           <button onClick={toggleBoardView}
             className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${boardView ? "bg-blue-100 text-blue-700" : ""}`}
             style={!boardView ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}
-            title="GTD board: file tasks into This week / Next week / This month / Backlog">
+            title="Horizon board: This week / Next week / Next month / Someday — virtual, nothing moves">
             {boardView ? "List" : "Board"}
           </button>
           <button onClick={allCollapsed ? expandAll : collapseAll}
@@ -912,19 +902,25 @@ export default function Bucket() {
                 .filter(({ t }) => taskVisibleInMode(t.text))
                 .filter(({ t }) => !filterGroup || parseGroup(t.text).group === filterGroup)
                 .sort((a, b) => bucketAgeKey(a.t.text) - bucketAgeKey(b.t.text));
-              const backlog = visible.filter(({ t }) => !isMonthHorizon(t.text));
-              const month = visible.filter(({ t }) => isMonthHorizon(t.text));
+              // Legacy ~m month tokens count as the "m" horizon
+              const horizonOf = (task: BucketTask) => (task.horizon || (isMonthHorizon(task.text) ? "m" : ""));
+              const cols: [string, string][] = [["n", "This week"], ["nw", "Next week"], ["m", "Next month"], ["", "Someday"]];
 
               const card = ({ t, i }: { t: BucketTask; i: number }) => {
                 const { group, label } = parseGroup(stripBucketMeta(stripCtxTokens(t.text)));
                 const entered = bucketEnteredWeek(t.text);
                 const ctx = ctxEnabled ? resolveContext(t.text, ctxMap, ctxTags) : null;
-                const inMonth = isMonthHorizon(t.text);
+                const hz = horizonOf(t);
                 return (
                   <div key={`bc-${i}`} className="rounded-lg p-2 text-xs space-y-1"
                     style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)",
                       boxShadow: ctx ? `inset 2px 0 0 ${ctxEdgeColor(ctx)}` : undefined }}>
                     <div className="flex items-start gap-1">
+                      <span className={`shrink-0 px-1 rounded text-[9px] font-bold ${t.priority ? PRIORITY_BADGE[t.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
+                        style={t.priority === "A" && hz !== "n" ? { boxShadow: "0 0 0 1.5px rgb(245 158 11 / 0.7)" } : undefined}
+                        title={t.priority === "A" && hz !== "n" ? "An A shouldn't wait — this week or downgrade" : undefined}>
+                        {hz + (t.priority || "-")}
+                      </span>
                       <span className="flex-1 leading-snug" style={{ color: "var(--text)" }}>{label}</span>
                       <button onClick={() => deleteTask(i)} title="Drop — delete this task"
                         className="shrink-0 text-gray-300 hover:text-red-500">✕</button>
@@ -935,54 +931,45 @@ export default function Bucket() {
                       {t.waiting && <span>⏳</span>}
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => fileToWeek(i, 0)} title="Move into this week (today)"
-                        className="flex-1 px-1 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 text-[9px] font-medium">Week</button>
-                      <button onClick={() => fileToWeek(i, 1)} title="Move into next week (Monday)"
-                        className="flex-1 px-1 py-0.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[9px] font-medium">Next</button>
-                      <button onClick={() => setHorizon(i, !inMonth)}
-                        title={inMonth ? "Send back to Backlog" : "Do within this month"}
-                        className="flex-1 px-1 py-0.5 rounded bg-amber-50 text-amber-600 hover:bg-amber-100 text-[9px] font-medium">
-                        {inMonth ? "Backlog" : "Month"}
-                      </button>
+                      {cols.filter(([h]) => h !== hz).map(([h, name]) => (
+                        <button key={h || "none"} onClick={() => setTaskHorizon(i, h)}
+                          title={h ? `Move to ${name} (virtual — stays in the bucket)` : "Clear the horizon — back to Someday"}
+                          className="flex-1 px-1 py-0.5 rounded text-[9px] font-medium"
+                          style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                          {h || "—"}
+                        </button>
+                      ))}
+                      <button onClick={() => fileToWeek(i, 0)} title="Actually move into today's plan (leaves the bucket)"
+                        className="flex-1 px-1 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 text-[9px] font-medium">→ Plan</button>
                     </div>
                   </div>
                 );
               };
 
-              const column = (title: string, count: number, hint: string, body: React.ReactNode) => (
+              const column = (title: string, items: { t: BucketTask; i: number }[], hint: string) => (
                 <div className="rounded-lg p-2 space-y-2 min-h-[120px]"
                   style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
                   <div className="flex items-center gap-1 px-1">
                     <span className="text-[11px] font-semibold" style={{ color: "var(--text)" }}>{title}</span>
-                    <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>({count})</span>
+                    <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>({items.length})</span>
                   </div>
-                  {body}
-                  {count === 0 && <p className="text-[9px] text-center py-3" style={{ color: "var(--text-tertiary)" }}>{hint}</p>}
+                  {items.map(card)}
+                  {items.length === 0 && <p className="text-[9px] text-center py-3" style={{ color: "var(--text-tertiary)" }}>{hint}</p>}
                 </div>
               );
 
               return (
                 <>
-                  {column("This week", filedWeek.length, "File cards here with the Week button",
-                    <>{filedWeek.map((l, j) => (
-                      <div key={`fw-${j}`} className="rounded px-2 py-1 text-[10px] opacity-60 line-through"
-                        style={{ backgroundColor: "var(--bg)", color: "var(--text-secondary)" }}>{l}</div>
-                    ))}</>)}
-                  {column("Next week", filedNext.length, "File cards here with the Next button",
-                    <>{filedNext.map((l, j) => (
-                      <div key={`fn-${j}`} className="rounded px-2 py-1 text-[10px] opacity-60 line-through"
-                        style={{ backgroundColor: "var(--bg)", color: "var(--text-secondary)" }}>{l}</div>
-                    ))}</>)}
-                  {column("This month", month.length, "Mark cards with the Month button",
-                    <>{month.map(card)}</>)}
-                  {column("Backlog", backlog.length, "Everything else lives here, oldest first",
-                    <>{backlog.map(card)}</>)}
+                  {column("This week", visible.filter(({ t }) => horizonOf(t) === "n"), "Move cards here with the n button")}
+                  {column("Next week", visible.filter(({ t }) => horizonOf(t) === "nw"), "Move cards here with the nw button")}
+                  {column("Next month", visible.filter(({ t }) => horizonOf(t) === "m"), "Move cards here with the m button")}
+                  {column("Someday", visible.filter(({ t }) => horizonOf(t) === ""), "Everything unprefixed lives here, oldest first")}
                 </>
               );
             })()}
           </div>
           <p className="text-[10px] text-center" style={{ color: "var(--text-tertiary)" }}>
-            Week files to today · Next files to Monday — reshuffle the exact day in the week view · Filed cards reset when you leave
+            Columns are virtual horizons (nA / nwA / mA prefixes in the file) — nothing leaves the bucket until you press → Plan.
           </p>
         </div>
       )}
