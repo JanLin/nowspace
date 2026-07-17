@@ -127,8 +127,8 @@ function AutoFocusInput({ onSubmit, onCancel, placeholder, className }: {
   );
 }
 
-function EditInput({ initialValue, onSave, onCancel, className }: {
-  initialValue: string; onSave: (v: string) => void; onCancel: () => void; className?: string;
+function EditInput({ initialValue, onSave, onCancel, className, style }: {
+  initialValue: string; onSave: (v: string) => void; onCancel: () => void; className?: string; style?: React.CSSProperties;
 }) {
   // Uncontrolled — see AutoFocusInput for the Samsung IME rationale
   const ref = useRef<HTMLInputElement>(null);
@@ -137,7 +137,7 @@ function EditInput({ initialValue, onSave, onCancel, className }: {
   return (
     <input ref={ref} type="text" defaultValue={initialValue} autoComplete="off" autoCorrect="off" spellCheck={false}
       onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") onCancel(); }}
-      onBlur={save} className={className} />
+      onBlur={save} className={className} style={style} />
   );
 }
 
@@ -473,6 +473,36 @@ export default function Bucket() {
     updateTasks(next);
     setEditingTask(null);
   };
+
+  // One picker for both views — list rows and board cards open the same menu
+  const prioHorizonMenu = (task: BucketTask, idx: number) => (
+    <div className="absolute left-0 top-full mt-0.5 z-20 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+      <div className="flex gap-0.5">
+        {PRIORITIES.filter((pr) => pr !== task.priority).map((pr) => (
+          <button key={pr} onClick={(e) => { e.stopPropagation(); setPriority(idx, pr); }}
+            className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[pr]}`}>
+            {pr}
+          </button>
+        ))}
+        {task.priority && (
+          <button onClick={(e) => { e.stopPropagation(); setPriority(idx, ""); }}
+            className="px-1 py-0 rounded text-[10px] font-bold text-gray-400" style={{ border: "1px solid var(--border)" }}>
+            -
+          </button>
+        )}
+      </div>
+      <div className="flex gap-0.5">
+        {HORIZONS.map(([h, name]) => (
+          <button key={h} onClick={(e) => { e.stopPropagation(); setTaskHorizon(idx, task.horizon === h ? "" : h); }}
+            title={name}
+            className={`px-1 py-0 rounded text-[10px] font-mono ${task.horizon === h ? "bg-blue-100 text-blue-700 font-bold" : "text-gray-500"}`}
+            style={task.horizon !== h ? { border: "1px solid var(--border)" } : undefined}>
+            {h}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   const moveToGroup = (idx: number, newGroup: string | null) => {
     const next = [...tasks];
@@ -927,12 +957,26 @@ export default function Bucket() {
                     style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)",
                       boxShadow: ctx ? `inset 2px 0 0 ${ctxEdgeColor(ctx)}` : undefined }}>
                     <div className="flex items-start gap-1">
-                      <span className={`shrink-0 px-1 rounded text-[9px] font-bold ${t.priority ? PRIORITY_BADGE[t.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
-                        style={t.priority === "A" && hz !== "n" ? { boxShadow: "0 0 0 1.5px rgb(245 158 11 / 0.7)" } : undefined}
-                        title={t.priority === "A" && hz !== "n" ? "An A shouldn't wait — this week or downgrade" : undefined}>
-                        {hz + (t.priority || "-")}
+                      <span className="relative shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setPrioMenu(prioMenu === i ? null : i); }}
+                          className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${t.priority ? PRIORITY_BADGE[t.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
+                          style={{
+                            ...(!t.priority ? { border: "1px solid var(--border)" } : {}),
+                            ...(t.priority === "A" && hz !== "n" ? { boxShadow: "0 0 0 1.5px rgb(245 158 11 / 0.7)" } : {}),
+                          }}
+                          title={t.priority === "A" && hz !== "n" ? "An A shouldn't wait — this week or downgrade" : "Click to set priority and horizon"}>
+                          {hz + (t.priority || "-")}
+                        </button>
+                        {prioMenu === i && prioHorizonMenu(t, i)}
                       </span>
-                      <span className="flex-1 leading-snug" style={{ color: "var(--text)" }}>{label}</span>
+                      {editingTask === i ? (
+                        <EditInput initialValue={label.replace(WIKI_LINK_RE, "").trim()} onSave={(nt) => editTask(i, nt)} onCancel={() => setEditingTask(null)}
+                          className="flex-1 text-xs px-1 py-0.5 border rounded outline-none focus:ring-1 focus:ring-blue-400"
+                          style={{ borderColor: "var(--border-strong)", background: "var(--bg)", color: "var(--text)" }} />
+                      ) : (
+                        <span onClick={() => setEditingTask(i)} className="flex-1 leading-snug cursor-text hover:text-blue-600" style={{ color: "var(--text)" }}>{label}</span>
+                      )}
                       <button onClick={() => deleteTask(i)} title="Drop — delete this task"
                         className="shrink-0 text-gray-300 hover:text-red-500">✕</button>
                     </div>
@@ -1123,34 +1167,7 @@ export default function Bucket() {
                         >
                           {(task.horizon || "") + (task.priority || "-")}
                         </button>
-                        {prioMenu === originalIdx && (
-                          <div className="absolute left-0 top-full mt-0.5 z-20 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-                            <div className="flex gap-0.5">
-                              {PRIORITIES.filter((pr) => pr !== task.priority).map((pr) => (
-                                <button key={pr} onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, pr); }}
-                                  className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[pr]}`}>
-                                  {pr}
-                                </button>
-                              ))}
-                              {task.priority && (
-                                <button onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, ""); }}
-                                  className="px-1 py-0 rounded text-[10px] font-bold text-gray-400" style={{ border: "1px solid var(--border)" }}>
-                                  -
-                                </button>
-                              )}
-                            </div>
-                            <div className="flex gap-0.5">
-                              {HORIZONS.map(([h, name]) => (
-                                <button key={h} onClick={(e) => { e.stopPropagation(); setTaskHorizon(originalIdx, task.horizon === h ? "" : h); }}
-                                  title={name}
-                                  className={`px-1 py-0 rounded text-[10px] font-mono ${task.horizon === h ? "bg-blue-100 text-blue-700 font-bold" : "text-gray-500"}`}
-                                  style={task.horizon !== h ? { border: "1px solid var(--border)" } : undefined}>
-                                  {h}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                        {prioMenu === originalIdx && prioHorizonMenu(task, originalIdx)}
                       </span>
 
                       {/* Task text */}
