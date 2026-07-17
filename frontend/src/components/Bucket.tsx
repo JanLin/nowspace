@@ -196,6 +196,16 @@ export default function Bucket() {
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
   const quickAddRef = useRef<HTMLInputElement>(null);
   const [prioMenu, setPrioMenu] = useState<number | null>(null);
+  // Any click outside the badge/menu dismisses the picker — the wrapper
+  // spans carry .prio-pop so clicks inside the menu don't self-close
+  useEffect(() => {
+    if (prioMenu === null) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.(".prio-pop")) setPrioMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [prioMenu]);
   const [horizonFilter, setHorizonFilter] = useState<"" | "n" | "nw" | "m" | "none">("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
   const [dayPicker, setDayPicker] = useState<number | null>(null);
@@ -474,8 +484,9 @@ export default function Bucket() {
     setEditingTask(null);
   };
 
-  // One picker for both views — list rows and board cards open the same menu
-  const prioHorizonMenu = (task: BucketTask, idx: number) => (
+  // One picker for both views — list rows and board cards open the same menu.
+  // withPlan adds a day row (board cards have no separate → Plan affordance)
+  const prioHorizonMenu = (task: BucketTask, idx: number, withPlan = false) => (
     <div className="absolute left-0 top-full mt-0.5 z-20 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
       <div className="flex gap-0.5">
         {PRIORITIES.filter((pr) => pr !== task.priority).map((pr) => (
@@ -501,6 +512,18 @@ export default function Bucket() {
           </button>
         ))}
       </div>
+      {withPlan && (
+        <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
+          {dayNames.map((d, di) => (
+            <button key={d} onClick={(e) => { e.stopPropagation(); setPrioMenu(null); moveToPlan(idx, di); }}
+              title={`Move into ${d} (leaves the bucket)`}
+              className="px-1 py-0 rounded text-[10px] hover:bg-blue-100 hover:text-blue-700"
+              style={{ color: "var(--text-secondary)" }}>
+              {d.slice(0, 2)}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -631,6 +654,8 @@ export default function Bucket() {
 
   const moveToPlan = async (taskIdx: number, dayIdx: number) => {
     try {
+      // Flush pending edits first — the move endpoint indexes into the file
+      if (dirty) await saveBucket();
       await api.moveFromBucket(taskIdx, dayIdx, 0);
       await fetchBucket();
       setDayPicker(null);
@@ -792,18 +817,6 @@ export default function Bucket() {
 
   // File a bucket task into this week (offset 0, today) or next week (offset 1, Monday).
   // Flush any unsaved local edits first so the server-side move sees current state.
-  const fileToWeek = async (idx: number, offset: 0 | 1) => {
-    try {
-      if (dirty) await saveBucket();
-      if (offset === 1) { try { await api.createNextWeek(); } catch { /* already exists */ } }
-      await api.moveFromBucket(idx, offset === 0 ? todayIdx : 0, offset);
-      await fetchBucket();
-      window.dispatchEvent(new CustomEvent("week-changed"));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to file task");
-    }
-  };
-
   // Duplicate sweep: same normalized text (group + label, tokens stripped)
   const dupeGroups = (() => {
     const byNorm = new Map<string, number[]>();
@@ -945,7 +958,6 @@ export default function Bucket() {
                 .sort((a, b) => bucketAgeKey(a.t.text) - bucketAgeKey(b.t.text));
               // Legacy ~m month tokens count as the "m" horizon
               const horizonOf = (task: BucketTask) => (task.horizon || (isMonthHorizon(task.text) ? "m" : ""));
-              const cols: [string, string][] = [["n", "This week"], ["nw", "Next week"], ["m", "Next month"], ["", "Someday"]];
 
               const card = ({ t, i }: { t: BucketTask; i: number }) => {
                 const { label } = parseGroup(stripBucketMeta(stripCtxTokens(t.text)));
@@ -957,7 +969,7 @@ export default function Bucket() {
                     style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)",
                       boxShadow: ctx ? `inset 2px 0 0 ${ctxEdgeColor(ctx)}` : undefined }}>
                     <div className="flex items-start gap-1">
-                      <span className="relative shrink-0">
+                      <span className="prio-pop relative shrink-0">
                         <button
                           onClick={(e) => { e.stopPropagation(); setPrioMenu(prioMenu === i ? null : i); }}
                           className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${t.priority ? PRIORITY_BADGE[t.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
@@ -968,7 +980,7 @@ export default function Bucket() {
                           title={t.priority === "A" && hz !== "n" ? "An A shouldn't wait — this week or downgrade" : "Click to set priority and horizon"}>
                           {hz + (t.priority || "-")}
                         </button>
-                        {prioMenu === i && prioHorizonMenu(t, i)}
+                        {prioMenu === i && prioHorizonMenu(t, i, true)}
                       </span>
                       {editingTask === i ? (
                         <EditInput initialValue={label.replace(WIKI_LINK_RE, "").trim()} onSave={(nt) => editTask(i, nt)} onCancel={() => setEditingTask(null)}
@@ -990,18 +1002,6 @@ export default function Bucket() {
                         );
                       })()}
                       {t.waiting && <span>⏳</span>}
-                    </div>
-                    <div className="flex gap-1">
-                      {cols.filter(([h]) => h !== hz).map(([h, name]) => (
-                        <button key={h || "none"} onClick={() => setTaskHorizon(i, h)}
-                          title={h ? `Move to ${name} (virtual — stays in the bucket)` : "Clear the horizon — back to Someday"}
-                          className="flex-1 px-1 py-0.5 rounded text-[9px] font-medium"
-                          style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
-                          {h || "—"}
-                        </button>
-                      ))}
-                      <button onClick={() => fileToWeek(i, 0)} title="Actually move into today's plan (leaves the bucket)"
-                        className="flex-1 px-1 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 text-[9px] font-medium">→ Plan</button>
                     </div>
                   </div>
                 );
@@ -1052,7 +1052,7 @@ export default function Bucket() {
             })()}
           </div>
           <p className="text-[10px] text-center" style={{ color: "var(--text-tertiary)" }}>
-            Columns are virtual horizons (nA / nwA / mA prefixes in the file) — nothing leaves the bucket until you press → Plan.
+            Columns are virtual horizons (nA / nwA / mA prefixes in the file) — nothing leaves the bucket until you pick a weekday in a card's badge menu.
           </p>
         </div>
       )}
@@ -1151,7 +1151,7 @@ export default function Bucket() {
                       )}
 
                       {/* Priority badge — click to set (A/B/C/D, - clears) */}
-                      <span className="relative shrink-0">
+                      <span className="prio-pop relative shrink-0">
                         <button
                           onClick={(e) => { e.stopPropagation(); setPrioMenu(prioMenu === originalIdx ? null : originalIdx); }}
                           className={`px-1 py-0 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${
