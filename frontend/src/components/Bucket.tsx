@@ -1009,7 +1009,7 @@ export default function Bucket() {
                         </button>
                       )}
                       <button onClick={() => deleteTask(i)} title="Drop — delete this task"
-                        className="shrink-0 text-gray-300 hover:text-red-500">✕</button>
+                        className="shrink-0 glyph-action hover:text-red-500">✕</button>
                     </div>
                     <div className="flex items-center gap-1 text-[9px]" style={{ color: "var(--text-tertiary)" }}>
                       {(() => {
@@ -1259,7 +1259,7 @@ export default function Bucket() {
                       {/* Move to plan */}
                       <div className="relative">
                         <button onClick={() => setDayPicker(dayPicker === originalIdx ? null : originalIdx)}
-                          className="text-xs text-gray-300 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="text-xs glyph-action hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity"
                           title="Move to week plan">→ Plan</button>
                         {dayPicker === originalIdx && (
                           <div className="absolute top-6 right-0 z-20 rounded-lg shadow-lg border p-2 flex gap-1" style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}>
@@ -1273,7 +1273,7 @@ export default function Bucket() {
 
                       {/* Delete */}
                       <button onClick={(e) => { e.stopPropagation(); deleteTask(originalIdx); }}
-                        className="text-xs text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+                        className="text-xs glyph-action hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
                     </div>
 
                     {/* Subtasks */}
@@ -1340,7 +1340,7 @@ export default function Bucket() {
                                 >{sub.text}</span>
                               )}
                               <button onClick={() => deleteSubtask(originalIdx, si)}
-                                className="text-[10px] text-gray-300 hover:text-red-500 ml-auto">×</button>
+                                className="text-[10px] glyph-action hover:text-red-500 ml-auto">×</button>
                             </div>
                             {/* Insert-after input */}
                             {breakdownIdx === originalIdx && addSubAfter === si && (

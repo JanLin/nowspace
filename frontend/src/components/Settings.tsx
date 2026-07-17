@@ -1023,7 +1023,11 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
         </h2>
         <div className="text-xs space-y-1" style={{ color: "var(--text-secondary)" }}>
           <p>Nowspace v{__APP_VERSION__}</p>
-          <p>Personal coaching agent with Obsidian vault integration.</p>
+          <p>
+            Calm personal planning on top of your Obsidian vault — week plan,
+            bucket with horizons, habits, time tracking, notes and diary, all
+            stored as plain markdown files you own.
+          </p>
           <p>
             <a href="https://github.com/JanLin/coaching-agent/releases" target="_blank" rel="noreferrer"
               className="underline hover:opacity-80">Release notes</a>

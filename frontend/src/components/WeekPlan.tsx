@@ -2881,7 +2881,9 @@ export default function WeekPlan() {
         {/* Day info bar */}
         <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-sm" style={{ color: "var(--text-secondary)" }}>
           <span className="font-medium whitespace-nowrap" style={{ color: "var(--text)" }}>
-            {(day.heading || "").replace(/^#+\s*/, "") || DAY_LABELS[day.day] || day.day}
+            {/* Strip markdown emphasis too — Obsidian-side edits sometimes
+                bold today's date (##### Fri **17**) and it isn't rendered here */}
+            {(day.heading || "").replace(/^#+\s*/, "").replace(/\*\*|__/g, "") || DAY_LABELS[day.day] || day.day}
           </span>
           <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-medium">
             {selectedDayIdx >= 5 ? "weekend" : "weekday"}
