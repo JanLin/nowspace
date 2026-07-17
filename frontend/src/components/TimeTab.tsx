@@ -304,7 +304,13 @@ export default function TimeTab() {
 
   const visible = useMemo(() => entries.filter((e) => {
     const { company } = parseEntry(e.text);
-    if (companyFilter && company.toLowerCase() !== companyFilter.toLowerCase()) return false;
+    if (companyFilter) {
+      // "(no company)" filters to entries WITHOUT a company prefix
+      const match = companyFilter === "(no company)"
+        ? company === ""
+        : company.toLowerCase() === companyFilter.toLowerCase();
+      if (!match) return false;
+    }
     // Context filtering matches the Plan rules (company acts as the group)
     return taskVisibleInCtxSelection(`${company}: x`, ctxSel, ctxMap, ctxTags);
   }), [entries, companyFilter, ctxSel, ctxMap, ctxTags]);
@@ -624,6 +630,7 @@ export default function TimeTab() {
         <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}
           className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "none" }}>
           <option value="">All companies</option>
+          <option value="(no company)">(no company)</option>
           {companies.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         </span>
@@ -739,7 +746,18 @@ export default function TimeTab() {
           </div>
         </div>
         {pie.length === 0 ? (
-          <p className="text-xs py-4 text-center" style={{ color: "var(--text-tertiary)" }}>No time in this period.</p>
+          <div className="text-xs py-4 text-center space-y-2" style={{ color: "var(--text-tertiary)" }}>
+            <p>No time in this period{companyFilter || ctxSel.length ? " with these filters" : ""}.</p>
+            {(companyFilter || ctxSel.length > 0) && (
+              <button
+                onClick={() => { setCompanyFilter(""); setCtxSelState([]); saveCtxSelection([]); setExpandedSlice(null); }}
+                className="px-2 py-1 rounded text-[10px] font-medium text-white"
+                style={{ backgroundColor: "var(--accent)" }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
         ) : (
           <div className="flex items-start gap-4">
             <Donut slices={pie} onHover={setHoverSlice} onSelect={selectSlice} />
