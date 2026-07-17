@@ -749,6 +749,17 @@ export default function Bucket() {
 
   const todayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
 
+  // Weeks a task has sat in the bucket (from its ~wYYWW entry stamp)
+  const bucketAgeWeeks = (text: string): number | null => {
+    const w = bucketEnteredWeek(text);
+    if (!w) return null;
+    const now = new Date();
+    const jan4 = new Date(now.getFullYear(), 0, 4);
+    const curWeek = Math.ceil(((now.getTime() - jan4.getTime()) / 86400000 + ((jan4.getDay() + 6) % 7) + 1) / 7);
+    const curYY = now.getFullYear() % 100;
+    return Math.max(0, (curYY * 52 + curWeek) - (w.yy * 52 + w.week));
+  };
+
   // File a bucket task into this week (offset 0, today) or next week (offset 1, Monday).
   // Flush any unsaved local edits first so the server-side move sees current state.
   const fileToWeek = async (idx: number, offset: 0 | 1) => {
@@ -907,7 +918,7 @@ export default function Bucket() {
               const cols: [string, string][] = [["n", "This week"], ["nw", "Next week"], ["m", "Next month"], ["", "Someday"]];
 
               const card = ({ t, i }: { t: BucketTask; i: number }) => {
-                const { group, label } = parseGroup(stripBucketMeta(stripCtxTokens(t.text)));
+                const { label } = parseGroup(stripBucketMeta(stripCtxTokens(t.text)));
                 const entered = bucketEnteredWeek(t.text);
                 const ctx = ctxEnabled ? resolveContext(t.text, ctxMap, ctxTags) : null;
                 const hz = horizonOf(t);
@@ -926,8 +937,14 @@ export default function Bucket() {
                         className="shrink-0 text-gray-300 hover:text-red-500">✕</button>
                     </div>
                     <div className="flex items-center gap-1 text-[9px]" style={{ color: "var(--text-tertiary)" }}>
-                      {group && <span className="font-medium">{group}</span>}
-                      {entered && <span>wk{entered.week}</span>}
+                      {(() => {
+                        const age = entered ? bucketAgeWeeks(t.text) : null;
+                        return age !== null && (
+                          <span title={`In the bucket since week ${entered!.week} — columns sort oldest first`}>
+                            {age === 0 ? "new this week" : `${age}w in bucket`}
+                          </span>
+                        );
+                      })()}
                       {t.waiting && <span>⏳</span>}
                     </div>
                     <div className="flex gap-1">
@@ -946,17 +963,33 @@ export default function Bucket() {
                 );
               };
 
-              const column = (title: string, items: { t: BucketTask; i: number }[], hint: string) => (
-                <div className="rounded-lg p-2 space-y-2 min-h-[120px]"
-                  style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-                  <div className="flex items-center gap-1 px-1">
-                    <span className="text-[11px] font-semibold" style={{ color: "var(--text)" }}>{title}</span>
-                    <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>({items.length})</span>
+              const column = (title: string, items: { t: BucketTask; i: number }[], hint: string) => {
+                // Same grouping as the list view, inside each column
+                const byGroup = new Map<string, { t: BucketTask; i: number }[]>();
+                items.forEach((it) => {
+                  const g = parseGroup(stripBucketMeta(stripCtxTokens(it.t.text))).group;
+                  if (!byGroup.has(g)) byGroup.set(g, []);
+                  byGroup.get(g)!.push(it);
+                });
+                return (
+                  <div className="rounded-lg p-2 space-y-1.5 min-h-[120px]"
+                    style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                    <div className="flex items-center gap-1 px-1">
+                      <span className="text-[11px] font-semibold" style={{ color: "var(--text)" }}>{title}</span>
+                      <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>({items.length})</span>
+                    </div>
+                    {[...byGroup.entries()].map(([g, its]) => (
+                      <div key={g || "ungrouped"} className="space-y-1.5">
+                        <div className="px-1 text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                          {g || "Un-grouped"} <span className="font-normal" style={{ color: "var(--text-tertiary)" }}>({its.length})</span>
+                        </div>
+                        {its.map(card)}
+                      </div>
+                    ))}
+                    {items.length === 0 && <p className="text-[9px] text-center py-3" style={{ color: "var(--text-tertiary)" }}>{hint}</p>}
                   </div>
-                  {items.map(card)}
-                  {items.length === 0 && <p className="text-[9px] text-center py-3" style={{ color: "var(--text-tertiary)" }}>{hint}</p>}
-                </div>
-              );
+                );
+              };
 
               return (
                 <>
