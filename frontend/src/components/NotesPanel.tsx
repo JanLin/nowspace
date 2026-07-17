@@ -159,9 +159,13 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
   };
 
   const handleBlur = () => {
+    // Keep the panel where it was across the editor→preview swap
+    const panel = document.getElementById("day-notes-panel");
+    const scroll = panel?.scrollTop ?? 0;
     setFocused(false);
     clearTimeout(debounceRef.current);
     save(content);
+    requestAnimationFrame(() => { if (panel) panel.scrollTop = scroll; });
   };
 
   // Expose insertAtCursor
@@ -201,6 +205,23 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     }
   }, [content, focused]);
 
+  // Entering edit mode: place the caret where the user tapped and keep the
+  // panel's scroll position. Runs after the preview→textarea swap commits
+  // (and after the auto-grow effect above, so the height is final — setting
+  // scrollTop earlier gets clamped while the textarea is still short).
+  const pendingEditRef = useRef<{ caret: number | null; scroll: number } | null>(null);
+  useEffect(() => {
+    if (!focused || !pendingEditRef.current) return;
+    const { caret, scroll } = pendingEditRef.current;
+    pendingEditRef.current = null;
+    const ta = textareaRef.current;
+    const panel = document.getElementById("day-notes-panel");
+    ta?.focus({ preventScroll: true });
+    if (ta && caret !== null) ta.setSelectionRange(caret, caret);
+    if (panel) panel.scrollTop = scroll;
+    requestAnimationFrame(() => { if (panel) panel.scrollTop = scroll; });
+  }, [focused]);
+
   if (loading) return <div className="text-[10px] text-gray-400 text-center py-4">Loading notes...</div>;
 
   return (
@@ -230,7 +251,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."
-          className="w-full text-xs font-mono px-2 py-2 border border-gray-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 resize-none min-h-[45vh]"
+          className="w-full text-xs leading-[18px] px-2 py-2 border border-gray-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 resize-none min-h-[45vh]"
           style={{ height: "auto" }}
         />
       ) : (
@@ -238,8 +259,39 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           onClick={(e) => {
             // Don't enter edit mode when clicking a wiki link
             if ((e.target as HTMLElement).closest("a.wiki-link")) return;
+            // Map the tapped point to a source position so the caret lands
+            // where the user aimed: read the rendered text around the tap
+            // and find that snippet in the raw content
+            let caretPos: number | null = null;
+            const doc = document as Document & {
+              caretRangeFromPoint?: (x: number, y: number) => Range | null;
+              caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+            };
+            let node: Node | null = null; let off = 0;
+            if (doc.caretRangeFromPoint) {
+              const r = doc.caretRangeFromPoint(e.clientX, e.clientY);
+              if (r) { node = r.startContainer; off = r.startOffset; }
+            } else if (doc.caretPositionFromPoint) {
+              const p = doc.caretPositionFromPoint(e.clientX, e.clientY);
+              if (p) { node = p.offsetNode; off = p.offset; }
+            }
+            if (node?.nodeType === Node.TEXT_NODE) {
+              const txt = node.textContent || "";
+              const before = txt.slice(Math.max(0, off - 24), off);
+              const after = txt.slice(off, off + 24);
+              if ((before + after).trim().length >= 6) {
+                const hit = content.indexOf(before + after);
+                if (hit >= 0) caretPos = hit + before.length;
+                else if (after.trim().length >= 6) {
+                  const h2 = content.indexOf(after);
+                  if (h2 >= 0) caretPos = h2;
+                }
+              }
+            }
+            // Keep the panel where it was — entering edit used to jump to top
+            const panel = (e.currentTarget as HTMLElement).closest("#day-notes-panel") as HTMLElement | null;
+            pendingEditRef.current = { caret: caretPos, scroll: panel?.scrollTop ?? 0 };
             setFocused(true);
-            requestAnimationFrame(() => textareaRef.current?.focus());
           }}
           className="w-full text-xs px-2 py-2 border border-gray-200 rounded-lg bg-white cursor-text min-h-[45vh] hover:border-blue-300 transition-colors scratchpad-preview"
           data-color-mode="light"
@@ -256,7 +308,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
                   // Preserve blank lines as visible gaps in preview
                   .replace(/\n\n/g, "\n\n&#8203;\n\n")
                 }
-                style={{ fontSize: 12, background: "transparent" }}
+                style={{ fontSize: 12, lineHeight: "18px", background: "transparent" }}
               />
               {/* Handle wiki link clicks */}
               <WikiLinkHandler onOpenNote={onOpenNote} />
