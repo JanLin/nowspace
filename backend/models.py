@@ -126,10 +126,13 @@ class BucketSaveRequest(BaseModel):
 
 
 class BucketMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # same skew guard as BucketTask
+
     task_index: int  # index in source list
     direction: str  # "to_bucket" or "from_bucket"
     day_idx: int = 0  # which day in week plan (0=Mon .. 6=Sun)
     week_offset: int = 0  # which week file
+    horizon: str = ""  # to_bucket only: park at "n" | "nw" | "m" (empty = plain bucket)
 
 
 class DayNotes(BaseModel):
