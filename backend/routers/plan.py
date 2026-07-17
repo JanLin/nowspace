@@ -980,7 +980,7 @@ def _parse_group(text: str) -> tuple[str, str]:
         label = text[idx + 1:].strip()
         # Don't treat priority prefixes (A:, B1:, C2:) or URLs/links as group prefixes
         if (group and label and len(group) > 1
-            and not re.match(r"^[A-Da-d]\d*$", group)
+            and not re.match(r"^(?:nw|n|m)?[A-Da-d]\d*$", group)
             and "[" not in group
             and not group.endswith("http") and not group.endswith("https")):
             return group, label
@@ -1059,7 +1059,9 @@ def _indent(text: str, prefix: str = "  ") -> str:
 
 # ── Bucket helpers ──────────────────────────────────────────────
 
-_BUCKET_PRIORITY_RE = re.compile(r"^(?:\[([A-Da-d])\]|([A-Da-d]):)\s*(.*)")
+# Priority with optional horizon prefix: nA = this week, nwA = next week,
+# mA = next month; bare letter = no horizon (stays in the bucket)
+_BUCKET_PRIORITY_RE = re.compile(r"^(?:\[([A-Da-d])\]|((?:nw|n|m)?)([A-Da-d]):)\s*(.*)", re.IGNORECASE)
 
 
 def _bucket_path() -> Path:
@@ -1165,10 +1167,12 @@ def _parse_bucket_file(content: str) -> tuple[list[BucketTask], list[str]]:
         priority = ""  # no prefix = unassigned ("-" in the UI)
 
         # Legacy support: extract [A] priority if present (from old format)
+        horizon = ""
         prio_m = _BUCKET_PRIORITY_RE.match(text)
         if prio_m:
-            priority = (prio_m.group(1) or prio_m.group(2)).upper()
-            text = prio_m.group(3).strip()
+            priority = (prio_m.group(1) or prio_m.group(3)).upper()
+            horizon = (prio_m.group(2) or "").lower()
+            text = prio_m.group(4).strip()
 
         # Detect bold (focused)
         focused = False
@@ -1189,6 +1193,7 @@ def _parse_bucket_file(content: str) -> tuple[list[BucketTask], list[str]]:
         tasks.append(BucketTask(
             text=full_text,
             priority=priority,
+            horizon=horizon,
             focused=focused,
             waiting=waiting,
         ))
@@ -1232,13 +1237,14 @@ def _format_bucket_tasks(tasks: list, pinned_groups: list[str]) -> str:
             lines.append(f"- {group}:")
         for task, label in by_group[key]:
             p = getattr(task, "priority", "") or ""
+            hz = (getattr(task, "horizon", "") or "") if p else ""
             item = label
             if getattr(task, "focused", False):
                 item = f"**{item}**"
             if getattr(task, "waiting", False):
                 item = f"WAIT: {item}"
             indent = "\t" if group else ""
-            lines.append(f"{indent}- {p}: {item}" if p else f"{indent}- {item}")
+            lines.append(f"{indent}- {hz}{p}: {item}" if p else f"{indent}- {item}")
             for sub in getattr(task, "subtasks", []) or []:
                 lines.append(f"{indent}\t- {sub.text}")
 

@@ -93,6 +93,7 @@ export interface WeekPlanResponse {
 export interface BucketTask {
   text: string;
   priority: string;
+  horizon?: string; // "" | "n" this week | "nw" next week | "m" next month
   focused: boolean;
   waiting: boolean;
   subtasks: Subtask[];

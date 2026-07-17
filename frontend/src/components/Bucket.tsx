@@ -6,6 +6,7 @@ import { Cluster } from "../clusters";
 
 // Same annotation as the Plan tab; "-" = unassigned
 const PRIORITIES = ["A", "B", "C", "D"] as const;
+const HORIZONS: [string, string][] = [["n", "this week"], ["nw", "next week"], ["m", "next month"]];
 const PRIORITY_BADGE: Record<string, string> = {
   A: "bg-red-100 text-red-700",
   B: "bg-amber-100 text-amber-700",
@@ -197,6 +198,7 @@ export default function Bucket() {
   const [addingAt, setAddingAt] = useState<{ afterIdx: number; group?: string } | null>(null);
   const quickAddRef = useRef<HTMLInputElement>(null);
   const [prioMenu, setPrioMenu] = useState<number | null>(null);
+  const [horizonFilter, setHorizonFilter] = useState<"" | "n" | "nw" | "m" | "none">("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
   const [dayPicker, setDayPicker] = useState<number | null>(null);
   const [groupPicker, setGroupPicker] = useState<number | null>(null);
@@ -438,7 +440,16 @@ export default function Bucket() {
 
   const setPriority = (idx: number, p: string) => {
     const next = [...tasks];
-    next[idx] = { ...next[idx], priority: p };
+    // Clearing the priority also clears the horizon (the prefix rides the letter)
+    next[idx] = { ...next[idx], priority: p, horizon: p ? next[idx].horizon : "" };
+    updateTasks(next);
+    setPrioMenu(null);
+  };
+
+  const setTaskHorizon = (idx: number, h: string) => {
+    const next = [...tasks];
+    // A horizon needs a letter to ride on — default to C
+    next[idx] = { ...next[idx], horizon: h, priority: next[idx].priority || (h ? "C" : next[idx].priority) };
     updateTasks(next);
     setPrioMenu(null);
   };
@@ -714,6 +725,10 @@ export default function Bucket() {
     const byGroup = new Map<string, Section>();
     let filtered = tasks.map((t, i) => ({ task: t, originalIdx: i }))
       .filter(({ task }) => taskVisibleInMode(task.text));
+    if (horizonFilter) {
+      filtered = filtered.filter(({ task }) =>
+        horizonFilter === "none" ? !(task.horizon || "") : (task.horizon || "") === horizonFilter);
+    }
     if (filterGroup) {
       filtered = filtered.filter(({ task }) => parseGroup(task.text).group === filterGroup);
     }
@@ -852,6 +867,15 @@ export default function Bucket() {
               ⭐
             </button>
           </div>
+        ))}
+        <span className="w-px h-4 shrink-0" style={{ backgroundColor: "var(--border)" }} />
+        {([["", "Any time"], ["n", "n"], ["nw", "nw"], ["m", "m"], ["none", "unplanned"]] as const).map(([h, name]) => (
+          <button key={h || "any"} onClick={() => setHorizonFilter(h)}
+            title={h === "n" ? "this week" : h === "nw" ? "next week" : h === "m" ? "next month" : h === "none" ? "no horizon set" : "all horizons"}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${h ? "font-mono" : ""} ${horizonFilter === h ? "bg-blue-100 text-blue-700" : ""}`}
+            style={horizonFilter !== h ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
+            {name}
+          </button>
         ))}
       </Cluster>
       </div>
@@ -1063,25 +1087,42 @@ export default function Bucket() {
                           className={`px-1 py-0 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${
                             task.priority ? PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C : "text-gray-400"
                           }`}
-                          style={!task.priority ? { border: "1px solid var(--border)" } : undefined}
-                          title="Click to change priority"
+                          style={{
+                            ...(!task.priority ? { border: "1px solid var(--border)" } : {}),
+                            ...(task.priority === "A" && task.horizon !== "n" ? { boxShadow: "0 0 0 1.5px rgb(245 158 11 / 0.7)" } : {}),
+                          }}
+                          title={task.priority === "A" && task.horizon !== "n"
+                            ? "An A shouldn't wait — plan it this week or downgrade it"
+                            : "Click to set priority and horizon (n = this week, nw = next week, m = next month)"}
                         >
-                          {task.priority || "-"}
+                          {(task.horizon || "") + (task.priority || "-")}
                         </button>
                         {prioMenu === originalIdx && (
-                          <div className="absolute left-0 top-full mt-0.5 flex gap-0.5 z-20 rounded shadow-md p-0.5" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-                            {PRIORITIES.filter((pr) => pr !== task.priority).map((pr) => (
-                              <button key={pr} onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, pr); }}
-                                className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[pr]}`}>
-                                {pr}
-                              </button>
-                            ))}
-                            {task.priority && (
-                              <button onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, ""); }}
-                                className="px-1 py-0 rounded text-[10px] font-bold text-gray-400" style={{ border: "1px solid var(--border)" }}>
-                                -
-                              </button>
-                            )}
+                          <div className="absolute left-0 top-full mt-0.5 z-20 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+                            <div className="flex gap-0.5">
+                              {PRIORITIES.filter((pr) => pr !== task.priority).map((pr) => (
+                                <button key={pr} onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, pr); }}
+                                  className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[pr]}`}>
+                                  {pr}
+                                </button>
+                              ))}
+                              {task.priority && (
+                                <button onClick={(e) => { e.stopPropagation(); setPriority(originalIdx, ""); }}
+                                  className="px-1 py-0 rounded text-[10px] font-bold text-gray-400" style={{ border: "1px solid var(--border)" }}>
+                                  -
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex gap-0.5">
+                              {HORIZONS.map(([h, name]) => (
+                                <button key={h} onClick={(e) => { e.stopPropagation(); setTaskHorizon(originalIdx, task.horizon === h ? "" : h); }}
+                                  title={name}
+                                  className={`px-1 py-0 rounded text-[10px] font-mono ${task.horizon === h ? "bg-blue-100 text-blue-700 font-bold" : "text-gray-500"}`}
+                                  style={task.horizon !== h ? { border: "1px solid var(--border)" } : undefined}>
+                                  {h}
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </span>
