@@ -98,7 +98,8 @@ class SaveWeekRequest(BaseModel):
 
 class BucketTask(BaseModel):
     text: str  # full text including "Group: description"
-    priority: str = "C"  # A, B, C, D — single letter only
+    priority: str = ""  # A, B, C, D — empty = unassigned ("-" in the UI)
+    horizon: str = ""   # "" (stays) | "n" this week | "nw" next week | "m" next month
     focused: bool = False
     waiting: bool = False
     subtasks: List[Subtask] = []
