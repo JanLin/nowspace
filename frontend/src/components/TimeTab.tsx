@@ -304,7 +304,13 @@ export default function TimeTab() {
 
   const visible = useMemo(() => entries.filter((e) => {
     const { company } = parseEntry(e.text);
-    if (companyFilter && company.toLowerCase() !== companyFilter.toLowerCase()) return false;
+    if (companyFilter) {
+      // "(no company)" filters to entries WITHOUT a company prefix
+      const match = companyFilter === "(no company)"
+        ? company === ""
+        : company.toLowerCase() === companyFilter.toLowerCase();
+      if (!match) return false;
+    }
     // Context filtering matches the Plan rules (company acts as the group)
     return taskVisibleInCtxSelection(`${company}: x`, ctxSel, ctxMap, ctxTags);
   }), [entries, companyFilter, ctxSel, ctxMap, ctxTags]);
@@ -497,18 +503,24 @@ export default function TimeTab() {
   }, [sums, pieBy]);
   const pieTotal = pie.reduce((n, s) => n + s.minutes, 0);
   const [hoverSlice, setHoverSlice] = useState<string | null>(null);
+  // Tapped slice: pins its breakdown open AND filters the entries — the
+  // touch-first gesture; hover stays as a free preview on desktop
+  const [expandedSlice, setExpandedSlice] = useState<string | null>(null);
   // Pinned = stuck to the bottom of the screen while entries scroll above
   const [pinDistribution, setPinDistribution] = useState(true);
-  useEffect(() => { setHoverSlice(null); }, [pieBy, range.from, range.to]);
+  useEffect(() => { setHoverSlice(null); setExpandedSlice(null); }, [pieBy, range.from, range.to]);
+  const shownSlice = hoverSlice ?? expandedSlice;
   const breakdown = useMemo(() => {
-    if (!hoverSlice) return null;
-    const m = pieBy === "company" ? sums.bySub.get(hoverSlice) : sums.byAreaGroups.get(hoverSlice);
+    if (!shownSlice) return null;
+    const m = pieBy === "company" ? sums.bySub.get(shownSlice) : sums.byAreaGroups.get(shownSlice);
     if (!m) return null;
     return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-  }, [hoverSlice, pieBy, sums]);
+  }, [shownSlice, pieBy, sums]);
   const selectSlice = (label: string) => {
     if (label === "Other") return;
-    if (pieBy === "company") setCompanyFilter(companyFilter.toLowerCase() === label.toLowerCase() ? "" : label);
+    const off = expandedSlice === label;
+    setExpandedSlice(off ? null : label);
+    if (pieBy === "company") setCompanyFilter(off ? "" : label);
     else toggleCtx(label);
   };
 
@@ -618,6 +630,7 @@ export default function TimeTab() {
         <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}
           className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "none" }}>
           <option value="">All companies</option>
+          <option value="(no company)">(no company)</option>
           {companies.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         </span>
@@ -733,42 +746,56 @@ export default function TimeTab() {
           </div>
         </div>
         {pie.length === 0 ? (
-          <p className="text-xs py-4 text-center" style={{ color: "var(--text-tertiary)" }}>No time in this period.</p>
+          <div className="text-xs py-4 text-center space-y-2" style={{ color: "var(--text-tertiary)" }}>
+            <p>No time in this period{companyFilter || ctxSel.length ? " with these filters" : ""}.</p>
+            {(companyFilter || ctxSel.length > 0) && (
+              <button
+                onClick={() => { setCompanyFilter(""); setCtxSelState([]); saveCtxSelection([]); setExpandedSlice(null); }}
+                className="px-2 py-1 rounded text-[10px] font-medium text-white"
+                style={{ backgroundColor: "var(--accent)" }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
         ) : (
           <div className="flex items-start gap-4">
             <Donut slices={pie} onHover={setHoverSlice} onSelect={selectSlice} />
             <div className="flex-1 min-w-0 space-y-0.5">
-              {hoverSlice && breakdown ? (
-                <>
-                  <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: "var(--text-tertiary)" }}>
-                    {hoverSlice} — {pieBy === "company" ? "sub-projects" : "groups"}
-                  </div>
-                  {breakdown.map(([name, mins]) => (
-                    <div key={name} className="flex items-center gap-1.5 text-[10px]">
-                      <span className="flex-1 truncate" style={{ color: "var(--text)" }}>{name}</span>
-                      <span className="font-mono" style={{ color: "var(--text-secondary)" }}>{fmtH(mins, false)}</span>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                pie.map((s) => (
-                  <div key={s.label} onClick={() => selectSlice(s.label)}
-                    className="flex items-center gap-1.5 text-[10px] cursor-pointer hover:opacity-75"
-                    title={s.label === "Other" ? undefined : "Click to filter the entries"}>
+              {pie.map((s) => (
+                <div key={s.label}>
+                  <div onClick={() => selectSlice(s.label)}
+                    onMouseEnter={() => setHoverSlice(s.label)} onMouseLeave={() => setHoverSlice(null)}
+                    className={`flex items-center gap-1.5 text-[10px] cursor-pointer hover:opacity-80 rounded px-0.5 ${expandedSlice === s.label ? "font-semibold" : ""}`}
+                    style={expandedSlice === s.label ? { backgroundColor: "var(--bg-tertiary)" } : undefined}
+                    title={s.label === "Other" ? undefined : "Tap to filter the entries and show the breakdown"}>
                     <span className="w-2 h-2 rounded-[2px] shrink-0" style={{ backgroundColor: s.color }} />
-                    <span className="flex-1 truncate capitalize" style={{ color: "var(--text)" }}>{s.label}</span>
+                    <span className="flex-1 truncate capitalize" style={{ color: "var(--text)" }}>
+                      {s.label !== "Other" && <span className="mr-0.5" style={{ color: "var(--text-tertiary)" }}>{expandedSlice === s.label ? "▾" : "▸"}</span>}
+                      {s.label}
+                    </span>
                     <span className="font-mono" style={{ color: "var(--text-secondary)" }}>{fmtH(s.minutes, false)}</span>
                     <span className="font-mono w-7 text-right" style={{ color: "var(--text-tertiary)" }}>
                       {Math.round((s.minutes / (pieTotal || 1)) * 100)}%
                     </span>
                   </div>
-                ))
-              )}
+                  {shownSlice === s.label && breakdown && (
+                    <div className="ml-4 border-l pl-2 py-0.5" style={{ borderColor: "var(--border)" }}>
+                      {breakdown.map(([name, mins]) => (
+                        <div key={name} className="flex items-center gap-1.5 text-[10px]">
+                          <span className="flex-1 truncate" style={{ color: "var(--text-secondary)" }}>{name}</span>
+                          <span className="font-mono" style={{ color: "var(--text-tertiary)" }}>{fmtH(mins, false)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
         <p className="text-[10px] mt-2" style={{ color: "var(--text-tertiary)" }}>
-          Click a slice or legend row to filter the entries above; hover a slice for {pieBy === "company" ? "its sub-projects" : "its groups"}.
+          Tap a slice or row to filter the entries and expand {pieBy === "company" ? "its sub-projects" : "its groups"}; tap again to clear.
         </p>
       </div>
 
