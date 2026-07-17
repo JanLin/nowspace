@@ -961,6 +961,11 @@ export default function Bucket() {
 
               const card = ({ t, i }: { t: BucketTask; i: number }) => {
                 const { label } = parseGroup(stripBucketMeta(stripCtxTokens(t.text)));
+                const links = extractLinks(t.text);
+                // [[wiki links]] collapse to the 🔗 icon; a link-only task
+                // falls back to the note's name so the card isn't blank
+                const displayLabel = label.replace(WIKI_LINK_RE, "").trim()
+                  || (links[0] ? (links[0].display_text || links[0].name) : label);
                 const entered = bucketEnteredWeek(t.text);
                 const ctx = ctxEnabled ? resolveContext(t.text, ctxMap, ctxTags) : null;
                 const hz = horizonOf(t);
@@ -987,7 +992,21 @@ export default function Bucket() {
                           className="flex-1 text-xs px-1 py-0.5 border rounded outline-none focus:ring-1 focus:ring-blue-400"
                           style={{ borderColor: "var(--border-strong)", background: "var(--bg)", color: "var(--text)" }} />
                       ) : (
-                        <span onClick={() => setEditingTask(i)} className="flex-1 leading-snug cursor-text hover:text-blue-600" style={{ color: "var(--text)" }}>{label}</span>
+                        <span onClick={() => setEditingTask(i)} className="flex-1 leading-snug cursor-text hover:text-blue-600" style={{ color: "var(--text)" }}>{displayLabel}</span>
+                      )}
+                      {links.length > 0 && (
+                        <button onClick={(e) => {
+                          e.stopPropagation();
+                          const rect = (e.target as HTMLElement).getBoundingClientRect();
+                          const { group } = parseGroup(t.text);
+                          setNotePicker(notePicker?.idx === i ? null : {
+                            idx: i, group, links,
+                            pos: { top: rect.bottom + 4, left: rect.left - 100 }
+                          });
+                        }}
+                          className="shrink-0 text-[10px] opacity-80 hover:opacity-100" title="Linked notes">
+                          🔗{links.length > 1 && <sup className="text-[8px] font-bold">{links.length}</sup>}
+                        </button>
                       )}
                       <button onClick={() => deleteTask(i)} title="Drop — delete this task"
                         className="shrink-0 text-gray-300 hover:text-red-500">✕</button>
@@ -1384,7 +1403,20 @@ export default function Bucket() {
         )}
       </div>
 
-      {/* NoteFilePicker popup */}
+      {/* Vault browser side panel */}
+      {vaultBrowserOpen && (
+        <div className="hidden md:block w-80 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-80px)] sticky top-[80px] self-start relative" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+          <VaultBrowser
+            onClose={() => setVaultBrowserOpen(false)}
+            stateRef={vaultBrowserStateRef}
+            onOpenNote={(path, name) => setNoteEditor({ path, name })}
+          />
+        </div>
+      )}
+      </div>{/* end flex container */}
+
+      {/* NoteFilePicker popup — outside the list container, which is
+          display:none in board view (that would hide even this fixed popup) */}
       {notePicker && (
         <NoteFilePicker
           existingLinks={notePicker.links}
@@ -1399,18 +1431,6 @@ export default function Bucket() {
           onClose={() => setNotePicker(null)}
         />
       )}
-
-      {/* Vault browser side panel */}
-      {vaultBrowserOpen && (
-        <div className="hidden md:block w-80 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-80px)] sticky top-[80px] self-start relative" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
-          <VaultBrowser
-            onClose={() => setVaultBrowserOpen(false)}
-            stateRef={vaultBrowserStateRef}
-            onOpenNote={(path, name) => setNoteEditor({ path, name })}
-          />
-        </div>
-      )}
-      </div>{/* end flex container */}
 
       {/* Note editor modal */}
       {noteEditor && (
