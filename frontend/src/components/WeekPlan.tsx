@@ -2618,7 +2618,7 @@ export default function WeekPlan() {
         onDragEnd={handleDragEnd}
         onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx, group }); }}
         style={showEdge ? { boxShadow: `inset 2px 0 0 ${ctxEdgeColor(taskCtx!)}` } : undefined}
-        className={`group flex items-center gap-2 py-1 px-2 rounded text-sm select-none ${
+        className={`group flex max-sm:flex-wrap items-center gap-2 py-1 px-2 rounded text-sm select-none ${
           dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
             ? "border-t-2 border-blue-400"
             : "border-t-2 border-transparent"
@@ -2682,6 +2682,10 @@ export default function WeekPlan() {
             {task.pillars.map((p) => PILLAR_ICONS[p]?.symbol || p).join("")}
           </span>
         )}
+        {/* Action icons — on phones this wrapper becomes a full-width second
+            row under the title (the icon count was squeezing the text);
+            sm:contents dissolves it so larger screens keep the inline row */}
+        <div className="flex items-center gap-2 w-full justify-end sm:contents">
         {/* Wait hourglass toggle — only show when not already waiting */}
         {!task.done && !task.waiting && (
           <button
@@ -2817,6 +2821,7 @@ export default function WeekPlan() {
         >
           &times;
         </button>
+        </div>{/* end phone action row */}
       </div>
     </div>
     );
