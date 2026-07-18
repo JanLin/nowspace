@@ -16,7 +16,7 @@ export const DEFAULT_CTX_TAGS: CtxTags = { w: "work", v: "volunteer", p: "person
 
 /** Any single-letter tag or @pin — used to strip metadata from labels.
     Single letters only, so "email @john" is never touched. */
-export const CTX_TOKEN_RE = /\s*@(pin|[a-z])\b(?!\w)/gi;
+export const CTX_TOKEN_RE = /\s*@(pin|epic|[a-z])\b(?!\w)/gi;
 
 /** Inline group teaching: "wallet@w: task" assigns the wallet group to work.
     The backend learns the mapping on save/read and auto-cleans the tag;
@@ -61,6 +61,12 @@ export function stripCtxTokens(text: string): string {
 
 export function isPinnedText(text: string): boolean {
   return /@pin\b/i.test(text);
+}
+
+/** Explicit epic marker — ticking a subtask of an @epic task records it
+    as its own completed task for the day instead of ticking in place. */
+export function isEpicText(text: string): boolean {
+  return /@epic\b/i.test(text);
 }
 
 /** Drop an inline group tag: "wallet@w: task" → "wallet: task" */

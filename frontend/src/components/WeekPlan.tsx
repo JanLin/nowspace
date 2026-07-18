@@ -14,7 +14,7 @@ import { markDone as markAPDone } from "../actionPoints";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
   ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
-  stripCtxTokens, stripGroupCtxTag, stripBucketMeta, isPinnedText, resolveContext, ctxFeatureEnabled,
+  stripCtxTokens, stripGroupCtxTag, stripBucketMeta, isPinnedText, isEpicText, resolveContext, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
 
@@ -1583,6 +1583,22 @@ export default function WeekPlan() {
     applyTaskChange(days);
   };
 
+  // Explicit epic marker (@epic token) — flips subtask ticking between
+  // in-place checks and graduation into the day's completed history
+  const toggleEpic = (dayIdx: number, taskIdx: number) => {
+    if (!data) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      const t = tasks[taskIdx];
+      tasks[taskIdx] = isEpicText(t.text)
+        ? { ...t, text: t.text.replace(/\s*@epic\b/gi, ""), clean_text: "" }
+        : { ...t, text: `${t.text.trimEnd()} @epic`, clean_text: "" };
+      return { ...d, tasks };
+    });
+    applyTaskChange(days);
+  };
+
   const toggleFocus = (dayIdx: number, taskIdx: number) => {
     if (!data) return;
     const days = data.days.map((d, di) => {
@@ -1716,7 +1732,7 @@ export default function WeekPlan() {
       const tasks = [...d.tasks];
       // The edit input shows the label with @tokens stripped — re-append the
       // original tokens unless the user typed their own into the new text.
-      if (!/@(w|v|p|pin)\b/i.test(trimmed)) {
+      if (!/@(w|v|p|pin|epic)\b/i.test(trimmed)) {
         const oldTokens = tasks[taskIdx].text.match(CTX_TOKEN_RE);
         if (oldTokens) trimmed = `${trimmed} ${oldTokens.map((t) => t.trim()).join(" ")}`;
       }
@@ -1744,6 +1760,38 @@ export default function WeekPlan() {
 
   const toggleSubtaskDone = (dayIdx: number, taskIdx: number, subIdx: number) => {
     if (!data) return;
+    const parent = data.days[dayIdx]?.tasks[taskIdx];
+    const sub = parent?.subtasks?.[subIdx];
+    // Epic graduation: ticking a step of an @epic task removes it from the
+    // epic and records it as its own completed "Epic — step" task on today
+    // (the epic's day when viewing another week). Completed steps stay on
+    // the day they were earned even when the epic later moves on; when the
+    // last step graduates, the epic itself completes.
+    if (parent && sub && !sub.done && isEpicText(parent.text)) {
+      const targetIdx = weekOffset === 0 ? todayIdx : dayIdx;
+      const label = stripCtxTokens(parent.text).trim();
+      const gradTask: Task = {
+        text: `${label} — ${sub.text}`, done: true, source_file: "", context: "",
+        tags: [], priority: parent.priority || "", pillars: [], subtasks: [],
+        focused: false, waiting: false, links: [], clean_text: "",
+      };
+      const days = data.days.map((d, di) => {
+        if (di !== dayIdx && di !== targetIdx) return d;
+        let tasks = [...d.tasks];
+        if (di === dayIdx) {
+          const subtasks = [...(tasks[taskIdx].subtasks || [])];
+          subtasks.splice(subIdx, 1);
+          tasks[taskIdx] = {
+            ...tasks[taskIdx], subtasks, clean_text: "",
+            done: subtasks.length === 0 ? true : tasks[taskIdx].done,
+          };
+        }
+        if (di === targetIdx) tasks = [...tasks, gradTask];
+        return { ...d, tasks };
+      });
+      applyTaskChange(days);
+      return;
+    }
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
       const tasks = [...d.tasks];
@@ -1907,6 +1955,18 @@ export default function WeekPlan() {
           </button>
         ))}
       </div>
+      {(task.subtasks?.length ?? 0) > 0 && (
+        <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
+          <button onClick={(e) => { e.stopPropagation(); toggleEpic(dayIdx, taskIdx); }}
+            title={isEpicText(task.text)
+              ? "Epic off — steps go back to ticking in place"
+              : "Epic — ticking a step records it as a completed task for today"}
+            className={`px-1 py-0 rounded text-[10px] font-medium ${isEpicText(task.text) ? "bg-amber-100 text-amber-700 font-bold" : "text-gray-500"}`}
+            style={!isEpicText(task.text) ? { border: "1px solid var(--border)" } : undefined}>
+            🐘 epic
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -2735,14 +2795,14 @@ export default function WeekPlan() {
             🎺
           </button>
         )}
-        {/* Elephant icon — breakdown indicator */}
+        {/* Elephant icon — breakdown indicator (amber count = epic mode) */}
         {task.subtasks?.length > 0 ? (
           <button
             onClick={(e) => { e.stopPropagation(); toggleExpandSubtasks(dayIdx, taskIdx); }}
             className="shrink-0 text-sm opacity-60 hover:opacity-100 transition-opacity"
-            title={`${task.subtasks.length} step${task.subtasks.length > 1 ? "s" : ""} — click to ${expandedSubtasks.has(`${dayIdx}-${taskIdx}`) ? "collapse" : "expand"}`}
+            title={`${task.subtasks.length} step${task.subtasks.length > 1 ? "s" : ""}${isEpicText(task.text) ? " left in this epic — ticking one records it to today" : ""} — click to ${expandedSubtasks.has(`${dayIdx}-${taskIdx}`) ? "collapse" : "expand"}`}
           >
-            🐘
+            🐘{isEpicText(task.text) && <sup className="text-[8px] font-bold text-amber-600">{task.subtasks.length}</sup>}
           </button>
         ) : !task.done ? (
           <button
