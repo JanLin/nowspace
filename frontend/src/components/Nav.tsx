@@ -14,8 +14,10 @@ export default function Nav({
     { id: "bucket", icon: "🪣", name: "Bucket" },
     { id: "habits", icon: "🌱", name: "Habits" },
     { id: "time", icon: "⏱", name: "Time" },
-    { id: "coaching", icon: "🧭", name: "Coach" },
-    { id: "dashboard", icon: "📊", name: "Dashboard" },
+    // Coach + Dashboard are parked (hidden even with an API key configured);
+    // re-enable by restoring their entries here and the panels in App.tsx:
+    // { id: "coaching", icon: "🧭", name: "Coach" },
+    // { id: "dashboard", icon: "📊", name: "Dashboard" },
     { id: "settings", icon: "⚙️", name: "Settings" },
   ];
 
@@ -24,6 +26,7 @@ export default function Nav({
       {tabs.filter((tab) => !(hideCoach && (tab.id === "coaching" || tab.id === "dashboard"))).map((tab) => (
         <button
           key={tab.id}
+          data-tour={tab.id}
           onClick={() => onChange(tab.id)}
           title={tab.name}
           aria-label={tab.name}
