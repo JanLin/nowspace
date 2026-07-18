@@ -208,7 +208,6 @@ export default function Bucket() {
   }, [prioMenu]);
   const [horizonFilter, setHorizonFilter] = useState<"" | "n" | "nw" | "m" | "none">("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
-  const [dayPicker, setDayPicker] = useState<number | null>(null);
   const [groupPicker, setGroupPicker] = useState<number | null>(null);
   const [breakdownIdx, setBreakdownIdx] = useState<number | null>(null);
   const [addSubAfter, setAddSubAfter] = useState<number | null>(null); // insert after this sub-task index
@@ -658,7 +657,6 @@ export default function Bucket() {
       if (dirty) await saveBucket();
       await api.moveFromBucket(taskIdx, dayIdx, 0);
       await fetchBucket();
-      setDayPicker(null);
       window.dispatchEvent(new CustomEvent("week-changed"));
     } catch (e) { setError(e instanceof Error ? e.message : "Failed to move"); }
   };
@@ -1200,7 +1198,7 @@ export default function Bucket() {
                         >
                           {(task.horizon || "") + (task.priority || "-")}
                         </button>
-                        {prioMenu === originalIdx && prioHorizonMenu(task, originalIdx)}
+                        {prioMenu === originalIdx && prioHorizonMenu(task, originalIdx, true)}
                       </span>
 
                       {/* Task text */}
@@ -1268,21 +1266,6 @@ export default function Bucket() {
                                 }`} style={parseGroup(task.text).group !== g ? { color: 'var(--text)' } : undefined}>
                                 {g}
                               </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Move to plan */}
-                      <div className="relative">
-                        <button onClick={() => setDayPicker(dayPicker === originalIdx ? null : originalIdx)}
-                          className="text-xs glyph-action hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Move to week plan">→ Plan</button>
-                        {dayPicker === originalIdx && (
-                          <div className="absolute top-6 right-0 z-20 rounded-lg shadow-lg border p-2 flex gap-1" style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}>
-                            {dayNames.map((d, di) => (
-                              <button key={d} onClick={() => moveToPlan(originalIdx, di)}
-                                className="px-2 py-1 rounded text-xs hover:bg-blue-100 hover:text-blue-700 transition-colors">{d}</button>
                             ))}
                           </div>
                         )}
