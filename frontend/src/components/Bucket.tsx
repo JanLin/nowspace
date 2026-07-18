@@ -208,7 +208,6 @@ export default function Bucket() {
   }, [prioMenu]);
   const [horizonFilter, setHorizonFilter] = useState<"" | "n" | "nw" | "m" | "none">("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
-  const [dayPicker, setDayPicker] = useState<number | null>(null);
   const [groupPicker, setGroupPicker] = useState<number | null>(null);
   const [breakdownIdx, setBreakdownIdx] = useState<number | null>(null);
   const [addSubAfter, setAddSubAfter] = useState<number | null>(null); // insert after this sub-task index
@@ -627,6 +626,27 @@ export default function Bucket() {
     updateTasks(next);
   };
 
+  // Promote a step to its own bucket task — mirrors the Planning tab's ↑.
+  // The new task lands right after its parent and inherits group, priority
+  // and horizon, so it stays in the same planning lane (save stamps it
+  // with the current week as a fresh entry).
+  const promoteSubtask = (taskIdx: number, subIdx: number) => {
+    const parent = tasks[taskIdx];
+    if (!parent) return;
+    const subs = [...(parent.subtasks || [])];
+    const [promoted] = subs.splice(subIdx, 1);
+    if (!promoted) return;
+    const { group } = parseGroup(parent.text);
+    const next = [...tasks];
+    next[taskIdx] = { ...parent, subtasks: subs };
+    next.splice(taskIdx + 1, 0, {
+      text: group ? `${group}: ${promoted.text}` : promoted.text,
+      priority: parent.priority, horizon: parent.horizon || "",
+      focused: false, waiting: false, subtasks: [],
+    });
+    updateTasks(next);
+  };
+
   const addLinkToTask = (idx: number, name: string) => {
     const next = [...tasks];
     const task = { ...next[idx] };
@@ -658,7 +678,6 @@ export default function Bucket() {
       if (dirty) await saveBucket();
       await api.moveFromBucket(taskIdx, dayIdx, 0);
       await fetchBucket();
-      setDayPicker(null);
       window.dispatchEvent(new CustomEvent("week-changed"));
     } catch (e) { setError(e instanceof Error ? e.message : "Failed to move"); }
   };
@@ -1173,7 +1192,7 @@ export default function Bucket() {
                       onDrop={(e) => { e.preventDefault(); handleDrop(originalIdx, section.name, e); }}
                       onDragEnd={handleDragEnd}
                       onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ afterIdx: originalIdx, group: section.name || undefined }); }}
-                      className={`group flex items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${
+                      className={`group flex max-sm:flex-wrap items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${
                         dropTarget === originalIdx ? "border-t-2 border-blue-400" : "border-t-2 border-transparent"
                       }`}>
 
@@ -1200,7 +1219,7 @@ export default function Bucket() {
                         >
                           {(task.horizon || "") + (task.priority || "-")}
                         </button>
-                        {prioMenu === originalIdx && prioHorizonMenu(task, originalIdx)}
+                        {prioMenu === originalIdx && prioHorizonMenu(task, originalIdx, true)}
                       </span>
 
                       {/* Task text */}
@@ -1215,7 +1234,10 @@ export default function Bucket() {
                         </span>
                       )}
 
-                      {/* Action icons — show on hover */}
+                      {/* Action icons — a full-width second row on phones
+                          (the title was getting squeezed); sm:contents
+                          dissolves the wrapper on larger screens */}
+                      <div className="flex items-center gap-1.5 w-full justify-end sm:contents">
                       {/* ⏳ Waiting toggle */}
                       {!task.waiting && (
                         <button onClick={(e) => { e.stopPropagation(); toggleWaiting(originalIdx); }}
@@ -1270,24 +1292,10 @@ export default function Bucket() {
                         )}
                       </div>
 
-                      {/* Move to plan */}
-                      <div className="relative">
-                        <button onClick={() => setDayPicker(dayPicker === originalIdx ? null : originalIdx)}
-                          className="text-xs glyph-action hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Move to week plan">→ Plan</button>
-                        {dayPicker === originalIdx && (
-                          <div className="absolute top-6 right-0 z-20 rounded-lg shadow-lg border p-2 flex gap-1" style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}>
-                            {dayNames.map((d, di) => (
-                              <button key={d} onClick={() => moveToPlan(originalIdx, di)}
-                                className="px-2 py-1 rounded text-xs hover:bg-blue-100 hover:text-blue-700 transition-colors">{d}</button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
                       {/* Delete */}
                       <button onClick={(e) => { e.stopPropagation(); deleteTask(originalIdx); }}
                         className="text-xs glyph-action hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+                      </div>{/* end phone action row */}
                     </div>
 
                     {/* Subtasks */}
@@ -1353,8 +1361,13 @@ export default function Bucket() {
                                   style={{ color: sub.done ? 'var(--text-tertiary)' : 'var(--text-secondary)' }}
                                 >{sub.text}</span>
                               )}
+                              {!sub.done && (
+                                <button onClick={(e) => { e.stopPropagation(); promoteSubtask(originalIdx, si); }}
+                                  className="shrink-0 text-[10px] glyph-action hover:text-blue-500 ml-auto"
+                                  title="Promote to standalone bucket task">↑</button>
+                              )}
                               <button onClick={() => deleteSubtask(originalIdx, si)}
-                                className="text-[10px] glyph-action hover:text-red-500 ml-auto">×</button>
+                                className={`text-[10px] glyph-action hover:text-red-500 ${sub.done ? "ml-auto" : ""}`}>×</button>
                             </div>
                             {/* Insert-after input */}
                             {breakdownIdx === originalIdx && addSubAfter === si && (
