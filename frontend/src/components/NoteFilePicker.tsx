@@ -265,6 +265,41 @@ export default function NoteFilePicker({
             className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded bg-white outline-none focus:ring-1 focus:ring-blue-400 mb-2"
           />
 
+          {/* Create new note — before the list: a folder can hold many
+              files and the option shouldn't hide below them */}
+          {!showCreate ? (
+            <button
+              onClick={() => { setShowCreate(true); setTimeout(() => searchRef.current?.blur(), 0); }}
+              className="mb-1.5 text-[10px] text-blue-500 hover:text-blue-700"
+            >
+              + New note{group ? ` in ${group}` : ""}...
+            </button>
+          ) : (
+            <div className="mb-2 border-b border-gray-100 pb-2">
+              <div className="text-[10px] text-gray-400 mb-1">
+                Create in: {folderPath || DEFAULT_FOLDER}
+              </div>
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setShowCreate(false); }}
+                  placeholder="Note name..."
+                  autoFocus
+                  className="flex-1 text-xs px-2 py-1 border border-gray-200 rounded outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <button
+                  onClick={handleCreate}
+                  disabled={!newName.trim() || creating}
+                  className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                >
+                  {creating ? "..." : "Create"}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* File list */}
           <div className="max-h-48 overflow-y-auto">
             {loading && <div className="text-[10px] text-gray-400 text-center py-2">Loading...</div>}
@@ -292,39 +327,6 @@ export default function NoteFilePicker({
             ))}
           </div>
 
-          {/* Create new note */}
-          {!showCreate ? (
-            <button
-              onClick={() => { setShowCreate(true); setTimeout(() => searchRef.current?.blur(), 0); }}
-              className="mt-2 text-[10px] text-blue-500 hover:text-blue-700"
-            >
-              + New note{group ? ` in ${group}` : ""}...
-            </button>
-      ) : (
-        <div className="mt-2 border-t border-gray-100 pt-2">
-          <div className="text-[10px] text-gray-400 mb-1">
-            Create in: {folderPath || DEFAULT_FOLDER}
-          </div>
-          <div className="flex gap-1">
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setShowCreate(false); }}
-              placeholder="Note name..."
-              autoFocus
-              className="flex-1 text-xs px-2 py-1 border border-gray-200 rounded outline-none focus:ring-1 focus:ring-blue-400"
-            />
-            <button
-              onClick={handleCreate}
-              disabled={!newName.trim() || creating}
-              className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-            >
-              {creating ? "..." : "Create"}
-            </button>
-          </div>
-        </div>
-      )}
         </>
       )}
     </div>
