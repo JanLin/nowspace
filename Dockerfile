@@ -28,6 +28,13 @@ RUN mkdir -p memory
 # Default memory file (will be overridden by volume mount if exists)
 COPY memory/agent_memory.md ./memory/agent_memory.md
 
+# Starter vault — copied into the mounted vault on first run when empty
+COPY ["docs/demo/Plan Week.md", "./starter-vault/Plan Week.md"]
+COPY ["docs/demo/Plan Week Configuration.md", "./starter-vault/Plan Week Configuration.md"]
+
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/entrypoint.sh"]
