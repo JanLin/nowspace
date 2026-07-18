@@ -938,16 +938,30 @@ export default function Bucket() {
       {boardView && (
         <div className="space-y-3">
           {dupeGroups.length > 0 && (
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs"
+            <div className="px-3 py-2 rounded-lg text-xs space-y-1.5"
               style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border-strong)" }}>
-              <span style={{ color: "var(--text)" }}>
-                🔁 {dupeGroups.length} duplicate {dupeGroups.length === 1 ? "set" : "sets"} found
-                ({dupeGroups.reduce((n, g) => n + g.length - 1, 0)} redundant cop{dupeGroups.reduce((n, g) => n + g.length - 1, 0) === 1 ? "y" : "ies"})
-              </span>
-              <button onClick={mergeDupes}
-                className="px-2 py-0.5 rounded bg-amber-500 text-white text-[10px] font-medium hover:bg-amber-600">
-                Merge — keep oldest of each
-              </button>
+              <div className="flex items-center gap-3">
+                <span style={{ color: "var(--text)" }}>
+                  🔁 {dupeGroups.length} duplicate {dupeGroups.length === 1 ? "set" : "sets"} found
+                  ({dupeGroups.reduce((n, g) => n + g.length - 1, 0)} redundant cop{dupeGroups.reduce((n, g) => n + g.length - 1, 0) === 1 ? "y" : "ies"})
+                </span>
+                <button onClick={mergeDupes}
+                  className="px-2 py-0.5 rounded bg-amber-500 text-white text-[10px] font-medium hover:bg-amber-600">
+                  Merge — keep oldest of each
+                </button>
+              </div>
+              {/* Which tasks, so merging is an informed choice */}
+              <ul className="space-y-0.5" style={{ color: "var(--text-secondary)" }}>
+                {dupeGroups.map((idxs, gi) => (
+                  <li key={gi} className="truncate">
+                    ×{idxs.length} — {stripBucketMeta(stripCtxTokens(tasks[idxs[0]].text))}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                Keeps each set's oldest copy — with its own priority, horizon and
+                subtasks — and deletes the newer copies.
+              </p>
             </div>
           )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 items-start">

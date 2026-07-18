@@ -623,6 +623,10 @@ export default function WeekPlan() {
   // External file change detection
   const lastKnownMtime = useRef<number | null>(null);
   const [externalChange, setExternalChange] = useState(false);
+  // Disk snapshot fetched for the conflict compare panel (null = closed)
+  const [weekCompare, setWeekCompare] = useState<{
+    days: { day: string; tasks: { text: string; done: boolean; priority: string }[] }[];
+  } | null>(null);
 
   // The offset the currently displayed data was loaded for — saves and
   // freshness checks must use THIS, never the live weekOffset state, or a
@@ -1229,6 +1233,28 @@ export default function WeekPlan() {
       } else {
         setError(msg);
       }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // "I know mine is the latest" — overwrite whatever is on disk. Passing
+  // null skips the expected_mtime guard; the returned mtime becomes the
+  // new baseline so the change poll quiets down.
+  const forceSaveWeek = async () => {
+    if (!data || isArchive) return;
+    setSaving(true);
+    try {
+      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, null);
+      setSaved(true);
+      setDirty(false);
+      setExternalChange(false);
+      setWeekCompare(null);
+      if (res.mtime) lastKnownMtime.current = res.mtime; else recordMtime();
+      setTimeout(() => setSaved(false), 2000);
+      window.dispatchEvent(new CustomEvent("week-saved"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -4140,7 +4166,11 @@ export default function WeekPlan() {
           {externalChange && (
             <div className="flex items-center gap-1.5 text-[10px] text-blue-600">
               <span>📄 File changed</span>
-              <button onClick={() => fetchWeek()} className="font-semibold underline">Reload</button>
+              <button onClick={async () => {
+                try { setWeekCompare(await api.getWeekPlan(dataOffsetRef.current)); } catch { /* ignore */ }
+              }} className="font-semibold underline">Compare</button>
+              <button onClick={forceSaveWeek} className="font-semibold underline" title="Overwrite the disk with what you see here">Keep mine</button>
+              <button onClick={() => { setWeekCompare(null); fetchWeek(); window.dispatchEvent(new CustomEvent("week-external-reload")); }} className="font-semibold underline">Reload</button>
               <button onClick={() => setExternalChange(false)} className="text-blue-400">✕</button>
             </div>
           )}
@@ -4195,6 +4225,56 @@ export default function WeekPlan() {
             title={showBottomBar ? "Hide toolbar" : "Show toolbar"}
           >
             {showBottomBar ? "🪣 ▾" : "🪣 ▴"}
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* Conflict compare — your unsaved week vs. what's on disk. Rendered
+        outside the status bar: its backdrop-blur creates a containing
+        block that would trap this fixed-position sheet. */}
+    {weekCompare && data && (
+      <div className="fixed bottom-14 left-2 right-2 z-50 max-w-xl mx-auto rounded-lg shadow-xl border p-3 text-xs space-y-2 max-h-[55vh] overflow-y-auto"
+        style={{ backgroundColor: "var(--card)", borderColor: "var(--border-strong)" }}>
+        <div className="flex items-center justify-between">
+          <span className="font-semibold" style={{ color: "var(--text)" }}>Yours vs. the file on disk</span>
+          <button onClick={() => setWeekCompare(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+        {(() => {
+          const fmt = (t: { text: string; done: boolean; priority: string }) =>
+            `${t.done ? "✓ " : ""}${t.priority ? t.priority + ": " : ""}${t.text}`;
+          const rows: { day: string; mine: string[]; disk: string[] }[] = [];
+          const n = Math.max(data.days.length, weekCompare.days.length);
+          for (let i = 0; i < n; i++) {
+            const mineL = (data.days[i]?.tasks || []).map(fmt);
+            const diskL = (weekCompare.days[i]?.tasks || []).map(fmt);
+            const mineSet = new Set(mineL), diskSet = new Set(diskL);
+            const mine = mineL.filter((l) => !diskSet.has(l));
+            const disk = diskL.filter((l) => !mineSet.has(l));
+            const dayKey = data.days[i]?.day || weekCompare.days[i]?.day || "";
+            if (mine.length || disk.length) rows.push({ day: DAY_LABELS[dayKey] || dayKey, mine, disk });
+          }
+          return rows.length === 0 ? (
+            <p style={{ color: "var(--text-secondary)" }}>
+              Task lists are identical — the disk change is elsewhere in the file
+              (notes, goals). Keeping yours is safe.
+            </p>
+          ) : rows.map((r) => (
+            <div key={r.day}>
+              <p className="font-medium" style={{ color: "var(--text)" }}>{r.day}</p>
+              {r.mine.map((l, i) => <p key={`m${i}`} className="text-green-600 truncate">＋ mine: {l}</p>)}
+              {r.disk.map((l, i) => <p key={`d${i}`} className="text-blue-500 truncate">◦ disk: {l}</p>)}
+            </div>
+          ));
+        })()}
+        <div className="flex gap-2 pt-1">
+          <button onClick={forceSaveWeek}
+            className="px-2 py-1 rounded bg-green-600 text-white text-[10px] font-medium hover:bg-green-700">
+            Keep mine — overwrite disk
+          </button>
+          <button onClick={() => { setWeekCompare(null); setExternalChange(false); fetchWeek(); window.dispatchEvent(new CustomEvent("week-external-reload")); }}
+            className="px-2 py-1 rounded text-[10px] font-medium" style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+            Take disk — discard mine
           </button>
         </div>
       </div>
