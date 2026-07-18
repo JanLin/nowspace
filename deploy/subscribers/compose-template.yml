@@ -23,7 +23,10 @@ services:
     restart: unless-stopped
 
   nowspace:
-    image: ghcr.io/janlin/nowspace:latest
+    # Built locally on this machine from the repo clone (build-image.sh) —
+    # no registry involved, the repo stays fully private
+    image: nowspace:latest
+    pull_policy: never
     container_name: nowspace-__NAME__-app
     network_mode: service:tailscale
     depends_on:

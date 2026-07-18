@@ -31,6 +31,8 @@ if [ -d "$DIR" ]; then
   exit 1
 fi
 
+docker image inspect nowspace:latest >/dev/null 2>&1 || "$HERE/build-image.sh"
+
 mkdir -p "$DIR/vault" "$DIR/ts-state" "$DIR/memory"
 sed "s/__NAME__/$NAME/g" "$HERE/compose-template.yml" > "$DIR/docker-compose.yml"
 cp "$HERE/serve-template.json" "$DIR/serve.json"

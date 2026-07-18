@@ -39,7 +39,7 @@ Updates for all instances (hook into the hourly job if desired):
   data".
 - Resource footprint per instance: ~200 MB (app + sidecar), ~1 GB with
   Obsidian. A 64 GB mini hosts many.
-- Requires: Docker running on the mini, and the public image
-  `ghcr.io/janlin/nowspace` (published by the `docker-image.yml` workflow
-  on version tags; flip the package to Public in GitHub once after the
-  first publish).
+- Requires: Docker running on the mini and this repo's clone (already
+  present for the hourly deploy). The image is built locally with
+  `build-image.sh` — no registry, nothing public; updates flow exactly
+  like the mini's own: pull the repo, run `update-subscribers.sh`.
