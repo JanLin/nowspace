@@ -41,10 +41,13 @@ cp "$HERE/serve-template.json" "$DIR/serve.json"
 
 echo ""
 echo "Waiting for the Tailscale login link (can take ~15s)..."
+# Ask tailscaled for the CURRENT auth URL — log-scraping can pick up an
+# expired link (they are one-time and each restart mints a new one)
 URL=""
 i=0
 while [ $i -lt 30 ]; do
-  URL="$(docker logs "nowspace-$NAME-ts" 2>&1 | grep -o 'https://login\.tailscale\.com/a/[a-zA-Z0-9]*' | tail -1)"
+  URL="$(docker exec "nowspace-$NAME-ts" tailscale status --json 2>/dev/null \
+        | grep -o '"AuthURL": *"[^"]*"' | head -1 | sed 's/.*": *"//; s/"$//')"
   [ -n "$URL" ] && break
   sleep 2
   i=$((i + 1))
@@ -58,11 +61,11 @@ if [ -n "$URL" ]; then
   echo "    $URL"
   echo ""
   echo "They sign in with their own Tailscale account (Google/Apple/MS"
-  echo "login works). Once done, run:  ./subscriber-status.sh $NAME"
-  echo "to get their app URL to send along."
+  echo "login works). The link is one-time and expires — if it does,"
+  echo "./subscriber-status.sh $NAME prints a fresh one. Once they are"
+  echo "signed in, the same command prints their app URL to send along."
   echo "==============================================================="
 else
-  echo "No login link seen yet — the instance may already be authenticated,"
-  echo "or Tailscale is still starting. Check with:"
-  echo "    docker logs nowspace-$NAME-ts"
+  echo "No login link yet — the instance may already be authenticated, or"
+  echo "Tailscale is still starting. Run:  ./subscriber-status.sh $NAME"
 fi
