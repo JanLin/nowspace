@@ -626,6 +626,27 @@ export default function Bucket() {
     updateTasks(next);
   };
 
+  // Promote a step to its own bucket task — mirrors the Planning tab's ↑.
+  // The new task lands right after its parent and inherits group, priority
+  // and horizon, so it stays in the same planning lane (save stamps it
+  // with the current week as a fresh entry).
+  const promoteSubtask = (taskIdx: number, subIdx: number) => {
+    const parent = tasks[taskIdx];
+    if (!parent) return;
+    const subs = [...(parent.subtasks || [])];
+    const [promoted] = subs.splice(subIdx, 1);
+    if (!promoted) return;
+    const { group } = parseGroup(parent.text);
+    const next = [...tasks];
+    next[taskIdx] = { ...parent, subtasks: subs };
+    next.splice(taskIdx + 1, 0, {
+      text: group ? `${group}: ${promoted.text}` : promoted.text,
+      priority: parent.priority, horizon: parent.horizon || "",
+      focused: false, waiting: false, subtasks: [],
+    });
+    updateTasks(next);
+  };
+
   const addLinkToTask = (idx: number, name: string) => {
     const next = [...tasks];
     const task = { ...next[idx] };
@@ -1340,8 +1361,13 @@ export default function Bucket() {
                                   style={{ color: sub.done ? 'var(--text-tertiary)' : 'var(--text-secondary)' }}
                                 >{sub.text}</span>
                               )}
+                              {!sub.done && (
+                                <button onClick={(e) => { e.stopPropagation(); promoteSubtask(originalIdx, si); }}
+                                  className="shrink-0 text-[10px] glyph-action hover:text-blue-500 ml-auto"
+                                  title="Promote to standalone bucket task">↑</button>
+                              )}
                               <button onClick={() => deleteSubtask(originalIdx, si)}
-                                className="text-[10px] glyph-action hover:text-red-500 ml-auto">×</button>
+                                className={`text-[10px] glyph-action hover:text-red-500 ${sub.done ? "ml-auto" : ""}`}>×</button>
                             </div>
                             {/* Insert-after input */}
                             {breakdownIdx === originalIdx && addSubAfter === si && (
