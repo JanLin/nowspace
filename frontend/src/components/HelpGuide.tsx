@@ -52,6 +52,20 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     ],
   },
   {
+    title: "Moving tasks — drag, or tap",
+    items: [
+      { icon: "↕", text: "Drag a task up or down to reorder the day, or drop it on another group to refile it. Groups themselves reorder by their ≡ handle." },
+      { icon: "📅", text: "In the multi-day views (3 Day, Mon–Fri, Full week), drag tasks straight between day columns. In Day view, the badge menu's weekday row makes the same jump — tap the badge, tap a day." },
+      { icon: "🪣", text: "Drag a task onto the bucket button in the corner to send it back to the bucket. The badge menu does the same with more control: park it plain, or at a horizon (n / nw / m), in two taps." },
+      { icon: "⏩", text: "From the carry-forward and bucket panels, drag an item onto any day button in the week strip to file it into that exact day — or simply tap it to add it to the day you're viewing." },
+      { icon: "🐘", text: "Drag a step out of an elephant breakdown to promote it to a full task (the ↑ arrow does the same on touch); drop a task onto another task's steps to demote it into one." },
+      { icon: "🔗", text: "Drag a note from the vault browser onto a task to link it, or into the notes area to insert a [[wiki link]]." },
+    ],
+    body: [
+      "Where a task lives — its position, day, group, or whether it's in the plan at all — can always be changed two ways: by dragging on a computer, or through the priority-badge menu, which works everywhere and is the path on phones and tablets. Nothing is drag-only.",
+    ],
+  },
+  {
     title: "The corner buttons",
     img: "/help/corner.png",
     imgAlt: "The floating buttons in the bottom-right corner",
