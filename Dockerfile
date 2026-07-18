@@ -22,11 +22,10 @@ COPY system_prompt.md ./
 # Copy built frontend
 COPY --from=frontend-build /build/dist ./frontend/dist/
 
-# Create memory directory
+# Memory directory — usually volume-mounted; the backend handles a
+# missing agent_memory.md (memory/ is gitignored, so it cannot be COPYed:
+# clean clones don't have it)
 RUN mkdir -p memory
-
-# Default memory file (will be overridden by volume mount if exists)
-COPY memory/agent_memory.md ./memory/agent_memory.md
 
 # Starter vault — copied into the mounted vault on first run when empty
 COPY ["docs/demo/Plan Week.md", "./starter-vault/Plan Week.md"]
