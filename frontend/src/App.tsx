@@ -5,12 +5,11 @@ import Bucket from "./components/Bucket";
 import Habits from "./components/Habits";
 import TimeTab from "./components/TimeTab";
 import Goals from "./components/Goals";
-import Coaching from "./components/Coaching";
-import Dashboard from "./components/Dashboard";
 import Settings from "./components/Settings";
+import Tour from "./components/Tour";
+import HelpGuide from "./components/HelpGuide";
 import { useTheme } from "./useTheme";
 import { api } from "./api";
-import type { Task } from "./api";
 
 type View = "week" | "bucket" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
@@ -60,9 +59,20 @@ export default function App() {
       setView("settings");
     });
   }, [backendUp]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [planTasks, setPlanTasks] = useState<Task[]>([]);
   const { theme, setTheme } = useTheme();
+
+  // First-run tour + help. The tour auto-opens once the vault is ready on a
+  // browser that has never finished (or skipped) it.
+  const [tourOpen, setTourOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+  useEffect(() => {
+    if (vaultReady && !localStorage.getItem("nowspace-tour-seen")) setTourOpen(true);
+  }, [vaultReady]);
+  const closeTour = () => {
+    localStorage.setItem("nowspace-tour-seen", "1");
+    setTourOpen(false);
+  };
 
   // Update detection. Web/PWA: the served assets carry version.json — when
   // the server gets updated (the mini pulls hourly) an already-open app
@@ -128,6 +138,40 @@ export default function App() {
             <h1 className="text-base sm:text-lg font-bold hidden sm:block" style={{ color: "var(--text)" }}>Nowspace</h1>
           </header>
           <Nav current={view} onChange={setView} hideCoach={!coachEnabled} />
+          {/* Help: replay the tour or open the guide */}
+          <div className="relative shrink-0">
+            <button
+              data-tour="help"
+              onClick={() => setHelpMenuOpen(!helpMenuOpen)}
+              className="w-7 h-7 rounded-md flex items-center justify-center text-sm font-semibold transition-colors"
+              style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+              title="Help"
+            >
+              ?
+            </button>
+            {helpMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setHelpMenuOpen(false)} />
+                <div className="absolute right-0 top-9 z-50 rounded-lg shadow-xl p-1 w-40"
+                  style={{ backgroundColor: "var(--card)", border: "1px solid var(--card-border)" }}>
+                  <button
+                    onClick={() => { setHelpMenuOpen(false); setTourOpen(true); }}
+                    className="w-full text-left px-2 py-1.5 rounded text-xs hover:opacity-80"
+                    style={{ color: "var(--text)" }}
+                  >
+                    🧭 Take the tour
+                  </button>
+                  <button
+                    onClick={() => { setHelpMenuOpen(false); setGuideOpen(true); }}
+                    className="w-full text-left px-2 py-1.5 rounded text-xs hover:opacity-80"
+                    style={{ color: "var(--text)" }}
+                  >
+                    📖 Open the guide
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           {/* Theme toggle */}
           <button
             onClick={() => setTheme(theme === "light" ? "dark" : theme === "dark" ? "system" : "light")}
@@ -189,16 +233,7 @@ export default function App() {
           <div className={view === "goals" ? "max-w-3xl mx-auto" : "hidden"}>
             <Goals />
           </div>
-          {coachEnabled && (
-            <>
-              <div className={view === "coaching" ? "max-w-3xl mx-auto" : "hidden"}>
-                <Coaching sessionId={sessionId} tasks={planTasks} onTasksChanged={setPlanTasks} />
-              </div>
-              <div className={view === "dashboard" ? "max-w-3xl mx-auto" : "hidden"}>
-                <Dashboard />
-              </div>
-            </>
-          )}
+          {/* Coach + Dashboard are parked — see the note in Nav.tsx */}
           <div className={view === "settings" ? "max-w-3xl mx-auto" : "hidden"}>
             <Settings onVaultReady={() => {
               if (!vaultReady) {
@@ -209,6 +244,9 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      {tourOpen && <Tour onClose={closeTour} onOpenGuide={() => { closeTour(); setGuideOpen(true); }} />}
+      {guideOpen && <HelpGuide onClose={() => setGuideOpen(false)} />}
     </div>
   );
 }
