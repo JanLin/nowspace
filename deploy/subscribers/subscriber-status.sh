@@ -18,8 +18,15 @@ STATE="$(docker exec "nowspace-$NAME-ts" tailscale status --json 2>/dev/null || 
 DNSNAME="$(printf '%s' "$STATE" | grep -o '"DNSName": *"[^"]*"' | head -1 | sed 's/.*"DNSName": *"//; s/\.\{0,1\}"$//; s/\.$//')"
 
 if [ -z "$DNSNAME" ]; then
-  echo "Not authenticated yet. Re-print the login link with:"
-  echo "    docker logs nowspace-$NAME-ts | grep login.tailscale.com"
+  AUTH_URL="$(printf '%s' "$STATE" | grep -o '"AuthURL": *"[^"]*"' | head -1 | sed 's/.*": *"//; s/"$//')"
+  if [ -n "$AUTH_URL" ]; then
+    echo "Not signed in yet. Current one-time login link (fresh):"
+    echo ""
+    echo "    $AUTH_URL"
+  else
+    echo "Not signed in and no login link available — restart to mint one:"
+    echo "    docker restart nowspace-$NAME-ts   # then rerun this script"
+  fi
   exit 0
 fi
 
