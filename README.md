@@ -94,6 +94,15 @@ The `VAULT_PATH` environment variable in `.env` is mounted into the container so
 
 To stop: `docker compose down`
 
+## Hosting Subscriber Demos
+
+Run isolated per-subscriber instances on an always-on machine — each
+reachable only through the subscriber's own Tailscale network (they sign
+in via a one-time login link; no credentials change hands), seeded with a
+starter vault so no configuration is needed, optionally with Obsidian
+streamed to their browser on the same vault. See
+[deploy/subscribers/README.md](deploy/subscribers/README.md).
+
 ## Always-on Mac + Phone Access
 
 Run Nowspace on an always-on Mac (e.g. a Mac mini holding a Syncthing copy
