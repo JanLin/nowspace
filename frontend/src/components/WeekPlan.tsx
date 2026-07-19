@@ -305,16 +305,21 @@ export default function WeekPlan() {
   const [autoSavePaused, setAutoSavePaused] = useState(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [priorityMenu, setPriorityMenu] = useState<{ day: number; task: number } | null>(null);
-  // Any click outside the badge/menu dismisses the picker (same pattern as
+  // Bucket-panel badge menu (keyed by full-bucket index)
+  const [panelPrioMenu, setPanelPrioMenu] = useState<number | null>(null);
+  // Any click outside the badge/menu dismisses the pickers (same pattern as
   // the Bucket tab) — wrappers carry .plan-pop so in-menu clicks survive
   useEffect(() => {
-    if (!priorityMenu) return;
+    if (!priorityMenu && panelPrioMenu === null) return;
     const close = (e: MouseEvent) => {
-      if (!(e.target as Element | null)?.closest?.(".plan-pop")) setPriorityMenu(null);
+      if (!(e.target as Element | null)?.closest?.(".plan-pop")) {
+        setPriorityMenu(null);
+        setPanelPrioMenu(null);
+      }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
-  }, [priorityMenu]);
+  }, [priorityMenu, panelPrioMenu]);
   const [groupView, setGroupView] = useState(true);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -839,6 +844,22 @@ export default function WeekPlan() {
       setError(e instanceof Error ? e.message : "Failed to carry forward");
     }
     setCarryLoading(false);
+  };
+
+  // Panel badge menu edits: patch one bucket task (priority/horizon) via
+  // fetch-modify-save, like the other panel writes
+  const panelUpdateBucketTask = async (idx: number, patch: Partial<import("../api").BucketTask>) => {
+    try {
+      const current = await api.getBucket();
+      if (!current.tasks[idx]) return;
+      const next = [...current.tasks];
+      next[idx] = { ...next[idx], ...patch };
+      await api.saveBucket(next, current.pinned_groups);
+      refreshBucket();
+      window.dispatchEvent(new CustomEvent("bucket-changed"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update bucket task");
+    }
   };
 
   // Quick capture into the bucket from the panel: "Group: task" reuses an
@@ -4420,6 +4441,62 @@ export default function WeekPlan() {
                 onDragEnd={() => { bucketDragRef.current = null; }}
                 className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs cursor-grab active:cursor-grabbing group/bt transition-colors"
               >
+                {/* Badge opens the same picker as the Planning and Bucket
+                    tabs: priority, horizon (n/nw/m), or file into a weekday */}
+                <span className="plan-pop relative shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setPanelPrioMenu(panelPrioMenu === idx ? null : idx); }}
+                    className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${task.priority ? PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
+                    style={!task.priority ? { border: "1px solid var(--border)" } : undefined}
+                    title="Priority, horizon (n / nw / m), or pick a weekday"
+                  >
+                    {(task.horizon || "") + (task.priority || "-")}
+                  </button>
+                  {panelPrioMenu === idx && (
+                    <div className="absolute left-0 top-full mt-0.5 z-30 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+                      <div className="flex gap-0.5">
+                        {PRIORITIES.filter((p) => p !== task.priority).map((p) => (
+                          <button key={p} onClick={(e) => { e.stopPropagation(); panelUpdateBucketTask(idx, { priority: p }); }}
+                            className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[p]}`}>
+                            {p}
+                          </button>
+                        ))}
+                        {task.priority && (
+                          <button onClick={(e) => { e.stopPropagation(); panelUpdateBucketTask(idx, { priority: "" }); }}
+                            className="px-1 py-0 rounded text-[10px] font-bold text-gray-400" style={{ border: "1px solid var(--border)" }}>
+                            -
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex gap-0.5">
+                        {([["n", "this week"], ["nw", "next week"], ["m", "next month"]] as const).map(([h, name]) => (
+                          <button key={h}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // clearing vs setting; setting a horizon implies at least C
+                              const clearing = task.horizon === h;
+                              panelUpdateBucketTask(idx, { horizon: clearing ? "" : h, priority: clearing ? task.priority : (task.priority || "C") });
+                            }}
+                            title={name}
+                            className={`px-1 py-0 rounded text-[10px] font-mono ${task.horizon === h ? "bg-blue-100 text-blue-700 font-bold" : "text-gray-500"}`}
+                            style={task.horizon !== h ? { border: "1px solid var(--border)" } : undefined}>
+                            {h}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
+                        {DAY_SHORT.map((d, di) => (
+                          <button key={d} onClick={(e) => { e.stopPropagation(); setPanelPrioMenu(null); pullFromBucket(idx, di); }}
+                            title={`Move into ${d} (leaves the bucket)`}
+                            className="px-1 py-0 rounded text-[10px] hover:bg-blue-100 hover:text-blue-700"
+                            style={{ color: "var(--text-secondary)" }}>
+                            {d.slice(0, 2)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </span>
                 <span className={`flex-1 truncate ${task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }} title={label}>
                   {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
                   {label}
