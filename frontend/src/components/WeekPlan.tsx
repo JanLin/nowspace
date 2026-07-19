@@ -307,19 +307,22 @@ export default function WeekPlan() {
   const [priorityMenu, setPriorityMenu] = useState<{ day: number; task: number } | null>(null);
   // Bucket-panel badge menu (keyed by full-bucket index)
   const [panelPrioMenu, setPanelPrioMenu] = useState<number | null>(null);
+  // Carry-panel badge menu (keyed by carry index)
+  const [carryPrioMenu, setCarryPrioMenu] = useState<number | null>(null);
   // Any click outside the badge/menu dismisses the pickers (same pattern as
   // the Bucket tab) — wrappers carry .plan-pop so in-menu clicks survive
   useEffect(() => {
-    if (!priorityMenu && panelPrioMenu === null) return;
+    if (!priorityMenu && panelPrioMenu === null && carryPrioMenu === null) return;
     const close = (e: MouseEvent) => {
       if (!(e.target as Element | null)?.closest?.(".plan-pop")) {
         setPriorityMenu(null);
         setPanelPrioMenu(null);
+        setCarryPrioMenu(null);
       }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
-  }, [priorityMenu, panelPrioMenu]);
+  }, [priorityMenu, panelPrioMenu, carryPrioMenu]);
   const [groupView, setGroupView] = useState(true);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -937,14 +940,14 @@ export default function WeekPlan() {
     }
   };
 
-  const carrySingleToBucket = async (carryIdx: number) => {
+  const carrySingleToBucket = async (carryIdx: number, horizon: string = "") => {
     const task = carryTasks[carryIdx];
     if (!task) return;
     try {
       const currentBucket = await api.getBucket();
       const newTasks = [
         ...currentBucket.tasks,
-        { text: task.text, priority: task.priority || "C", focused: task.focused, waiting: task.waiting, subtasks: task.subtasks },
+        { text: task.text, priority: task.priority || "C", horizon, focused: task.focused, waiting: task.waiting, subtasks: task.subtasks },
       ];
       await api.saveBucket(newTasks, currentBucket.pinned_groups);
       refreshBucket();
@@ -4601,12 +4604,6 @@ export default function WeekPlan() {
               });
             };
 
-            const prioBadge = (p: string) => (
-              <span className={`inline-block text-[9px] font-bold mr-1 px-1 rounded shrink-0 ${
-                p === "A" ? "bg-red-100 text-red-700" : p === "B" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"
-              }`}>{p}</span>
-            );
-
             const renderCarryItem = (task: typeof carryTasks[0], idx: number, label: string) => (
               <div
                 key={`carry-${idx}`}
@@ -4619,7 +4616,50 @@ export default function WeekPlan() {
                 onDragEnd={() => { carryDragRef.current = null; }}
                 className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs cursor-grab active:cursor-grabbing group/ct transition-colors"
               >
-                {prioBadge(task.priority || "C")}
+                <span className="plan-pop relative shrink-0 mr-1">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCarryPrioMenu(carryPrioMenu === idx ? null : idx); }}
+                    className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C}`}
+                    title="Priority, park in bucket (n / nw / m), or pick a weekday"
+                  >
+                    {task.priority || "C"}
+                  </button>
+                  {carryPrioMenu === idx && (
+                    <div className="absolute left-0 top-full mt-0.5 z-30 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+                      <div className="flex gap-0.5">
+                        {PRIORITIES.filter((pr) => pr !== (task.priority || "C")).map((pr) => (
+                          <button key={pr}
+                            onClick={(e) => { e.stopPropagation(); setCarryTasks((prev) => prev.map((ct, i) => i === idx ? { ...ct, priority: pr } : ct)); }}
+                            className={`px-1 py-0 rounded text-[10px] font-bold ${PRIORITY_BADGE[pr]}`}>
+                            {pr}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
+                        {([["", "🪣", "Into the bucket"], ["n", "n", "Bucket — this week"], ["nw", "nw", "Bucket — next week"], ["m", "m", "Bucket — next month"]] as const).map(([hz, lbl, tip]) => (
+                          <button key={lbl}
+                            onClick={(e) => { e.stopPropagation(); setCarryPrioMenu(null); carrySingleToBucket(idx, hz); }}
+                            title={tip}
+                            className="px-1 py-0 rounded text-[10px] font-mono text-gray-500 hover:bg-blue-100 hover:text-blue-700"
+                            style={{ border: "1px solid var(--border)" }}>
+                            {lbl}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
+                        {DAY_SHORT.map((d, di) => (
+                          <button key={d}
+                            onClick={(e) => { e.stopPropagation(); setCarryPrioMenu(null); pullFromCarry(idx, di); }}
+                            title={`Carry into ${d}`}
+                            className="px-1 py-0 rounded text-[10px] hover:bg-blue-100 hover:text-blue-700"
+                            style={{ color: "var(--text-secondary)" }}>
+                            {d.slice(0, 2)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </span>
                 <span className={`flex-1 truncate ${task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }} title={label}>
                   {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
                   {label}
@@ -4779,12 +4819,6 @@ export default function WeekPlan() {
               byDay.get(it.dayIdx)!.push(it);
             });
 
-            const prioBadge = (p: string) => (
-              <span className={`inline-block text-[9px] font-bold mr-1 px-1 rounded shrink-0 ${
-                p === "A" ? "bg-red-100 text-red-700" : p === "B" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"
-              }`}>{p}</span>
-            );
-
             const targetDayName = carryTargetLabel;
 
             return Array.from(byDay.entries()).map(([di, dayItems]) => (
@@ -4816,7 +4850,16 @@ export default function WeekPlan() {
                     }}
                     className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs group/dc transition-colors cursor-grab active:cursor-grabbing"
                   >
-                    {prioBadge(it.task.priority || "C")}
+                    <span className="plan-pop relative shrink-0 mr-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setPriorityMenu(priorityMenu?.day === it.dayIdx && priorityMenu?.task === it.taskIdx ? null : { day: it.dayIdx, task: it.taskIdx }); }}
+                        className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${PRIORITY_BADGE[it.task.priority] || PRIORITY_BADGE.C}`}
+                        title="Priority, park in bucket (n / nw / m), or move to a weekday"
+                      >
+                        {it.task.priority || "C"}
+                      </button>
+                      {priorityMenu?.day === it.dayIdx && priorityMenu?.task === it.taskIdx && planTaskMenu(it.dayIdx, it.taskIdx, it.task)}
+                    </span>
                     <span className={`flex-1 truncate ${it.task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }} title={it.label}>
                       {it.task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
                       {it.label}
