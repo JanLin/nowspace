@@ -229,7 +229,7 @@ function AutoFocusInput({
       autoCorrect="off"
       spellCheck={false}
       onKeyDown={(e) => {
-        if (e.key === "Enter") submit();
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) submit();
         if (e.key === "Escape") onCancel();
       }}
       onBlur={submit}
@@ -277,7 +277,7 @@ function EditInput({
       autoCorrect="off"
       spellCheck={false}
       onKeyDown={(e) => {
-        if (e.key === "Enter") save();
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) save();
         if (e.key === "Escape") onCancel();
         e.stopPropagation();
       }}

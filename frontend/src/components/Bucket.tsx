@@ -122,7 +122,7 @@ function AutoFocusInput({ onSubmit, onCancel, placeholder, className }: {
   const submit = () => { const t = (ref.current?.value || "").trim(); if (t) { onSubmit(t); if (ref.current) ref.current.value = ""; } else onCancel(); };
   return (
     <input ref={ref} type="text" defaultValue="" autoComplete="off" autoCorrect="off" spellCheck={false}
-      onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") onCancel(); }}
+      onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) submit(); if (e.key === "Escape") onCancel(); }}
       onBlur={submit} placeholder={placeholder} className={className} />
   );
 }
@@ -136,7 +136,7 @@ function EditInput({ initialValue, onSave, onCancel, className, style }: {
   const save = () => { const t = (ref.current?.value || "").trim(); if (t && t !== initialValue) onSave(t); else onCancel(); };
   return (
     <input ref={ref} type="text" defaultValue={initialValue} autoComplete="off" autoCorrect="off" spellCheck={false}
-      onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") onCancel(); }}
+      onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) save(); if (e.key === "Escape") onCancel(); }}
       onBlur={save} className={className} style={style} />
   );
 }

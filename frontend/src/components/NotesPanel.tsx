@@ -206,6 +206,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
       const after = content.slice(pos);
       const sep = before.length > 0 && !before.endsWith("\n") && !before.endsWith(" ") ? " " : "";
       const newContent = before + sep + text + after;
+      ta.value = newContent; // uncontrolled — the DOM owns the text
       setContent(newContent);
       clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => save(newContent), 1500);
@@ -279,9 +280,18 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
       {!saving && content !== lastSaved && <span className="absolute top-0 right-0 text-[9px] text-orange-400">Unsaved</span>}
 
       {focused || isArchive ? (
+        // Uncontrolled — see AutoFocusInput for the Samsung IME rationale:
+        // React writing `value` back per keystroke desyncs the composition
+        // and swallows backspaces. State mirrors the DOM via onChange; the
+        // key remounts with fresh content when the day changes (archive
+        // mode keeps the textarea mounted across switches).
         <textarea
+          key={`notes-${dayName}-${weekOffset}`}
           ref={textareaRef}
-          value={content}
+          defaultValue={content}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           onChange={handleChange}
           onFocus={() => { setFocused(true); keepCaretVisible(); }}
           onBlur={handleBlur}
@@ -352,8 +362,9 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           ) : (
             <span className="text-gray-300">Add notes...</span>
           )}
-          {/* Hidden textarea for focus management */}
-          <textarea ref={textareaRef} value={content} onChange={handleChange}
+          {/* Hidden textarea for focus management (uncontrolled like the
+              real one — its value is never shown) */}
+          <textarea ref={textareaRef} defaultValue={content} onChange={handleChange}
             className="absolute opacity-0 pointer-events-none w-0 h-0" tabIndex={-1} />
         </div>
       )}
