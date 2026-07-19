@@ -150,6 +150,35 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     finally { setSaving(false); }
   }, [dayName, weekOffset, lastSaved]);
 
+  // On phones the floating corner buttons and bottom bar overlap the text
+  // being typed — broadcast editing state so WeekPlan can hide them there
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("notes-editing", { detail: { active: focused } }));
+    return () => {
+      if (focused) window.dispatchEvent(new CustomEvent("notes-editing", { detail: { active: false } }));
+    };
+  }, [focused]);
+
+  // Keep what's being typed visible: the textarea auto-grows with no inner
+  // scroll, so when writing near the end the caret can sink below the panel
+  // edge — or, on phones, below the on-screen keyboard. Nudge both scroll
+  // levels (the notes panel, then the window measured against the visual
+  // viewport, which excludes the keyboard).
+  const keepCaretVisible = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (ta.selectionStart < ta.value.length - 400) return; // only chase near the end
+    const panel = document.getElementById("day-notes-panel");
+    if (panel) {
+      const inner = ta.getBoundingClientRect().bottom + 8 - panel.getBoundingClientRect().bottom;
+      if (inner > 0) panel.scrollTop += inner;
+    }
+    const vv = window.visualViewport;
+    const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    const outer = ta.getBoundingClientRect().bottom + 8 - visibleBottom;
+    if (outer > 0) window.scrollBy({ top: outer });
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setContent(val);
@@ -196,12 +225,19 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     }
   };
 
-  // Auto-grow textarea
+  // Auto-grow textarea. The height:auto measuring collapse momentarily
+  // shrinks the panel's scrollbox and the browser clamps its scrollTop —
+  // preserve it, then chase the caret AFTER the final height is applied
+  // (running the chase any earlier gets undone by this very effect).
   useEffect(() => {
     const ta = textareaRef.current;
     if (ta && focused) {
+      const panel = document.getElementById("day-notes-panel");
+      const keep = panel ? panel.scrollTop : 0;
       ta.style.height = "auto";
       ta.style.height = Math.max(80, ta.scrollHeight) + "px";
+      if (panel) panel.scrollTop = keep;
+      keepCaretVisible();
     }
   }, [content, focused]);
 
@@ -247,7 +283,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           ref={textareaRef}
           value={content}
           onChange={handleChange}
-          onFocus={() => setFocused(true)}
+          onFocus={() => { setFocused(true); keepCaretVisible(); }}
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."
