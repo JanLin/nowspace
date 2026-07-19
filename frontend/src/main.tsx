@@ -8,3 +8,12 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>
 );
+
+// Offline support: the service worker precaches the shell and serves the
+// last-known data when the backend is unreachable. Skipped in dev (HMR
+// and service workers fight over freshness).
+if ("serviceWorker" in navigator && !import.meta.env.DEV) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => { /* offline support is best-effort */ });
+  });
+}

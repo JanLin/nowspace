@@ -61,6 +61,21 @@ export default function App() {
   }, [backendUp]);
   const { theme, setTheme } = useTheme();
 
+  // Offline banner: api.ts broadcasts state changes when the service
+  // worker starts (or stops) serving cache fallbacks. false = online,
+  // string/null = offline (string carries the cached data's timestamp).
+  const [offlineAt, setOfflineAt] = useState<string | null | false>(false);
+  useEffect(() => {
+    const off = (e: Event) => setOfflineAt((e as CustomEvent).detail?.at ?? null);
+    const on = () => setOfflineAt(false);
+    window.addEventListener("nowspace-offline", off);
+    window.addEventListener("nowspace-online", on);
+    return () => {
+      window.removeEventListener("nowspace-offline", off);
+      window.removeEventListener("nowspace-online", on);
+    };
+  }, []);
+
   // First-run tour + help. The tour auto-opens once the vault is ready on a
   // browser that has never finished (or skipped) it.
   const [tourOpen, setTourOpen] = useState(false);
@@ -183,6 +198,16 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* Offline banner */}
+      {offlineAt !== false && (
+        <div className="px-3 py-1.5 text-center text-xs font-medium"
+          style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>
+          📴 Offline — showing your plan as of{" "}
+          {offlineAt ? new Date(offlineAt).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }) : "your last visit"}.
+          Changes won't be saved until you're back online.
+        </div>
+      )}
 
       {/* New-version pill */}
       {updateVersion && (
