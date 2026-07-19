@@ -8,6 +8,7 @@ import Goals from "./components/Goals";
 import Settings from "./components/Settings";
 import Tour from "./components/Tour";
 import HelpGuide from "./components/HelpGuide";
+import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
 import { api } from "./api";
 
@@ -80,6 +81,7 @@ export default function App() {
   // browser that has never finished (or skipped) it.
   const [tourOpen, setTourOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [philosophyOpen, setPhilosophyOpen] = useState(false);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
   useEffect(() => {
     if (vaultReady && !localStorage.getItem("nowspace-tour-seen")) setTourOpen(true);
@@ -183,6 +185,13 @@ export default function App() {
                   >
                     📖 Open the guide
                   </button>
+                  <button
+                    onClick={() => { setHelpMenuOpen(false); setPhilosophyOpen(true); }}
+                    className="w-full text-left px-2 py-1.5 rounded text-xs hover:opacity-80"
+                    style={{ color: "var(--text)" }}
+                  >
+                    🧘 The philosophy
+                  </button>
                 </div>
               </>
             )}
@@ -272,6 +281,7 @@ export default function App() {
 
       {tourOpen && <Tour onClose={closeTour} onOpenGuide={() => { closeTour(); setGuideOpen(true); }} />}
       {guideOpen && <HelpGuide onClose={() => setGuideOpen(false)} />}
+      {philosophyOpen && <Philosophy onClose={() => setPhilosophyOpen(false)} />}
     </div>
   );
 }
