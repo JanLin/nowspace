@@ -68,8 +68,14 @@ export default function DiaryPanel({ date, folder }: { date: string; folder: str
       {content === null ? (
         <p className="text-xs py-4 text-center" style={{ color: "var(--text-tertiary)" }}>Loading…</p>
       ) : (
+        /* Uncontrolled — see AutoFocusInput for the Samsung IME rationale;
+           the key remounts with fresh content when the date changes */
         <textarea
-          value={content}
+          key={`diary-${date}`}
+          defaultValue={content}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           onChange={(e) => onChange(e.target.value)}
           onBlur={save}
           placeholder="Write today's diary…"

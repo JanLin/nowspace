@@ -229,7 +229,7 @@ function AutoFocusInput({
       autoCorrect="off"
       spellCheck={false}
       onKeyDown={(e) => {
-        if (e.key === "Enter") submit();
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) submit();
         if (e.key === "Escape") onCancel();
       }}
       onBlur={submit}
@@ -277,7 +277,7 @@ function EditInput({
       autoCorrect="off"
       spellCheck={false}
       onKeyDown={(e) => {
-        if (e.key === "Enter") save();
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) save();
         if (e.key === "Escape") onCancel();
         e.stopPropagation();
       }}
@@ -648,6 +648,16 @@ export default function WeekPlan() {
     const onNotesSaved = () => { recordMtime(); };
     window.addEventListener("notes-saved", onNotesSaved);
     return () => window.removeEventListener("notes-saved", onNotesSaved);
+  }, []);
+
+  // While the notes editor is focused, phones hide the floating corner
+  // buttons and the bottom bar — they overlapped the text being typed
+  // (the on-screen keyboard already crowds the viewport)
+  const [notesEditing, setNotesEditing] = useState(false);
+  useEffect(() => {
+    const onEdit = (e: Event) => setNotesEditing(!!(e as CustomEvent).detail?.active);
+    window.addEventListener("notes-editing", onEdit);
+    return () => window.removeEventListener("notes-editing", onEdit);
   }, []);
 
   // Detect external changes (another device via Syncthing/the mini, or
@@ -2451,7 +2461,7 @@ export default function WeekPlan() {
               {!sub.done && (
                 <button
                   onClick={(e) => { e.stopPropagation(); promoteSubtask(dayIdx, taskIdx, si); }}
-                  className="shrink-0 text-[10px] text-gray-300 hover:text-blue-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                  className="shrink-0 text-[10px] glyph-action hover:text-blue-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
                   title="Promote to standalone task"
                 >
                   ↑
@@ -2459,7 +2469,7 @@ export default function WeekPlan() {
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); deleteSubtask(dayIdx, taskIdx, si); }}
-                className="shrink-0 text-[10px] text-gray-300 hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                className="shrink-0 text-[10px] glyph-action hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
               >
                 &times;
               </button>
@@ -4071,7 +4081,7 @@ export default function WeekPlan() {
 
     {/* Bucket & Carry icons — above status bar, togglable */}
     {data && showBottomBar && (
-      <div className={`fixed bottom-8 z-40 flex items-end gap-2 right-6 ${
+      <div className={`fixed bottom-8 z-40 flex items-end gap-2 right-6 ${notesEditing ? "max-sm:hidden" : ""} ${
         vaultBrowserOpen ? "md:right-[max(21.5rem,calc(50vw-14.5rem))]"
           : (bucketOpen || carryForwardOpen || dailyCarryOpen) ? "md:right-[max(19.5rem,calc(50vw-16.5rem))]" : ""
       }`}>
@@ -4191,7 +4201,7 @@ export default function WeekPlan() {
 
     {/* Status bar — always at very bottom */}
     {data && (
-      <div className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1" style={{ backgroundColor: "color-mix(in srgb, var(--bg) 95%, transparent)", borderColor: "var(--border)" }}>
+      <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1 ${notesEditing ? "max-sm:hidden" : ""}`} style={{ backgroundColor: "color-mix(in srgb, var(--bg) 95%, transparent)", borderColor: "var(--border)" }}>
         {/* flex-wrap: on phones the running-timer pill drops to its own row
             instead of pushing the stop button off the right edge */}
         <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-x-2 gap-y-1">

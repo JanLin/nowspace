@@ -150,6 +150,35 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     finally { setSaving(false); }
   }, [dayName, weekOffset, lastSaved]);
 
+  // On phones the floating corner buttons and bottom bar overlap the text
+  // being typed — broadcast editing state so WeekPlan can hide them there
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("notes-editing", { detail: { active: focused } }));
+    return () => {
+      if (focused) window.dispatchEvent(new CustomEvent("notes-editing", { detail: { active: false } }));
+    };
+  }, [focused]);
+
+  // Keep what's being typed visible: the textarea auto-grows with no inner
+  // scroll, so when writing near the end the caret can sink below the panel
+  // edge — or, on phones, below the on-screen keyboard. Nudge both scroll
+  // levels (the notes panel, then the window measured against the visual
+  // viewport, which excludes the keyboard).
+  const keepCaretVisible = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (ta.selectionStart < ta.value.length - 400) return; // only chase near the end
+    const panel = document.getElementById("day-notes-panel");
+    if (panel) {
+      const inner = ta.getBoundingClientRect().bottom + 8 - panel.getBoundingClientRect().bottom;
+      if (inner > 0) panel.scrollTop += inner;
+    }
+    const vv = window.visualViewport;
+    const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    const outer = ta.getBoundingClientRect().bottom + 8 - visibleBottom;
+    if (outer > 0) window.scrollBy({ top: outer });
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setContent(val);
@@ -177,6 +206,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
       const after = content.slice(pos);
       const sep = before.length > 0 && !before.endsWith("\n") && !before.endsWith(" ") ? " " : "";
       const newContent = before + sep + text + after;
+      ta.value = newContent; // uncontrolled — the DOM owns the text
       setContent(newContent);
       clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => save(newContent), 1500);
@@ -196,12 +226,19 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     }
   };
 
-  // Auto-grow textarea
+  // Auto-grow textarea. The height:auto measuring collapse momentarily
+  // shrinks the panel's scrollbox and the browser clamps its scrollTop —
+  // preserve it, then chase the caret AFTER the final height is applied
+  // (running the chase any earlier gets undone by this very effect).
   useEffect(() => {
     const ta = textareaRef.current;
     if (ta && focused) {
+      const panel = document.getElementById("day-notes-panel");
+      const keep = panel ? panel.scrollTop : 0;
       ta.style.height = "auto";
       ta.style.height = Math.max(80, ta.scrollHeight) + "px";
+      if (panel) panel.scrollTop = keep;
+      keepCaretVisible();
     }
   }, [content, focused]);
 
@@ -243,11 +280,20 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
       {!saving && content !== lastSaved && <span className="absolute top-0 right-0 text-[9px] text-orange-400">Unsaved</span>}
 
       {focused || isArchive ? (
+        // Uncontrolled — see AutoFocusInput for the Samsung IME rationale:
+        // React writing `value` back per keystroke desyncs the composition
+        // and swallows backspaces. State mirrors the DOM via onChange; the
+        // key remounts with fresh content when the day changes (archive
+        // mode keeps the textarea mounted across switches).
         <textarea
+          key={`notes-${dayName}-${weekOffset}`}
           ref={textareaRef}
-          value={content}
+          defaultValue={content}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           onChange={handleChange}
-          onFocus={() => setFocused(true)}
+          onFocus={() => { setFocused(true); keepCaretVisible(); }}
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."
@@ -316,8 +362,9 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           ) : (
             <span className="text-gray-300">Add notes...</span>
           )}
-          {/* Hidden textarea for focus management */}
-          <textarea ref={textareaRef} value={content} onChange={handleChange}
+          {/* Hidden textarea for focus management (uncontrolled like the
+              real one — its value is never shown) */}
+          <textarea ref={textareaRef} defaultValue={content} onChange={handleChange}
             className="absolute opacity-0 pointer-events-none w-0 h-0" tabIndex={-1} />
         </div>
       )}

@@ -4,11 +4,32 @@
 // VITE_API_URL overrides everything (e.g. the staging setup).
 const BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : __API_BASE__);
 
+// Offline awareness: the service worker marks cache-fallback responses
+// with X-Nowspace-Offline (when that data was fetched). State changes are
+// broadcast as window events for the app-level banner.
+let offlineNow = false;
+function setOffline(state: boolean, at?: string | null) {
+  if (state === offlineNow) return;
+  offlineNow = state;
+  window.dispatchEvent(new CustomEvent(state ? "nowspace-offline" : "nowspace-online", { detail: { at: at || null } }));
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+  } catch (e) {
+    setOffline(true, null);
+    const method = (options?.method || "GET").toUpperCase();
+    if (method !== "GET") throw new Error("Offline — this change can't be saved right now");
+    throw e instanceof Error ? e : new Error("Network unavailable");
+  }
+  const cachedAt = res.headers.get("X-Nowspace-Offline");
+  if (cachedAt !== null) setOffline(true, cachedAt);
+  else setOffline(false);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || res.statusText);
