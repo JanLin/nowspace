@@ -2461,7 +2461,7 @@ export default function WeekPlan() {
               {!sub.done && (
                 <button
                   onClick={(e) => { e.stopPropagation(); promoteSubtask(dayIdx, taskIdx, si); }}
-                  className="shrink-0 text-[10px] text-gray-300 hover:text-blue-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                  className="shrink-0 text-[10px] glyph-action hover:text-blue-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
                   title="Promote to standalone task"
                 >
                   ↑
@@ -2469,7 +2469,7 @@ export default function WeekPlan() {
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); deleteSubtask(dayIdx, taskIdx, si); }}
-                className="shrink-0 text-[10px] text-gray-300 hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                className="shrink-0 text-[10px] glyph-action hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
               >
                 &times;
               </button>
