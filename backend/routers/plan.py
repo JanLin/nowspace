@@ -517,7 +517,8 @@ async def save_week_plan(req: SaveWeekRequest):
         m = heading_re_local.match(line.strip())
         if m:
             heading_text = m.group(1).strip().lower()
-            heading_words = set(heading_text.split())
+            # strip emphasis so "**fri**" still reads as a day word
+            heading_words = {w.strip("*_") for w in heading_text.split()}
             if heading_words & all_day_words:
                 if first_day_idx is None:
                     first_day_idx = i
@@ -863,8 +864,12 @@ def _rewrite_week_file(plan_file: Path, original: str, result: dict):
         m = heading_re_local.match(line.strip())
         if m:
             heading_text = m.group(1).strip()
-            heading_word = re.sub(r"\s+\d+.*$", "", heading_text).lower()
-            if heading_word in all_day_words:
+            # Tolerate markdown emphasis around any word: "Fri 17",
+            # "Fri **17**" and "**Fri** 17" are all day headings. A strict
+            # match here once misread a bolded date as the end boundary —
+            # every carry rewrite then duplicated all days after it.
+            heading_words = {w.strip("*_").lower() for w in heading_text.split()}
+            if heading_words & all_day_words:
                 if first_day_idx is None:
                     first_day_idx = i
             elif first_day_idx is not None:
