@@ -99,9 +99,11 @@ export interface NoteEditorProps {
   initialPath: string;
   initialName?: string;
   onClose: () => void;
+  /** Render inline (e.g. in the Notes tab) instead of as a full-screen modal. */
+  embedded?: boolean;
 }
 
-export default function NoteEditor({ initialPath, initialName, onClose }: NoteEditorProps) {
+export default function NoteEditor({ initialPath, initialName, onClose, embedded = false }: NoteEditorProps) {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -532,9 +534,14 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
   const pathParts = currentPath.replace(/\.md$/, "").split("/");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/30" onClick={onClose}>
+    <div
+      className={embedded ? "flex justify-center" : "fixed inset-0 z-50 flex items-stretch justify-center bg-black/30"}
+      onClick={embedded ? undefined : onClose}
+    >
       <div
-        className="bg-white w-full max-w-4xl m-4 rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        className={embedded
+          ? "bg-white w-full max-w-4xl rounded-xl shadow border border-gray-200 flex flex-col overflow-hidden h-[calc(100vh-7.5rem)]"
+          : "bg-white w-full max-w-4xl m-4 rounded-xl shadow-2xl flex flex-col overflow-hidden"}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

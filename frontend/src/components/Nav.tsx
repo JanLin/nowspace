@@ -1,4 +1,4 @@
-type View = "week" | "bucket" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
+type View = "week" | "bucket" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function Nav({
   current,
@@ -12,6 +12,7 @@ export default function Nav({
   const tabs: { id: View; icon: string; name: string }[] = [
     { id: "week", icon: "📅", name: "Plan" },
     { id: "bucket", icon: "🪣", name: "Bucket" },
+    { id: "notes", icon: "📝", name: "Notes" },
     { id: "habits", icon: "🌱", name: "Habits" },
     { id: "time", icon: "⏱", name: "Time" },
     // Coach + Dashboard are parked (hidden even with an API key configured);

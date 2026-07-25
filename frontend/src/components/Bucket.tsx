@@ -21,7 +21,6 @@ import {
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
   stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, setMonthHorizon,
 } from "../contexts";
-import NoteEditor from "./NoteEditor";
 import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -145,7 +144,7 @@ function EditInput({ initialValue, onSave, onCancel, className, style }: {
 
 type Section = { name: string; items: { task: BucketTask; originalIdx: number; label: string }[] };
 
-export default function Bucket() {
+export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name: string) => void }) {
   const [data, setData] = useState<BucketResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -231,7 +230,6 @@ export default function Bucket() {
   const isGroupCollapsed = (name: string) => !expandedGroups.has(name);
   const expandGroup = (name: string) =>
     setExpandedGroups((prev) => persistExpanded(new Set(prev).add(name)));
-  const [noteEditor, setNoteEditor] = useState<{ path: string; name: string } | null>(null);
   const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
   const vaultBrowserStateRef = useRef<VaultBrowserState | null>(null);
   const dragRef = useRef<{ fromIdx: number } | null>(null);
@@ -1261,7 +1259,7 @@ export default function Bucket() {
                         <span onClick={() => setEditingTask(originalIdx)}
                           className={`flex-1 text-sm cursor-text hover:text-blue-600 ${task.focused ? "font-bold" : ""}`}
                           style={{ color: 'var(--text)' }}>
-                          {renderWikiText(displayLabel, (path, name) => setNoteEditor({ path, name }))}
+                          {renderWikiText(displayLabel, onOpenNote)}
                         </span>
                       )}
 
@@ -1467,7 +1465,7 @@ export default function Bucket() {
           <VaultBrowser
             onClose={() => setVaultBrowserOpen(false)}
             stateRef={vaultBrowserStateRef}
-            onOpenNote={(path, name) => setNoteEditor({ path, name })}
+            onOpenNote={onOpenNote}
           />
         </div>
       )}
@@ -1482,7 +1480,7 @@ export default function Bucket() {
           position={notePicker.pos}
           onSelect={(path, name) => {
             setNotePicker(null);
-            setNoteEditor({ path, name });
+            onOpenNote(path, name);
           }}
           onAddLink={(name) => addLinkToTask(notePicker.idx, name)}
           onRemoveLink={(name) => removeLinkFromTask(notePicker.idx, name)}
@@ -1490,14 +1488,6 @@ export default function Bucket() {
         />
       )}
 
-      {/* Note editor modal */}
-      {noteEditor && (
-        <NoteEditor
-          initialPath={noteEditor.path}
-          initialName={noteEditor.name}
-          onClose={() => setNoteEditor(null)}
-        />
-      )}
 
       {/* Floating vault browser icon */}
       <div className="fixed bottom-12 right-4 z-30 flex flex-col gap-1.5">
