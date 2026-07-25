@@ -123,6 +123,7 @@ export interface BucketTask {
 export interface BucketResponse {
   tasks: BucketTask[];
   pinned_groups: string[];
+  mtime?: number | null;
 }
 
 export interface Habit {

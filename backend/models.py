@@ -117,6 +117,7 @@ class BucketTask(BaseModel):
 class BucketResponse(BaseModel):
     tasks: List[BucketTask] = []
     pinned_groups: List[str] = []
+    mtime: Optional[float] = None  # file mtime, for the save conflict guard
 
 
 class BucketSaveRequest(BaseModel):

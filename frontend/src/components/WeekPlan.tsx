@@ -872,6 +872,29 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     return run;
   };
 
+  // Guarded read-modify-write of the bucket file. Fetches the current bucket
+  // (with its mtime), applies `mutate`, and saves with expected_mtime so a
+  // change that landed underneath us — e.g. another device's edit synced in by
+  // Syncthing — is detected (409) instead of clobbered. On a conflict it
+  // refetches and re-applies onto the latest state, so an append-style write
+  // (carry -> bucket, quick-capture) merges rather than reverting. Serialized
+  // via runBucketWrite so rapid writes on this device can't race either.
+  const writeBucketTasks = (mutate: (current: import("../api").BucketResponse) => import("../api").BucketTask[]) =>
+    runBucketWrite(async () => {
+      for (let attempt = 0; ; attempt++) {
+        const current = await api.getBucket();
+        const next = mutate(current);
+        try {
+          await api.saveBucket(next, current.pinned_groups, current.mtime ?? null);
+          return;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (attempt < 3 && msg.includes("changed on disk")) continue; // refetch + re-apply
+          throw e;
+        }
+      }
+    });
+
   // Panel badge menu edits: patch one bucket task (priority/horizon) via
   // fetch-modify-save, like the other panel writes
   const panelUpdateBucketTask = async (idx: number, patch: Partial<import("../api").BucketTask>) => {
@@ -881,7 +904,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         if (!current.tasks[idx]) return;
         const next = [...current.tasks];
         next[idx] = { ...next[idx], ...patch };
-        await api.saveBucket(next, current.pinned_groups);
+        await api.saveBucket(next, current.pinned_groups, current.mtime ?? null);
       });
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
@@ -897,8 +920,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (!text) return;
     let canonical = "";
     try {
-      await runBucketWrite(async () => {
-        const current = await api.getBucket();
+      await writeBucketTasks((current) => {
         const parsed = fixedGroup ? { group: fixedGroup, label: text } : parseGroup(text);
         canonical = parsed.group;
         if (parsed.group) {
@@ -918,7 +940,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         }
         const next = [...current.tasks];
         next.splice(insertAfter + 1, 0, newTask);
-        await api.saveBucket(next, current.pinned_groups);
+        return next;
       });
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
@@ -932,20 +954,16 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (carryTasks.length === 0) return;
     setCarryLoading(true);
     try {
-      await runBucketWrite(async () => {
-        const currentBucket = await api.getBucket();
-        const newTasks = [
-          ...currentBucket.tasks,
-          ...carryTasks.map((t) => ({
-            text: t.text,
-            priority: t.priority || "C",
-            focused: t.focused,
-            waiting: t.waiting,
-            subtasks: t.subtasks,
-          })),
-        ];
-        await api.saveBucket(newTasks, currentBucket.pinned_groups);
-      });
+      await writeBucketTasks((current) => [
+        ...current.tasks,
+        ...carryTasks.map((t) => ({
+          text: t.text,
+          priority: t.priority || "C",
+          focused: t.focused,
+          waiting: t.waiting,
+          subtasks: t.subtasks,
+        })),
+      ]);
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
       setCarryTasks([]);
@@ -974,14 +992,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     const task = carryTasks[carryIdx];
     if (!task) return;
     try {
-      await runBucketWrite(async () => {
-        const currentBucket = await api.getBucket();
-        const newTasks = [
-          ...currentBucket.tasks,
-          { text: task.text, priority: task.priority || "C", horizon, focused: task.focused, waiting: task.waiting, subtasks: task.subtasks },
-        ];
-        await api.saveBucket(newTasks, currentBucket.pinned_groups);
-      });
+      await writeBucketTasks((current) => [
+        ...current.tasks,
+        { text: task.text, priority: task.priority || "C", horizon, focused: task.focused, waiting: task.waiting, subtasks: task.subtasks },
+      ]);
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
       setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
@@ -1561,12 +1575,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     });
     if (moved.length === 0) return;
     try {
-      const currentBucket = await api.getBucket();
-      const newTasks = [
-        ...currentBucket.tasks,
+      await writeBucketTasks((current) => [
+        ...current.tasks,
         ...moved.map((t) => ({ text: t.text, priority: t.priority || "C", focused: t.focused, waiting: t.waiting, subtasks: t.subtasks })),
-      ];
-      await api.saveBucket(newTasks, currentBucket.pinned_groups);
+      ]);
       applyTaskChange(days);
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
@@ -4224,9 +4236,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   const groupTasks = carryTasks.filter((t) => parseGroup(t.text).group === groupName);
                   if (groupTasks.length > 0) {
                     (async () => {
-                      const currentBucket = await api.getBucket();
-                      const newTasks = [...currentBucket.tasks, ...groupTasks.map((t) => ({ text: t.text, priority: t.priority || "C", focused: t.focused, waiting: t.waiting, subtasks: t.subtasks }))];
-                      await api.saveBucket(newTasks, currentBucket.pinned_groups);
+                      await writeBucketTasks((current) => [...current.tasks, ...groupTasks.map((t) => ({ text: t.text, priority: t.priority || "C", focused: t.focused, waiting: t.waiting, subtasks: t.subtasks }))]);
                       refreshBucket(); window.dispatchEvent(new CustomEvent("bucket-changed"));
                       setCarryTasks((prev) => prev.filter((t) => parseGroup(t.text).group !== groupName));
                     })().catch(() => {});

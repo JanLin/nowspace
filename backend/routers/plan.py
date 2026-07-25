@@ -1274,14 +1274,14 @@ async def get_bucket():
     """Read and parse Bucket.md."""
     bucket = _bucket_path()
     if not bucket.exists():
-        return BucketResponse(tasks=[], pinned_groups=[])
+        return BucketResponse(tasks=[], pinned_groups=[], mtime=None)
 
     content = bucket.read_text(encoding="utf-8")
     tasks, pinned = _parse_bucket_file(content)
     # Learn inline group tags typed directly into the bucket file
     for task in tasks:
         task.text = _learn_and_clean_group_tag(task.text)
-    return BucketResponse(tasks=tasks, pinned_groups=pinned)
+    return BucketResponse(tasks=tasks, pinned_groups=pinned, mtime=bucket.stat().st_mtime)
 
 
 @router.post("/bucket/save")
