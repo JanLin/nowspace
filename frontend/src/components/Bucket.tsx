@@ -857,6 +857,32 @@ export default function Bucket() {
     });
     updateTasks(tasks.filter((_, i) => !drop.has(i)));
   };
+
+  // GTD sort: within each project group, order by horizon (n → nw → m → none),
+  // then priority (A → B → C → D → none). Group order (first appearance) is kept
+  // and each group's tasks become contiguous. Reorders + saves; drag still works.
+  const sortBucketGTD = () => {
+    const horizonRank = (h?: string) => (({ n: 0, nw: 1, m: 2 } as Record<string, number>)[h || ""] ?? 3);
+    const priorityRank = (p?: string) => (({ A: 0, B: 1, C: 2, D: 3 } as Record<string, number>)[(p || "").toUpperCase()] ?? 4);
+    const order: string[] = [];
+    const byGroup = new Map<string, BucketTask[]>();
+    tasks.forEach((t) => {
+      const { group } = parseGroup(t.text);
+      if (!byGroup.has(group)) { byGroup.set(group, []); order.push(group); }
+      byGroup.get(group)!.push(t);
+    });
+    const sorted: BucketTask[] = [];
+    for (const g of order) {
+      const items = byGroup.get(g)!.slice().sort((a, b) => {
+        const h = horizonRank(a.horizon) - horizonRank(b.horizon);
+        if (h !== 0) return h;
+        return priorityRank(a.priority) - priorityRank(b.priority);
+      });
+      sorted.push(...items);
+    }
+    updateTasks(sorted);
+  };
+
   const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 
@@ -905,6 +931,11 @@ export default function Bucket() {
           <button onClick={allCollapsed ? expandAll : collapseAll}
             className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
             {allCollapsed ? "Expand all" : "Collapse all"}
+          </button>
+          <button onClick={sortBucketGTD}
+            className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+            title="Sort each group by horizon (n → nw → m → none), then priority (A–D, blank last)">
+            Sort GTD
           </button>
         </Cluster>
       </div>
