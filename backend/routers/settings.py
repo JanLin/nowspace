@@ -73,10 +73,6 @@ class VaultValidation(BaseModel):
     vault_path: str
 
 
-class ApiKeyUpdate(BaseModel):
-    api_key: str
-
-
 # ---------------------------------------------------------------------------
 # Helpers — .env file (API key)
 # ---------------------------------------------------------------------------
@@ -99,7 +95,7 @@ def _get_api_key_status() -> dict:
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if key:
         # Mask: show first 10 chars + ****
-        masked = key[:10] + "****" if len(key) > 10 else "****"
+        masked = key[:7] + "…****" if len(key) > 10 else "****"
         return {"configured": True, "masked": masked, "source": "environment"}
 
     # Check .env file
@@ -112,45 +108,12 @@ def _get_api_key_status() -> dict:
                 if line.startswith("ANTHROPIC_API_KEY=") and not line.startswith("#"):
                     val = line.split("=", 1)[1].strip().strip('"').strip("'")
                     if val:
-                        masked = val[:10] + "****" if len(val) > 10 else "****"
+                        masked = val[:7] + "…****" if len(val) > 10 else "****"
                         return {"configured": True, "masked": masked, "source": str(env_path)}
         except Exception:
             pass
 
     return {"configured": False, "masked": "", "source": ""}
-
-
-def _save_api_key(api_key: str) -> Path:
-    """Save API key to ~/.nowspace/.env. Returns the file path."""
-    env_path = Path.home() / ".nowspace" / ".env"
-    env_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Read existing .env content (preserve other vars)
-    existing_lines: list[str] = []
-    if env_path.exists():
-        try:
-            existing_lines = env_path.read_text(encoding="utf-8").splitlines()
-        except Exception:
-            pass
-
-    # Replace or add ANTHROPIC_API_KEY
-    found = False
-    new_lines = []
-    for line in existing_lines:
-        if line.strip().startswith("ANTHROPIC_API_KEY="):
-            new_lines.append(f"ANTHROPIC_API_KEY={api_key}")
-            found = True
-        else:
-            new_lines.append(line)
-    if not found:
-        new_lines.append(f"ANTHROPIC_API_KEY={api_key}")
-
-    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-
-    # Also set in current process so it takes effect immediately
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-
-    return env_path
 
 
 # ---------------------------------------------------------------------------
@@ -419,24 +382,10 @@ async def browse_folders(path: str = ""):
 
 @router.get("/api-key")
 async def get_api_key_status():
-    """Check if API key is configured. Never returns the actual key."""
+    """Check if the API key is configured (read-only). Never returns the key.
+
+    The key is provided via the ANTHROPIC_API_KEY environment variable or a
+    .env file (project root, or ~/.nowspace/.env for the desktop app) and is
+    intentionally not settable through the web UI.
+    """
     return _get_api_key_status()
-
-
-@router.put("/api-key")
-async def set_api_key(body: ApiKeyUpdate):
-    """Save API key to ~/.nowspace/.env. Key is validated for format only."""
-    key = body.api_key.strip()
-    if not key:
-        raise HTTPException(status_code=400, detail="API key cannot be empty")
-    if not key.startswith("sk-ant-"):
-        raise HTTPException(status_code=400, detail="Invalid key format. Anthropic API keys start with sk-ant-")
-
-    env_path = _save_api_key(key)
-    status = _get_api_key_status()
-
-    return {
-        "status": "ok",
-        "saved_to": str(env_path),
-        "api_key_status": status,
-    }
