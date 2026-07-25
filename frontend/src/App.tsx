@@ -5,6 +5,7 @@ import Bucket from "./components/Bucket";
 import Habits from "./components/Habits";
 import TimeTab from "./components/TimeTab";
 import Goals from "./components/Goals";
+import NoteEditor from "./components/NoteEditor";
 import Settings from "./components/Settings";
 import Tour from "./components/Tour";
 import HelpGuide from "./components/HelpGuide";
@@ -12,10 +13,16 @@ import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
 import { api } from "./api";
 
-type View = "week" | "bucket" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
+type View = "week" | "bucket" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function App() {
   const [view, setView] = useState<View>("week");
+  // The note currently open in the Notes tab. Opening a note from a task or a
+  // [[link]] loads it here and switches to the tab, so notes and tasks live in
+  // separate tabs you can flip between (parallel work without an overlay —
+  // works at phone width too).
+  const [openNote, setOpenNote] = useState<{ path: string; name: string } | null>(null);
+  const showNote = (path: string, name: string) => { setOpenNote({ path, name }); setView("notes"); };
   const [vaultReady, setVaultReady] = useState<boolean | null>(null); // null = checking
   const [backendUp, setBackendUp] = useState(false);
   const [coachEnabled, setCoachEnabled] = useState(true);
@@ -253,10 +260,27 @@ export default function App() {
       <main className="flex-1 overflow-y-auto px-2 sm:px-4 py-2 sm:py-4">
         <div className="mx-auto max-w-6xl">
           <div className={view === "week" ? "" : "hidden"}>
-            <WeekPlan />
+            <WeekPlan onOpenNote={showNote} />
           </div>
           <div className={view === "bucket" ? "" : "hidden"}>
-            <Bucket />
+            <Bucket onOpenNote={showNote} />
+          </div>
+          <div className={view === "notes" ? "" : "hidden"}>
+            {openNote ? (
+              <NoteEditor
+                key={openNote.path}
+                embedded
+                initialPath={openNote.path}
+                initialName={openNote.name}
+                onClose={() => setView("week")}
+              />
+            ) : (
+              <div className="max-w-lg mx-auto text-center py-16 px-4" style={{ color: "var(--text-secondary)" }}>
+                <div className="text-3xl mb-2">📝</div>
+                <p className="text-sm">No note open yet.</p>
+                <p className="text-xs mt-1">Tap a <span className="font-mono">[[link]]</span> in your notes, or a linked note on a task, and it opens here — flip back to Plan any time without losing your place.</p>
+              </div>
+            )}
           </div>
           <div className={view === "habits" ? "max-w-3xl mx-auto" : "hidden"}>
             <Habits />

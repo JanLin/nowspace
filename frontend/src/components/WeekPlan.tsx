@@ -3,7 +3,6 @@ import { api, type WeekPlanResponse, type DayTasks, type Task, type TaskLink, ty
 import TaskLinkPopup from "./TaskLinkPopup";
 import NotesPanel from "./NotesPanel";
 import DiaryPanel from "./DiaryPanel";
-import NoteEditor from "./NoteEditor";
 import NoteFilePicker from "./NoteFilePicker";
 import TaskCheck from "./TaskCheck";
 import { Cluster } from "../clusters";
@@ -289,7 +288,7 @@ function EditInput({
   );
 }
 
-export default function WeekPlan() {
+export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, name: string) => void }) {
   const [data, setData] = useState<WeekPlanResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -763,7 +762,6 @@ export default function WeekPlan() {
   const splitterContainer = useRef<HTMLDivElement | null>(null);
 
   // Note editor state
-  const [noteEditor, setNoteEditor] = useState<{ path: string; name: string } | null>(null);
 
   // Note file picker state
   const [notePicker, setNotePicker] = useState<{
@@ -3333,7 +3331,7 @@ export default function WeekPlan() {
               dayName={day.day}
               weekOffset={weekOffset}
               isArchive={isArchive}
-              onOpenNote={(path, name) => setNoteEditor({ path, name })}
+              onOpenNote={onOpenNote}
             />
           )}
         </div>
@@ -4954,7 +4952,7 @@ export default function WeekPlan() {
         <VaultBrowser
           onClose={() => setVaultBrowserOpen(false)}
           stateRef={vaultBrowserStateRef}
-          onOpenNote={(path, name) => setNoteEditor({ path, name })}
+          onOpenNote={onOpenNote}
         />
       </div>
     )}
@@ -4969,7 +4967,7 @@ export default function WeekPlan() {
         onAddLink={(name) => {
           addLinkToTask(linkPopup.dayIdx, linkPopup.taskIdx, name);
         }}
-        onOpenInApp={(path, name) => { setLinkPopup(null); setNoteEditor({ path, name }); }}
+        onOpenInApp={(path, name) => { setLinkPopup(null); onOpenNote(path, name); }}
       />
     )}
     {/* Note file picker popup */}
@@ -4981,7 +4979,7 @@ export default function WeekPlan() {
         weekOffset={weekOffset}
         onSelect={(path, name) => {
           setNotePicker(null);
-          setNoteEditor({ path, name });
+          onOpenNote(path, name);
         }}
         onAddLink={(name, path) => {
           addLinkToTask(notePicker.dayIdx, notePicker.taskIdx, name);
@@ -4990,14 +4988,6 @@ export default function WeekPlan() {
           removeLinkFromTask(notePicker.dayIdx, notePicker.taskIdx, name);
         }}
         onClose={() => setNotePicker(null)}
-      />
-    )}
-    {/* Note editor modal */}
-    {noteEditor && (
-      <NoteEditor
-        initialPath={noteEditor.path}
-        initialName={noteEditor.name}
-        onClose={() => setNoteEditor(null)}
       />
     )}
     </div>
