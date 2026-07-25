@@ -288,6 +288,13 @@ export const api = {
       `/api/vault/search?q=${encodeURIComponent(q)}&limit=${limit}`
     ),
 
+  // Resolve a wiki-link name to a path by unique basename (Obsidian-style),
+  // for click-to-open on [[links]]. Returns { path: null } when unresolved.
+  vaultResolve: (name: string) =>
+    request<{ path: string | null; name: string }>(
+      `/api/vault/resolve?name=${encodeURIComponent(name)}`
+    ),
+
   referenceLinks: () =>
     request<{ links: Record<string, string> }>("/api/vault/reference-links"),
 

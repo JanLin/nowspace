@@ -62,11 +62,16 @@ function WikiLinkHandler({ onOpenNote }: { onOpenNote?: (path: string, name: str
       const href = link.getAttribute("href") || "";
       const name = decodeURIComponent(href.replace("#wiki:", ""));
       if (!name) return;
-      api.vaultSearch(name, 1).then((res) => {
-        if (res.results.length > 0) {
-          if (onOpenNote) onOpenNote(res.results[0].path, res.results[0].name);
-          else window.open(obsidianUri(res.results[0].path), "_blank");
-        }
+      const open = (path: string, nm: string) => {
+        if (onOpenNote) onOpenNote(path, nm);
+        else window.open(obsidianUri(path), "_blank");
+      };
+      // Exact basename resolution first (Obsidian-style), then fuzzy as a fallback.
+      api.vaultResolve(name).then((r) => {
+        if (r.path) { open(r.path, r.name); return; }
+        return api.vaultSearch(name, 1).then((res) => {
+          if (res.results.length > 0) open(res.results[0].path, res.results[0].name);
+        });
       });
     };
     document.addEventListener("click", handler);
