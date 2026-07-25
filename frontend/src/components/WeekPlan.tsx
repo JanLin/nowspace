@@ -862,15 +862,29 @@ export default function WeekPlan() {
     setCarryLoading(false);
   };
 
+  // Serialize read-modify-write bucket writes (getBucket -> modify -> saveBucket).
+  // Parking several items into the bucket in a row (e.g. tapping the bucket option
+  // on multiple carry items) would otherwise each read the file before the previous
+  // save landed and overwrite it, so "some items" silently never reached the bucket.
+  // Chaining the ops makes each read the state the previous one just wrote.
+  const bucketWriteChain = useRef<Promise<unknown>>(Promise.resolve());
+  const runBucketWrite = <T,>(op: () => Promise<T>): Promise<T> => {
+    const run = bucketWriteChain.current.then(op, op);
+    bucketWriteChain.current = run.then(() => undefined, () => undefined);
+    return run;
+  };
+
   // Panel badge menu edits: patch one bucket task (priority/horizon) via
   // fetch-modify-save, like the other panel writes
   const panelUpdateBucketTask = async (idx: number, patch: Partial<import("../api").BucketTask>) => {
     try {
-      const current = await api.getBucket();
-      if (!current.tasks[idx]) return;
-      const next = [...current.tasks];
-      next[idx] = { ...next[idx], ...patch };
-      await api.saveBucket(next, current.pinned_groups);
+      await runBucketWrite(async () => {
+        const current = await api.getBucket();
+        if (!current.tasks[idx]) return;
+        const next = [...current.tasks];
+        next[idx] = { ...next[idx], ...patch };
+        await api.saveBucket(next, current.pinned_groups);
+      });
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
     } catch (e) {
@@ -883,28 +897,31 @@ export default function WeekPlan() {
   const addToBucket = async (raw: string, fixedGroup?: string) => {
     const text = raw.trim();
     if (!text) return;
+    let canonical = "";
     try {
-      const current = await api.getBucket();
-      const parsed = fixedGroup ? { group: fixedGroup, label: text } : parseGroup(text);
-      let canonical = parsed.group;
-      if (parsed.group) {
-        const existing = current.tasks.map((bt) => parseGroup(bt.text).group)
-          .find((g) => g && g.toLowerCase() === parsed.group.toLowerCase());
-        if (existing) canonical = existing;
-      }
-      const newTask = {
-        text: canonical ? `${canonical}: ${parsed.label}` : text,
-        priority: "", focused: false, waiting: false, subtasks: [],
-      };
-      let insertAfter = current.tasks.length - 1;
-      if (canonical) {
-        for (let i = current.tasks.length - 1; i >= 0; i--) {
-          if (parseGroup(current.tasks[i].text).group.toLowerCase() === canonical.toLowerCase()) { insertAfter = i; break; }
+      await runBucketWrite(async () => {
+        const current = await api.getBucket();
+        const parsed = fixedGroup ? { group: fixedGroup, label: text } : parseGroup(text);
+        canonical = parsed.group;
+        if (parsed.group) {
+          const existing = current.tasks.map((bt) => parseGroup(bt.text).group)
+            .find((g) => g && g.toLowerCase() === parsed.group.toLowerCase());
+          if (existing) canonical = existing;
         }
-      }
-      const next = [...current.tasks];
-      next.splice(insertAfter + 1, 0, newTask);
-      await api.saveBucket(next, current.pinned_groups);
+        const newTask = {
+          text: canonical ? `${canonical}: ${parsed.label}` : text,
+          priority: "", focused: false, waiting: false, subtasks: [],
+        };
+        let insertAfter = current.tasks.length - 1;
+        if (canonical) {
+          for (let i = current.tasks.length - 1; i >= 0; i--) {
+            if (parseGroup(current.tasks[i].text).group.toLowerCase() === canonical.toLowerCase()) { insertAfter = i; break; }
+          }
+        }
+        const next = [...current.tasks];
+        next.splice(insertAfter + 1, 0, newTask);
+        await api.saveBucket(next, current.pinned_groups);
+      });
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
       if (canonical) setBucketExpandedGroups((prev) => new Set(prev).add(canonical));
@@ -917,18 +934,20 @@ export default function WeekPlan() {
     if (carryTasks.length === 0) return;
     setCarryLoading(true);
     try {
-      const currentBucket = await api.getBucket();
-      const newTasks = [
-        ...currentBucket.tasks,
-        ...carryTasks.map((t) => ({
-          text: t.text,
-          priority: t.priority || "C",
-          focused: t.focused,
-          waiting: t.waiting,
-          subtasks: t.subtasks,
-        })),
-      ];
-      await api.saveBucket(newTasks, currentBucket.pinned_groups);
+      await runBucketWrite(async () => {
+        const currentBucket = await api.getBucket();
+        const newTasks = [
+          ...currentBucket.tasks,
+          ...carryTasks.map((t) => ({
+            text: t.text,
+            priority: t.priority || "C",
+            focused: t.focused,
+            waiting: t.waiting,
+            subtasks: t.subtasks,
+          })),
+        ];
+        await api.saveBucket(newTasks, currentBucket.pinned_groups);
+      });
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
       setCarryTasks([]);
@@ -957,12 +976,14 @@ export default function WeekPlan() {
     const task = carryTasks[carryIdx];
     if (!task) return;
     try {
-      const currentBucket = await api.getBucket();
-      const newTasks = [
-        ...currentBucket.tasks,
-        { text: task.text, priority: task.priority || "C", horizon, focused: task.focused, waiting: task.waiting, subtasks: task.subtasks },
-      ];
-      await api.saveBucket(newTasks, currentBucket.pinned_groups);
+      await runBucketWrite(async () => {
+        const currentBucket = await api.getBucket();
+        const newTasks = [
+          ...currentBucket.tasks,
+          { text: task.text, priority: task.priority || "C", horizon, focused: task.focused, waiting: task.waiting, subtasks: task.subtasks },
+        ];
+        await api.saveBucket(newTasks, currentBucket.pinned_groups);
+      });
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
       setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
