@@ -16,3 +16,7 @@ frontend/src-tauri/gen/
 build/
 dist/
 *.spec
+
+# Playwright e2e output
+test-results/
+loopback/shots/
