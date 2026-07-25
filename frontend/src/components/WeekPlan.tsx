@@ -800,6 +800,12 @@ export default function WeekPlan() {
     const task = carryTasks[carryIdx];
     if (!task) return;
     try {
+      // Flush any pending local edits and cancel the pending autosave FIRST. The
+      // carry write below is a partial backend write; a stale whole-file autosave
+      // (holding a snapshot without the carried task) would otherwise fire right
+      // after and overwrite it — the "appears then reverts" bug. Then await the
+      // refetch so local state matches the file the backend just rewrote.
+      await flushIfDirty();
       const dayName = data.days[dayIdx]?.day || "monday";
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
@@ -807,7 +813,7 @@ export default function WeekPlan() {
         weekOffset, sourceOffset
       );
       setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
-      fetchWeek();
+      await fetchWeek();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to carry task");
     }
@@ -819,13 +825,16 @@ export default function WeekPlan() {
     const groupTasks = carryTasks.filter((t) => parseGroup(t.text).group === groupName);
     if (groupTasks.length === 0) return;
     try {
+      // See pullFromCarry: flush pending edits + cancel autosave before the partial
+      // carry write, then await the refetch, so a stale autosave can't revert it.
+      await flushIfDirty();
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
         groupTasks.map((t) => ({ text: t.text.replace(/\s*@pin\b/gi, ""), day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
         weekOffset, sourceOffset
       );
       setCarryTasks((prev) => prev.filter((t) => parseGroup(t.text).group !== groupName));
-      fetchWeek();
+      await fetchWeek();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to carry group");
     }
@@ -835,6 +844,10 @@ export default function WeekPlan() {
     if (carryTasks.length === 0) return;
     setCarryLoading(true);
     try {
+      // See pullFromCarry: flush pending edits + cancel autosave before the partial
+      // carry write, then await the refetch, so a stale autosave can't revert it.
+      // This is the "Carry all →" path the revert was reported against.
+      await flushIfDirty();
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
         carryTasks.map((t) => ({ text: t.text.replace(/\s*@pin\b/gi, ""), day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
@@ -842,7 +855,7 @@ export default function WeekPlan() {
       );
       setCarryTasks([]);
       setCarryForwardOpen(false);
-      fetchWeek();
+      await fetchWeek();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to carry forward");
     }
@@ -1717,6 +1730,9 @@ export default function WeekPlan() {
   const pullFromBucket = async (bucketIdx: number, dayIdx: number, targetGroup?: string | null) => {
     if (!data || isArchive) return;
     try {
+      // Flush pending edits + cancel the autosave first so a stale whole-file save
+      // can't revert this partial backend write (same class of bug as carry-forward).
+      await flushIfDirty();
       await api.moveFromBucket(bucketIdx, dayIdx, weekOffset);
       // Refresh both
       const weekResult = await api.getWeekPlan(weekOffset);
@@ -4506,7 +4522,7 @@ export default function WeekPlan() {
                 </span>
                 <button
                   onClick={() => pullFromBucket(idx, carryTargetIdx)}
-                  className="text-[10px] text-purple-400 hover:text-purple-700 opacity-0 group-hover/bt:opacity-100 shrink-0 transition-opacity"
+                  className="text-[10px] text-purple-400 hover:text-purple-700 opacity-100 md:opacity-0 md:group-hover/bt:opacity-100 shrink-0 transition-opacity"
                   title={`Add to ${carryTargetLabel} (drag also works)`}
                 >
                   → {carryTargetLabel}
@@ -4668,7 +4684,7 @@ export default function WeekPlan() {
                 <button
                   onClick={() => pullFromCarry(idx, carryTargetIdx)}
                   title={`Carry to ${carryTargetLabel}`}
-                  className="shrink-0 text-purple-500 hover:text-purple-700 font-bold opacity-0 group-hover/ct:opacity-100 transition-opacity"
+                  className="shrink-0 text-purple-500 hover:text-purple-700 font-bold opacity-100 md:opacity-0 md:group-hover/ct:opacity-100 transition-opacity"
                 >
                   →
                 </button>
