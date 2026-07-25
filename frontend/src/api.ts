@@ -483,12 +483,6 @@ export const api = {
     request<{ folders: { name: string; path: string }[]; current: string; parent: string | null }>(
       `/api/settings/browse-folders?path=${encodeURIComponent(path)}`
     ),
-
-  setApiKey: (api_key: string) =>
-    request<{ status: string; saved_to: string; api_key_status: ApiKeyStatus }>("/api/settings/api-key", {
-      method: "PUT",
-      body: JSON.stringify({ api_key }),
-    }),
 };
 
 export interface ApiKeyStatus {

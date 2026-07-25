@@ -40,8 +40,6 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
 
   // API key
   const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | null>(null);
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
 
   // Vault validation
   const [validating, setValidating] = useState(false);
@@ -121,7 +119,6 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
       setApiKeyStatus(s.api_key_status);
       setCtxRows(buildCtxRows(s.contexts || {}, s.context_tags || {}));
       setDiaryFolder(s.diary_folder || "");
-      if (!s.api_key_status.configured) setShowApiKeyInput(true);
       setLoading(false);
     }).catch(() => {
       flash("err", "Failed to load settings");
@@ -178,25 +175,6 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
   };
 
   // ── Save API key ────────────────────────────────────────────────────
-  const saveApiKey = async () => {
-    if (!apiKeyInput.trim()) return;
-    setSaving(true);
-    try {
-      const res = await api.setApiKey(apiKeyInput.trim());
-      setApiKeyStatus(res.api_key_status);
-      setApiKeyInput("");
-      setShowApiKeyInput(false);
-      flash("ok", `API key saved to ${res.saved_to}`);
-      // Check if everything is ready now
-      if (res.api_key_status.configured && vaultStatus?.exists && vaultStatus?.has_para) {
-        onVaultReady?.();
-      }
-    } catch (e: unknown) {
-      flash("err", e instanceof Error ? e.message : "Failed to save API key");
-    }
-    setSaving(false);
-  };
-
   // ── Folder browser helpers ─────────────────────────────────────────
   const openSystemBrowser = useCallback(async (target: BrowseTarget, startPath = "") => {
     setBrowseTarget(target);
@@ -523,102 +501,45 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
           >
             console.anthropic.com
           </a>
-          . Stored locally in <span className="font-mono">~/.nowspace/.env</span>.
+          . For safety the key is read from your <span className="font-mono">.env</span> file and
+          isn't editable here — this page only shows whether it's set.
         </p>
 
         {apiKeyStatus?.configured ? (
-          <div className="space-y-2">
-            {/* Status: configured */}
-            <div
-              className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
-              style={{ backgroundColor: "var(--accent-bg)", border: "1px solid var(--accent)" }}
-            >
-              <span style={{ color: "var(--accent)" }}>✓</span>
-              <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>Configured</span>
-              <span className="flex-1 min-w-0 break-all text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-                {apiKeyStatus.masked}
-              </span>
-              <button
-                onClick={() => setShowApiKeyInput(!showApiKeyInput)}
-                className="px-2 py-1 rounded text-xs"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {showApiKeyInput ? "Cancel" : "Change"}
-              </button>
-            </div>
-
-            {/* Change key input */}
-            {showApiKeyInput && (
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  placeholder="sk-ant-..."
-                  className="flex-1 px-3 py-2 rounded-lg text-sm font-mono"
-                  style={{
-                    backgroundColor: "var(--bg)",
-                    color: "var(--text)",
-                    border: "1px solid var(--border)",
-                  }}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveApiKey(); }}
-                  autoFocus
-                />
-                <button
-                  onClick={saveApiKey}
-                  disabled={!apiKeyInput.trim() || saving}
-                  className="px-4 py-2 rounded-lg text-sm font-medium"
-                  style={{
-                    backgroundColor: apiKeyInput.trim() ? "var(--accent)" : "var(--bg-tertiary)",
-                    color: apiKeyInput.trim() ? "white" : "var(--text-tertiary)",
-                  }}
-                >
-                  Save
-                </button>
-              </div>
-            )}
+          <div
+            className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
+            style={{ backgroundColor: "var(--accent-bg)", border: "1px solid var(--accent)" }}
+          >
+            <span style={{ color: "var(--accent)" }}>✓</span>
+            <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>Configured</span>
+            <span className="flex-1 min-w-0 break-all text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+              {apiKeyStatus.masked}
+            </span>
+            <span className="text-[10px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
+              from {apiKeyStatus.source || ".env"}
+            </span>
           </div>
         ) : (
-          <div className="space-y-3">
-            {/* Status: not configured */}
+          <div className="space-y-2">
+            {/* Status: not set */}
             <div
               className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
               style={{ backgroundColor: "#fef2f2", border: "1px solid #fca5a5" }}
             >
               <span style={{ color: "#dc2626" }}>✗</span>
-              <span className="text-sm font-medium" style={{ color: "#dc2626" }}>Not configured</span>
-              <span className="flex-1 text-xs" style={{ color: "#9a3412" }}>
-                Required for coaching features
-              </span>
+              <span className="text-sm font-medium" style={{ color: "#dc2626" }}>Not set</span>
             </div>
-
-            {/* Key input */}
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder="sk-ant-api03-..."
-                className="flex-1 px-3 py-2.5 rounded-lg text-sm font-mono"
-                style={{
-                  backgroundColor: "var(--bg)",
-                  color: "var(--text)",
-                  border: "1px solid var(--border)",
-                }}
-                onKeyDown={(e) => { if (e.key === "Enter") saveApiKey(); }}
-                autoFocus
-              />
-              <button
-                onClick={saveApiKey}
-                disabled={!apiKeyInput.trim() || saving}
-                className="px-5 py-2.5 rounded-lg text-sm font-medium"
-                style={{
-                  backgroundColor: apiKeyInput.trim() ? "var(--accent)" : "var(--bg-tertiary)",
-                  color: apiKeyInput.trim() ? "white" : "var(--text-tertiary)",
-                }}
-              >
-                Save
-              </button>
+            {/* How to set it (via .env, not the UI) */}
+            <div className="text-xs px-1 space-y-1.5" style={{ color: "var(--text-secondary)" }}>
+              <p>Add your key to the <span className="font-mono">.env</span> file, then restart Nowspace:</p>
+              <pre
+                className="font-mono text-[11px] px-2 py-1.5 rounded overflow-x-auto"
+                style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+              >ANTHROPIC_API_KEY=sk-ant-...</pre>
+              <p>
+                <span className="font-mono">.env</span> lives in the project root (when running <span className="font-mono">start.sh</span>)
+                or <span className="font-mono">~/.nowspace/.env</span> (desktop app). It's git-ignored and never sent to the browser.
+              </p>
             </div>
           </div>
         )}
