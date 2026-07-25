@@ -81,7 +81,7 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
   const [lastModified, setLastModified] = useState("");
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const [currentPath, setCurrentPath] = useState(initialPath);
-  const [currentName, setCurrentName] = useState(initialName || pathToName(initialPath));
+  const [, setCurrentName] = useState(initialName || pathToName(initialPath));
 
   // Navigation history
   const [history, setHistory] = useState<HistoryEntry[]>([{ path: initialPath, name: initialName || pathToName(initialPath) }]);
@@ -221,7 +221,7 @@ export default function NoteEditor({ initialPath, initialName, onClose }: NoteEd
   }, [navigateTo]);
 
   // Detect [[ in editor textarea for wiki autocomplete
-  const handleEditorKeyUp = (e: React.KeyboardEvent) => {
+  const handleEditorKeyUp = (_e: React.KeyboardEvent) => {
     const textarea = editorRef.current?.querySelector("textarea");
     if (!textarea) return;
     const val = textarea.value;

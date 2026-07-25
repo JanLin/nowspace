@@ -101,7 +101,7 @@ function reorderPlanGroups(tasks: Task[], moveGroup: string, targetGroup: string
   const fromIdx = groupOrder.indexOf(moveGroup);
   if (fromIdx === -1) return tasks;
   groupOrder.splice(fromIdx, 1);
-  let toIdx = groupOrder.indexOf(targetGroup);
+  const toIdx = groupOrder.indexOf(targetGroup);
   if (toIdx === -1) return tasks;
   groupOrder.splice(toIdx, 0, moveGroup);
   const result: Task[] = [];

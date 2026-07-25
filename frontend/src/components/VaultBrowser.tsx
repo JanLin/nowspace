@@ -114,11 +114,6 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote }: Props) {
     api.referenceLinks().then(r => setReferenceLinks(r.links)).catch(() => {});
   }, []);
 
-  // Load root folder
-  useEffect(() => {
-    loadFolder(currentFolder);
-  }, [currentFolder]);
-
   // Restore scroll position
   useEffect(() => {
     if (saved?.scrollTop && scrollRef.current && view === "browser") {
@@ -143,6 +138,11 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote }: Props) {
     }
     setLoading(false);
   }, [folderCache]);
+
+  // Load root folder (declared after loadFolder so the callback is initialized first)
+  useEffect(() => {
+    loadFolder(currentFolder);
+  }, [currentFolder, loadFolder]);
 
   const navigateInto = (folder: VaultFile) => {
     setBreadcrumb(prev => [...prev, { name: folder.name, path: currentFolder }]);
@@ -525,7 +525,7 @@ interface FolderRowProps {
   onTogglePin: (path: string) => void;
 }
 
-function FolderRow({ file, refName, isExpanded, isDropTarget, subFiles, refNameInput, onNavigate, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, onDeleteFile, isPinned, onTogglePin }: FolderRowProps) {
+function FolderRow({ file, refName, isExpanded, isDropTarget, subFiles, refNameInput, onNavigate, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, isPinned, onTogglePin }: FolderRowProps) {
   const isEditingRef = refNameInput?.folderPath === file.path;
 
   return (
@@ -652,6 +652,7 @@ interface FileRowProps {
 function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, isDragging }: FileRowProps) {
   return (
     <div
+      data-testid="vault-note"
       className={`group/file flex items-center gap-1 py-1 px-1 rounded text-[11px] transition-colors ${
         isDragging ? "opacity-40" : "hover:bg-gray-50"
       }`}

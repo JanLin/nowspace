@@ -15,7 +15,6 @@ const PRIORITY_BADGE: Record<string, string> = {
 
 const PRIORITIES = ["A", "B", "C", "D"] as const;
 
-const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const DAY_LABELS: Record<string, string> = {
@@ -159,10 +158,6 @@ function moveGroupToPosition(tasks: Task[], groupName: string, position: 'start'
   const result: Task[] = [];
   for (const g of groupOrder) result.push(...(grouped.get(g) || []));
   return result;
-}
-
-function categoryLabel(sourceFile: string): string {
-  return sourceFile.replace(/\.md$/i, "").replace(/[-_]/g, " ");
 }
 
 /** Auto-focus input when it appears */
@@ -344,10 +339,9 @@ export default function WeekPlan() {
   const [carryLoading, setCarryLoading] = useState(false);
   const [carryExpandedGroups, setCarryExpandedGroups] = useState<Set<string>>(new Set());
   const [dailyCarryOpen, setDailyCarryOpen] = useState(false);
-  const dailyCarryRef = useRef<HTMLDivElement>(null);
   const carryDragRef = useRef<{ carryIdx: number } | null>(null);
   const carryGroupDragRef = useRef<{ groupName: string } | null>(null);
-  const [carryHighlight, setCarryHighlight] = useState(false);
+  const [carryHighlight] = useState(false);
 
   // Vault browser
   const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
@@ -373,7 +367,7 @@ export default function WeekPlan() {
   const undoStack = useRef<UndoEntry[]>([]);
   const redoStack = useRef<UndoEntry[]>([]);
   const MAX_UNDO = 40;
-  const [undoCount, setUndoCount] = useState(0); // triggers re-render for indicator
+  const [, setUndoCount] = useState(0); // triggers re-render for indicator
 
   const pushUndo = (type: UndoEntry["type"] = "tasks") => {
     if (!data) return;
@@ -569,35 +563,18 @@ export default function WeekPlan() {
     pos: { top: number; left: number };
   } | null>(null);
 
-  // Get current day name for notes
-  const currentDayName = data?.days[selectedDayIdx]?.day || "monday";
-
-  const openCarryForward = async () => {
-    setCarryLoading(true);
-    try {
-      // Pull from the week before the one being viewed
-      // When viewing wk14 (offset=1), pull from wk13 (offset=0 → current week)
-      const sourceOffset = weekOffset - 1;
-      const r = await api.getCarryForward(sourceOffset);
-      if (!r.found || r.tasks.length === 0) {
-        setError("No uncompleted tasks found in previous week");
-        setCarryLoading(false);
-        return;
-      }
-      setCarryTasks(r.tasks.map((t) => ({ ...t, priority: t.priority || "C", selected: true, targetDay: "monday" })));
-      setCarryLabel(r.week_label);
-      setCarryForwardOpen(true);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load carry-forward tasks");
-    }
-    setCarryLoading(false);
-  };
 
   const pullFromCarry = async (carryIdx: number, dayIdx: number) => {
     if (!data || isArchive) return;
     const task = carryTasks[carryIdx];
     if (!task) return;
     try {
+      // Flush any pending local edits and cancel the pending autosave FIRST. The
+      // carry write below is a partial backend write; a stale whole-file autosave
+      // (holding a snapshot without the carried task) would otherwise fire right
+      // after and overwrite it — the "appears then reverts" bug. Then await the
+      // refetch so local state matches the file the backend just rewrote.
+      await flushIfDirty();
       const dayName = data.days[dayIdx]?.day || "monday";
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
@@ -605,7 +582,7 @@ export default function WeekPlan() {
         weekOffset, sourceOffset
       );
       setCarryTasks((prev) => prev.filter((_, i) => i !== carryIdx));
-      fetchWeek();
+      await fetchWeek();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to carry task");
     }
@@ -617,13 +594,16 @@ export default function WeekPlan() {
     const groupTasks = carryTasks.filter((t) => parseGroup(t.text).group === groupName);
     if (groupTasks.length === 0) return;
     try {
+      // See pullFromCarry: flush pending edits + cancel autosave before the partial
+      // carry write, then await the refetch, so a stale autosave can't revert it.
+      await flushIfDirty();
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
         groupTasks.map((t) => ({ text: t.text, day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
         weekOffset, sourceOffset
       );
       setCarryTasks((prev) => prev.filter((t) => parseGroup(t.text).group !== groupName));
-      fetchWeek();
+      await fetchWeek();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to carry group");
     }
@@ -633,6 +613,10 @@ export default function WeekPlan() {
     if (carryTasks.length === 0) return;
     setCarryLoading(true);
     try {
+      // See pullFromCarry: flush pending edits + cancel autosave before the partial
+      // carry write, then await the refetch, so a stale autosave can't revert it.
+      // This is the "Carry all →" path the revert was reported against.
+      await flushIfDirty();
       const sourceOffset = weekOffset - 1;
       await api.carryForward(
         carryTasks.map((t) => ({ text: t.text, day: dayName, subtasks: t.subtasks, focused: t.focused, waiting: t.waiting, priority: t.priority })),
@@ -640,7 +624,7 @@ export default function WeekPlan() {
       );
       setCarryTasks([]);
       setCarryForwardOpen(false);
-      fetchWeek();
+      await fetchWeek();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to carry forward");
     }
@@ -1167,6 +1151,9 @@ export default function WeekPlan() {
   const pullFromBucket = async (bucketIdx: number, dayIdx: number, targetGroup?: string | null) => {
     if (!data || isArchive) return;
     try {
+      // Flush pending edits + cancel the autosave first so a stale whole-file save
+      // can't revert this partial backend write (same class of bug as carry-forward).
+      await flushIfDirty();
       await api.moveFromBucket(bucketIdx, dayIdx, weekOffset);
       // Refresh both
       const weekResult = await api.getWeekPlan(weekOffset);
@@ -1184,6 +1171,7 @@ export default function WeekPlan() {
         }
       }
       setData(weekResult);
+      recordMtime();
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
     } catch (e) {
@@ -1381,6 +1369,7 @@ export default function WeekPlan() {
   const handleDragOver = (e: React.DragEvent, dayIdx: number, taskIdx: number, _group: string | null = null) => {
     // Accept individual task drags, group drags, subtask-to-task promotions, and vault note drops
     const dominated = dragGroupRef.current || dragRef.current ||
+      bucketDragRef.current || carryDragRef.current || carryGroupDragRef.current ||
       e.dataTransfer.types.includes("subtask") || e.dataTransfer.types.includes("bucket-task") ||
       e.dataTransfer.types.includes("carry-task") || e.dataTransfer.types.includes("carry-group") ||
       e.dataTransfer.types.includes("vault-note-name");
@@ -1420,43 +1409,49 @@ export default function WeekPlan() {
       return;
     }
 
-    // Handle carry forward task dropped into day
-    if (e && e.dataTransfer.types.includes("carry-task")) {
-      try {
-        const carryData = e.dataTransfer.getData("carry-task");
-        if (carryData) {
-          const { carryIdx } = JSON.parse(carryData);
-          pullFromCarry(carryIdx, dayIdx);
-          setDropTarget(null);
-          return;
-        }
-      } catch { /* not a carry drop */ }
+    // Handle carry forward task dropped into day. Prefer the React ref over the
+    // dataTransfer payload: custom MIME types are not reliably carried across every
+    // drag (e.g. synthetic drags), which made this gesture flaky. The ref is the
+    // source of truth, dataTransfer is the fallback.
+    if (e && (carryDragRef.current || e.dataTransfer.types.includes("carry-task"))) {
+      let carryIdx = carryDragRef.current?.carryIdx;
+      if (carryIdx === undefined) {
+        try { carryIdx = JSON.parse(e.dataTransfer.getData("carry-task")).carryIdx; } catch { /* not a carry drop */ }
+      }
+      if (carryIdx !== undefined) {
+        carryDragRef.current = null;
+        pullFromCarry(carryIdx, dayIdx);
+        setDropTarget(null);
+        return;
+      }
     }
 
     // Handle carry forward group dropped into day
-    if (e && e.dataTransfer.types.includes("carry-group")) {
-      try {
-        const carryData = e.dataTransfer.getData("carry-group");
-        if (carryData) {
-          const { groupName } = JSON.parse(carryData);
-          pullCarryGroup(groupName, dayIdx);
-          setDropTarget(null);
-          return;
-        }
-      } catch { /* not a carry group drop */ }
+    if (e && (carryGroupDragRef.current || e.dataTransfer.types.includes("carry-group"))) {
+      let groupName = carryGroupDragRef.current?.groupName;
+      if (groupName === undefined) {
+        try { groupName = JSON.parse(e.dataTransfer.getData("carry-group")).groupName; } catch { /* not a carry group drop */ }
+      }
+      if (groupName !== undefined) {
+        carryGroupDragRef.current = null;
+        pullCarryGroup(groupName, dayIdx);
+        setDropTarget(null);
+        return;
+      }
     }
 
     // Handle bucket task dropped into day/grid view
-    if (e && e.dataTransfer.types.includes("bucket-task")) {
-      try {
-        const bucketData = e.dataTransfer.getData("bucket-task");
-        if (bucketData) {
-          const { bucketIdx } = JSON.parse(bucketData);
-          pullFromBucket(bucketIdx, dayIdx, targetGroup || null);
-          setDropTarget(null);
-          return;
-        }
-      } catch { /* not a bucket drop */ }
+    if (e && (bucketDragRef.current || e.dataTransfer.types.includes("bucket-task"))) {
+      let bucketIdx = bucketDragRef.current?.bucketIdx;
+      if (bucketIdx === undefined) {
+        try { bucketIdx = JSON.parse(e.dataTransfer.getData("bucket-task")).bucketIdx; } catch { /* not a bucket drop */ }
+      }
+      if (bucketIdx !== undefined) {
+        bucketDragRef.current = null;
+        pullFromBucket(bucketIdx, dayIdx, targetGroup || null);
+        setDropTarget(null);
+        return;
+      }
     }
 
     // Handle subtask promoted to standalone task
@@ -1831,6 +1826,7 @@ export default function WeekPlan() {
   const renderCompactTaskItem = (task: Task, dayIdx: number, taskIdx: number, displayText: string, group: string | null, seqLabel: string = "") => (
     <div
       key={`${task.text}-${taskIdx}`}
+      data-testid="task-row"
       draggable={!task.done}
       onDragStart={(e) => handleDragStart(dayIdx, taskIdx, group, e)}
       onDragOver={(e) => handleDragOver(e, dayIdx, taskIdx, group)}
@@ -1958,6 +1954,7 @@ export default function WeekPlan() {
       {/* Link icon */}
       {task.links?.length > 0 && (
         <button
+          data-testid="task-link-icon"
           onClick={(e) => { e.stopPropagation(); openLinkPopup(dayIdx, taskIdx, task.links, e); }}
           className="shrink-0 text-[10px] text-blue-400 hover:text-blue-600 transition-opacity opacity-70 hover:opacity-100"
           title={`${task.links.length} linked note${task.links.length > 1 ? "s" : ""}`}
@@ -2263,7 +2260,7 @@ export default function WeekPlan() {
             onDragOver={(e) => { if (dragGroupRef.current) return; e.preventDefault(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length }); }}
             onDrop={(e) => handleDrop(selectedDayIdx, day.tasks.length, e)}
           >
-            {sortedTasks.map((task, fi) => {
+            {sortedTasks.map((task) => {
               const originalIdx = day.tasks.indexOf(task);
               const seq = seqNumbers.get(filteredTasks.indexOf(task)) ?? "";
               return (
@@ -2330,7 +2327,7 @@ export default function WeekPlan() {
                     ? "h-3 bg-blue-400" : dropTarget || dropGroupTarget ? "h-4" : "h-1"
               }`}
             />
-            {groups.map((section, sectionIdx) => {
+            {groups.map((section) => {
               const firstOrigIdx = section.items[0]?.originalIdx ?? 0;
               const lastOrigIdx = section.items[section.items.length - 1]?.originalIdx ?? 0;
               const sectionKey = section.name ? `${section.name}-${firstOrigIdx}` : `ungrouped-${firstOrigIdx}`;
@@ -2521,6 +2518,7 @@ export default function WeekPlan() {
             return (
               <div
                 key={day.day}
+                data-testid={`week-day-${day.day}`}
                 className={`rounded-lg border p-2 min-h-[200px] ${
                   isToday ? "border-blue-300 bg-blue-50/30" : ""
                 }`}
@@ -2557,7 +2555,7 @@ export default function WeekPlan() {
                   return (
                   <div className="space-y-0.5">
                     {sortedTasks.length > 0 ? (
-                      sortedTasks.map((task, fi) => {
+                      sortedTasks.map((task) => {
                         const originalIdx = day.tasks.indexOf(task);
                         const seq = seqNumbers.get(filteredTasks.indexOf(task)) ?? "";
                         return (
@@ -2762,6 +2760,7 @@ export default function WeekPlan() {
             <div className="flex gap-1 items-center flex-wrap justify-end">
               {/* Group toggle */}
               <button
+                data-testid="group-toggle"
                 onClick={() => setGroupView(!groupView)}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
                   groupView ? "bg-blue-100 text-blue-700" : "hover:opacity-80"
@@ -2814,6 +2813,7 @@ export default function WeekPlan() {
               {(["3day", "5day", "7day", "weekend"] as ViewMode[]).map((mode) => (
                 <button
                   key={mode}
+                  data-testid={`view-${mode}`}
                   onClick={() => setViewMode(mode)}
                   className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
                     viewMode === mode ? "bg-blue-100 text-blue-700" : "hover:opacity-80"
@@ -3248,6 +3248,7 @@ export default function WeekPlan() {
         {/* Weekly carry forward — only on current week, only when today or a later day is visible */}
         {weekOffset === 0 && carryTasks.length > 0 && visibleDays.some(d => d >= todayIdx) && (
           <div
+            data-testid="carry-open"
             className={`relative cursor-pointer transition-all duration-200 ${carryHighlight ? "scale-110" : "hover:scale-105"}`}
             title={`⏩ Carry Forward (${carryTasks.length} tasks)`}
             onClick={() => {
@@ -3267,6 +3268,7 @@ export default function WeekPlan() {
         {/* Bucket */}
         {!isArchive && (
           <div
+            data-testid="bucket-toggle"
             className={`relative cursor-pointer transition-all duration-200 ${bucketHighlight ? "scale-110" : "hover:scale-105"}`}
             title={`🪣 Bucket (${bucketCount})`}
             onClick={() => { const opening = !bucketOpen; setBucketOpen(opening); if (opening) { refreshBucket(); setCarryForwardOpen(false); setDailyCarryOpen(false); setVaultBrowserOpen(false); } }}
@@ -3417,6 +3419,7 @@ export default function WeekPlan() {
             const renderBucketItem = (task: import("../api").BucketTask, idx: number, label: string) => (
               <div
                 key={idx}
+                data-testid="bucket-item"
                 draggable
                 onDragStart={(e) => {
                   e.dataTransfer.setData("bucket-task", JSON.stringify({ bucketIdx: idx }));
@@ -3465,13 +3468,15 @@ export default function WeekPlan() {
     )}
     {/* Carry Forward side panel (right, matching bucket style) */}
     {carryForwardOpen && (
-      <div className="hidden md:block w-72 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-80px)] sticky top-[80px] self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+      // Full-screen sheet on phones (side panel is unusable at ~360px and drag doesn't
+      // fire on touch); sticky side panel on md+ screens.
+      <div className="fixed inset-x-0 top-14 bottom-0 z-50 w-full overflow-y-auto border-t shadow-2xl md:static md:z-auto md:inset-x-auto md:top-[80px] md:bottom-auto md:w-72 md:shrink-0 md:border-t-0 md:border-l md:shadow-none md:max-h-[calc(100vh-80px)] md:sticky md:self-start" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
           <div>
             <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>⏩ Carry Forward ({carryTasks.length})</h3>
-            <p className="text-[10px] text-gray-500">From week {carryLabel.replace(/^\d{4}-wk0?/, "")}</p>
+            <p className="text-[10px] text-gray-500">From week {carryLabel.replace(/^\d{4}-wk0?/, "")} · tap a task to add it to {(data?.days[selectedDayIdx]?.day ?? "the day")}</p>
           </div>
-          <button onClick={() => setCarryForwardOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+          <button onClick={() => setCarryForwardOpen(false)} className="text-gray-400 hover:text-gray-600 text-2xl md:text-lg px-2 -mr-1">&times;</button>
         </div>
         <div className="p-2 space-y-0.5">
           {carryTasks.length === 0 && (
@@ -3504,9 +3509,16 @@ export default function WeekPlan() {
               }`}>{p}</span>
             );
 
+            // Tap target for touch devices (drag doesn't fire on touch): the day
+            // currently in focus. Desktop keeps drag; a plain click also pulls.
+            const tapDayIdx = selectedDayIdx;
+            const tapDayName = data?.days[tapDayIdx]?.day ?? "monday";
+            const tapDayShort = tapDayName.charAt(0).toUpperCase() + tapDayName.slice(1, 3);
+
             const renderCarryItem = (task: typeof carryTasks[0], idx: number, label: string) => (
               <div
                 key={`carry-${idx}`}
+                data-testid="carry-item"
                 draggable
                 onDragStart={(e) => {
                   e.dataTransfer.setData("carry-task", JSON.stringify({ carryIdx: idx }));
@@ -3514,7 +3526,9 @@ export default function WeekPlan() {
                   carryDragRef.current = { carryIdx: idx };
                 }}
                 onDragEnd={() => { carryDragRef.current = null; }}
-                className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs cursor-grab active:cursor-grabbing group/ct transition-colors"
+                onClick={() => pullFromCarry(idx, tapDayIdx)}
+                title={`Add to ${tapDayName}`}
+                className="flex items-center gap-1.5 py-1.5 px-2 rounded hover:bg-white active:bg-white text-xs cursor-pointer md:cursor-grab md:active:cursor-grabbing group/ct transition-colors"
               >
                 {prioBadge(task.priority || "C")}
                 <span className={`flex-1 truncate ${task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }} title={label}>
@@ -3522,7 +3536,7 @@ export default function WeekPlan() {
                   {label}
                 </span>
                 <span className="text-[9px] text-gray-300 shrink-0">{task.from_day.slice(0, 3)}</span>
-                <span className="text-[10px] text-gray-300 opacity-0 group-hover/ct:opacity-100 shrink-0">drag →</span>
+                <span className="text-[10px] font-medium text-purple-500 shrink-0 md:text-gray-300 md:opacity-0 md:group-hover/ct:opacity-100">+ {tapDayShort}</span>
               </div>
             );
 
@@ -3736,7 +3750,7 @@ export default function WeekPlan() {
           setNotePicker(null);
           setNoteEditor({ path, name });
         }}
-        onAddLink={(name, path) => {
+        onAddLink={(name, _path) => {
           addLinkToTask(notePicker.dayIdx, notePicker.taskIdx, name);
         }}
         onRemoveLink={(name) => {

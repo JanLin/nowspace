@@ -1,12 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { api, type TaskLink } from "../api";
 
-const VAULT_NAME = "Home";
 const DEFAULT_FOLDER = "1-Projects";
-
-function obsidianUri(path: string): string {
-  return `obsidian://open?vault=${encodeURIComponent(VAULT_NAME)}&file=${encodeURIComponent(path.replace(/\.md$/, ""))}`;
-}
 
 interface NoteFile {
   name: string;
@@ -120,7 +115,7 @@ export default function NoteFilePicker({
       const res = await api.createNote(folder, newName.trim());
       onAddLink?.(newName.trim(), res.path);
       onSelect(res.path, newName.trim());
-    } catch (e) {
+    } catch {
       // If conflict (already exists), try to open it
       const searchRes = await api.vaultSearch(newName.trim(), 1);
       if (searchRes.results.length > 0) {

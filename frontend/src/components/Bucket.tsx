@@ -6,7 +6,6 @@ import NoteEditor from "./NoteEditor";
 import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
-const MD_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
 
 /* ── helpers ────────────────────────────────────────────────── */
 
@@ -160,7 +159,7 @@ export default function Bucket() {
   const undoStack = useRef<UndoEntry[]>([]);
   const redoStack = useRef<UndoEntry[]>([]);
   const MAX_UNDO = 40;
-  const [undoCount, setUndoCount] = useState(0);
+  const [, setUndoCount] = useState(0);
 
   const pushUndo = () => {
     if (!data) return;
@@ -503,7 +502,7 @@ export default function Bucket() {
     const { fromIdx } = dragRef.current;
     const next = [...tasks];
     const task = { ...next[fromIdx] };
-    const { group: srcGroup, label } = parseGroup(task.text);
+    const { label } = parseGroup(task.text);
 
     // Update group prefix
     task.text = groupName ? `${groupName}: ${label}` : label;
@@ -710,7 +709,7 @@ export default function Bucket() {
                       )}
 
                       {/* 🐘 Break down */}
-                      <button onClick={(e) => { e.stopPropagation(); hasSubtasks ? toggleExpandSubtasks(originalIdx) : startBreakdown(originalIdx); }}
+                      <button onClick={(e) => { e.stopPropagation(); if (hasSubtasks) { toggleExpandSubtasks(originalIdx); } else { startBreakdown(originalIdx); } }}
                         className={`text-xs transition-opacity ${hasSubtasks ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
                         title={hasSubtasks ? `${task.subtasks.length} steps` : "Break down task"}>
                         🐘{hasSubtasks && <sup className="text-[8px] font-bold">{task.subtasks.length}</sup>}

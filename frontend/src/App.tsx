@@ -30,7 +30,7 @@ export default function App() {
       setView("settings");
     });
   }, []);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId] = useState<string | null>(null);
   const [planTasks, setPlanTasks] = useState<Task[]>([]);
   const { theme, setTheme } = useTheme();
 

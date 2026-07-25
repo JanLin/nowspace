@@ -11,44 +11,6 @@ function obsidianUri(path: string): string {
 
 /* ── Wiki link chip rendering ─────────────────────────────── */
 
-function renderNoteContent(text: string, onOpenNote?: (name: string) => void) {
-  const parts: React.ReactNode[] = [];
-  let lastIdx = 0;
-  const re = new RegExp(WIKI_LINK_RE);
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text)) !== null) {
-    if (match.index > lastIdx) parts.push(<span key={`t-${match.index}`}>{text.slice(lastIdx, match.index)}</span>);
-    const name = match[1].trim();
-    const display = match[2]?.trim() || name;
-    parts.push(
-      <a
-        key={`wl-${match.index}`}
-        href="#"
-        onClick={(e) => {
-          e.preventDefault();
-          if (onOpenNote) {
-            onOpenNote(name);
-          } else {
-            api.vaultSearch(name, 1).then((res) => {
-              if (res.results.length > 0) {
-                window.open(obsidianUri(res.results[0].path), "_blank");
-              }
-            });
-          }
-        }}
-        className="inline-flex items-center gap-0.5 px-1.5 py-0 bg-blue-50 text-blue-700 rounded text-[11px] font-medium hover:bg-blue-100 transition-colors"
-        title={onOpenNote ? `Open ${name}` : `Open ${name} in Obsidian`}
-      >
-        {display}
-      </a>
-    );
-    lastIdx = re.lastIndex;
-  }
-  if (lastIdx < text.length) parts.push(<span key="end">{text.slice(lastIdx)}</span>);
-  if (parts.length === 0) return <>{text}</>;
-  return <>{parts}</>;
-}
-
 /* ── Wiki link click handler (for MDEditor.Markdown output) ── */
 
 function WikiLinkHandler({ onOpenNote }: { onOpenNote?: (path: string, name: string) => void }) {
@@ -311,7 +273,7 @@ function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote }: Refere
     if (!newName.trim() || creating) return;
     setCreating(true);
     try {
-      const res = await api.createNote(currentPath, newName.trim());
+      await api.createNote(currentPath, newName.trim());
       onInsertLink(newName.trim());
       setShowCreate(false);
       setNewName("");
