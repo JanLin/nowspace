@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.config import config
+from backend.vault_index import refresh_index
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
 
@@ -132,6 +133,11 @@ async def create_note(req: CreateRequest):
         file_path.write_text(content, encoding="utf-8")
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Error creating file: {e}")
+
+    # Keep the vault index current so the new note resolves immediately when its
+    # [[link]] is clicked (Obsidian keeps its index live; we were only rebuilding
+    # lazily, so freshly created notes weren't findable).
+    refresh_index()
 
     modified = datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
     return {"success": True, "modified": modified, "path": rel_path}

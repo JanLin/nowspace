@@ -47,6 +47,27 @@ async def vault_search(q: str, max_results: int = 20):
     return {"results": results}
 
 
+@router.get("/resolve")
+async def vault_resolve(name: str):
+    """Resolve a wiki-link name to a file path by unique basename (Obsidian-style).
+
+    Used for click-to-open on [[links]]. Unlike fuzzy /search this matches the
+    note's basename exactly. Refreshes the index on a miss so a just-created note
+    resolves without waiting for the next full re-index.
+    """
+    if not name or not name.strip():
+        return {"path": None, "name": name}
+    # Obsidian uses the target before any #heading or |alias
+    base = name.split("|")[0].split("#")[0].strip()
+    path = resolve_name(base)
+    if not path:
+        refresh_index()
+        path = resolve_name(base)
+    if not path:
+        return {"path": None, "name": base}
+    return {"path": path, "name": Path(path).stem}
+
+
 @router.get("/linked-docs")
 async def vault_linked_docs(group: str, week_offset: int = 0):
     """Resolve a group name to its project folder and discover linked documents.
