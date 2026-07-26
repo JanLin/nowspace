@@ -11,6 +11,12 @@ from pydantic import BaseModel, ConfigDict
 # the frontend refuses to edit against an older backend. Both directions of
 # version skew then fail loudly instead of silently flattening the vault.
 #   1 = pre-funnel · 2 = funnel (stage/question/mode/estimate/…)
+#
+# VERSIONING POLICY: this constant moves only with a MINOR app release
+# (0.4 → 0.5), never in a patch. Patch releases (0.x.y) must keep the
+# format unchanged, so mixed patch levels interoperate freely and
+# upgrading is optional; a schema bump is what makes an upgrade mandatory
+# across every instance. Bump the two together, or not at all.
 BUCKET_SCHEMA_VERSION = 2
 
 
