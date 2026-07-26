@@ -66,9 +66,13 @@ confirmation before implementing — do not quietly comply:
   harness** in `backend/tests/test_handoff.py` failing means an area
   boundary leaked — never weaken that test to make a change pass.
 - Never develop against the real vault: use the staging setup (separate
-  vault + ports 8100/5273, `staging-*` entries in `.claude/launch.json`;
-  see README "Staging"). The worktree keeps its own gitignored
-  `config.yaml` pointing at the staging vault.
+  vault + ports 8100/5273). Bring-up in any worktree:
+  `cp config.staging.yaml.example config.yaml`, then start the
+  `staging-backend` and `staging-frontend` entries from
+  `.claude/launch.json`. The staging vault is `~/nowspace-staging-vault`
+  (persists between sessions; reseed per the template's header if
+  missing). Staging matters more now that main auto-deploys hourly to the
+  Mini AND all subscriber Docker instances — merging = shipping.
 - User-facing copy changes go to HelpGuide.tsx, Philosophy.tsx AND
   `docs/philosophy.md` together.
 - Releases: tag `v0.x.y` on main; notes come from `docs/releases/0.x.y.md`;

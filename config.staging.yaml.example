@@ -1,0 +1,36 @@
+# Staging configuration template. Copy to config.yaml INSIDE A WORKTREE
+# (config.yaml is gitignored) to run a backend against the staging vault
+# on staging ports — never against the daily vault or port 8000:
+#
+#   cp config.staging.yaml.example config.yaml
+#
+# Then start via .claude/launch.json: staging-backend (8100) and
+# staging-frontend (5273, VITE_API_URL override). If ~/nowspace-staging-vault
+# is missing, create it: PARA folders (0-Inbox … 4-Archive/a0-Inbox) plus a
+# current-week "Plan Week.md" and any bucket content you want to test with.
+
+vault_path: ~/nowspace-staging-vault/0-Inbox
+vault_root: ~/nowspace-staging-vault
+memory_path: ./memory/agent_memory.md
+system_prompt_path: ./system_prompt.md
+vault_sections:
+  inbox: 0-Inbox
+  projects: 1-Projects
+  areas: 2-Areas
+  resources: 3-Resources
+  archive: 4-Archive
+plan:
+  week_file: Plan Week.md
+  bucket_file: Plan Week Bucket.md
+reference_links: {}
+contexts: {}
+api:
+  model: claude-sonnet-4-6
+  max_tokens: 4096
+server:
+  host: 127.0.0.1
+  port: 8100
+  cors_origins:
+  - http://localhost:5273
+  - http://localhost:8100
+coach_enabled: false
