@@ -98,9 +98,18 @@ TASK_CTX_TAG_RE = re.compile(r"\s@([a-z])\b(?!\w)", re.IGNORECASE)
 
 
 # Bucket metadata tokens (tilde family, hidden from UI labels):
-#   ~w2628 = entered the bucket in ISO week 28 of 2026 (YYWW) — age hint
-#   ~m     = "this month" GTD horizon on the bucket board
-BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m)\b", re.IGNORECASE)
+#   ~w2628     = entered the bucket in ISO week 28 of 2026 (YYWW) — age hint
+#   ~m         = "this month" GTD horizon on the bucket board
+#   ~ia1b2c3   = stable item identity, stamped on first save. The funnel's
+#     transition detector matches items across a save by this id, so
+#     renaming/regrouping/linking an item is never mistaken for a brand-new
+#     item entering its stage (which would wrongly re-apply entry gates —
+#     the bug that reverted text edits on grandfathered ready items).
+#     Colon-free on purpose: a colon inside the text trips the "Group:"
+#     splitter on short lines (same reason week files use ~es not ~e:).
+#     The regexes also accept a short-lived legacy ~id:xxxxxx form.
+BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6})\b", re.IGNORECASE)
+BUCKET_ID_RE = re.compile(r"~i(?:d:)?([0-9a-f]{6})\b", re.IGNORECASE)
 
 
 # ── Funnel metadata tokens (same tilde family) ─────────────────
@@ -191,7 +200,14 @@ def _funnel_tokens(task) -> str:
 
 
 def _funnel_key(text: str) -> str:
-    """Identity key for matching a task across a save (transition detection)."""
+    """Identity key for matching a task across a save (transition detection).
+
+    The ~id: token wins when present — it survives renames, regrouping and
+    link edits. Normalized text is only the fallback for items that have
+    never been saved (no id yet)."""
+    m = BUCKET_ID_RE.search(text or "")
+    if m:
+        return f"id:{m.group(1).lower()}"
     clean, _ = _extract_funnel_meta(text or "")
     clean = BUCKET_META_RE.sub("", clean)
     return " ".join(clean.lower().split())
@@ -208,6 +224,18 @@ def _stamp_bucket_week(text: str) -> str:
         return text
     iso = date.today().isocalendar()
     return f"{(text or '').rstrip()} ~w{iso[0] % 100:02d}{iso[1]:02d}"
+
+
+def _stamp_bucket_id(text: str) -> str:
+    """Give the item its stable identity if it doesn't carry one yet."""
+    if BUCKET_ID_RE.search(text or ""):
+        return text
+    import secrets
+    return f"{(text or '').rstrip()} ~i{secrets.token_hex(3)}"
+
+
+def _stamp_bucket_tokens(text: str) -> str:
+    return _stamp_bucket_id(_stamp_bucket_week(text))
 
 
 def _context_for_tag(tag: str) -> str:
@@ -1471,6 +1499,17 @@ async def get_bucket():
     # Learn inline group tags typed directly into the bucket file
     for task in tasks:
         task.text = _learn_and_clean_group_tag(task.text)
+    # One-time id bootstrap: stamp identities on read so edits made from
+    # this snapshot can never be mistaken for brand-new items by the save
+    # gate (renaming an un-id'd item before its first save would otherwise
+    # still trip a false stage transition).
+    if any(not BUCKET_ID_RE.search(t.text) for t in tasks):
+        for t in tasks:
+            t.text = _stamp_bucket_id(t.text)
+        try:
+            bucket.write_text(_format_bucket_tasks(tasks, pinned), encoding="utf-8")
+        except OSError:
+            pass  # read-only vault: ids still returned, just not persisted
     return BucketResponse(tasks=tasks, pinned_groups=pinned, mtime=bucket.stat().st_mtime)
 
 
@@ -1608,7 +1647,7 @@ async def save_bucket(req: BucketSaveRequest):
     # Inline group teaching: learn "wallet@w:"-style tags and clean them.
     # Stamp entered-week metadata on tasks that don't carry it yet (age hint).
     for task in req.tasks:
-        task.text = _stamp_bucket_week(_learn_and_clean_group_tag(task.text))
+        task.text = _stamp_bucket_tokens(_learn_and_clean_group_tag(task.text))
     md = _format_bucket_tasks(req.tasks, req.pinned_groups)
     bucket.write_text(md, encoding="utf-8")
     _log_funnel_transitions(transitions)
@@ -1662,7 +1701,7 @@ async def move_bucket_task(req: BucketMoveRequest):
         stage = "ready" if is_bound else "captured"
         today_iso = date.today().isoformat()
         new_bucket_task = BucketTask(
-            text=_stamp_bucket_week(week_text),
+            text=_stamp_bucket_tokens(week_text),
             priority=task.priority or "C",
             horizon=req.horizon if (stage == "ready" and req.horizon in ("n", "nw", "m")) else "",
             focused=task.focused,
@@ -1796,7 +1835,7 @@ async def slate_capture(req: SlateCaptureRequest):
     if bucket.exists():
         tasks, pinned = _parse_bucket_file(bucket.read_text(encoding="utf-8"))
     tasks.append(BucketTask(
-        text=_stamp_bucket_week(_learn_and_clean_group_tag(text)),
+        text=_stamp_bucket_tokens(_learn_and_clean_group_tag(text)),
         stage="captured",
     ))
     bucket.parent.mkdir(parents=True, exist_ok=True)
