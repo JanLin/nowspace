@@ -374,3 +374,74 @@ def test_vault_from_the_future_refuses_edits(client, vault):
         "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": 2,
     })
     assert r.status_code == 422
+
+
+# ── Item identity (~id): edits must never fake a stage transition ─
+
+def test_rename_of_grandfathered_ready_item_saves(client, vault):
+    """The live bug: renaming a migration-grandfathered ready item (no
+    estimate, no steps) made the validator treat it as a NEW item entering
+    ready — gate refused, the client reverted the edit. With ~id identity
+    the rename matches its disk twin and saves cleanly."""
+    _write_bucket(vault, "# Planning Bucket\n\n- C: hang pics bedroom ~w2629\n")
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].stage == "ready"  # grandfathered
+    # First save stamps the id
+    r = _save(client, tasks)
+    assert r.status_code == 200, r.text
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert "~i" in tasks[0].text
+    # Rename (client keeps tilde tokens, per editTask) and save again
+    tasks[0].text = tasks[0].text.replace("hang pics bedroom", "hang pictures in the bedroom")
+    r = _save(client, tasks)
+    assert r.status_code == 200, r.text
+    after, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert "hang pictures in the bedroom" in after[0].text
+    assert after[0].stage == "ready"  # unchanged, no gate applied
+
+
+def test_regroup_keeps_identity(client, vault):
+    _write_bucket(vault, "# Planning Bucket\n\n- Home: fix the door ~w2629 ~s:binding ~id:abc123\n\t- ? What hinge fits?\n")
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    tasks[0].text = tasks[0].text.replace("Home: ", "House: ")
+    r = _save(client, tasks)
+    assert r.status_code == 200, r.text
+    after, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert after[0].stage == "binding"
+    assert after[0].question == "What hinge fits?"
+    assert "~id:abc123" in after[0].text
+
+
+def test_ready_demoted_to_captured_then_bindable(client, vault):
+    """The escape hatch for misclassified-ready items: back to captured
+    (no gate), then bind normally."""
+    _write_bucket(vault, "# Planning Bucket\n\n- C: swedish words ~w2629 ~id:0deadb\n")
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].stage == "ready"
+    tasks[0].stage = "captured"
+    tasks[0].horizon = ""
+    r = _save(client, tasks)
+    assert r.status_code == 200, r.text
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].stage == "captured"
+    tasks[0].stage = "binding"
+    tasks[0].question = "Which 20 words unlock the most conversations?"
+    r = _save(client, tasks)
+    assert r.status_code == 200, r.text
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].stage == "binding"
+
+
+def test_get_bucket_bootstraps_ids(client, vault):
+    """Legacy files get identities on first read, so even a client that
+    renames before ever saving is protected."""
+    _write_bucket(vault, "# Planning Bucket\n\n- C: old item ~w2629\n- newer thing\n")
+    r = client.get("/plan/bucket")
+    assert r.status_code == 200
+    assert all("~i" in t["text"] for t in r.json()["tasks"])
+    on_disk = (vault / "0-Inbox" / BUCKET).read_text()
+    assert on_disk.count("~i") == 2
+    # idempotent: second read doesn't rewrite
+    mtime1 = (vault / "0-Inbox" / BUCKET).stat().st_mtime
+    client.get("/plan/bucket")
+    assert (vault / "0-Inbox" / BUCKET).stat().st_mtime == mtime1

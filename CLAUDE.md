@@ -43,9 +43,12 @@ confirmation before implementing — do not quietly comply:
 
 - Funnel state lives in tilde tokens on bucket lines (`~s:` `~e:`/`~es`
   `~sl:` `~rs:` `~se:` `~wake:` `~dr:` `~rh`); the binding question is a
-  `- ? …` subtask line. New metadata must round-trip as opaque text
-  through OLD backends (Syncthing version skew) — verify before changing
-  the format.
+  `- ? …` subtask line; `~i<6 hex>` is the item's stable identity (the
+  save gate matches items by it — text edits must never fake a stage
+  transition). New metadata must round-trip as opaque text through OLD
+  backends (Syncthing version skew), and **new tokens must be colon-free**
+  — a colon inside task text trips the `Group:` splitter on short lines
+  (that's why `~es` and `~i…`, not `~e:`/`~id:`).
 - `BUCKET_SCHEMA_VERSION` (backend/models.py) governs forced upgrades:
   **bump it only together with a minor release (0.x), never in a patch
   (0.x.y)**. Patch releases must keep the format unchanged so mixed patch

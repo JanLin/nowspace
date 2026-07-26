@@ -26,6 +26,7 @@ import {
   stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
   stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, setMonthHorizon,
+  BUCKET_META_RE,
 } from "../contexts";
 import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 
@@ -511,6 +512,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       const oldTokens = old.text.match(/\s*@(w|v|p|pin)\b/gi);
       if (oldTokens) text = `${text} ${oldTokens.map((t) => t.trim()).join(" ")}`;
     }
+    // Tilde metadata (~id identity, ~w age) is hidden from the edit input —
+    // re-append it so a rename never resets the item's age or, worse, its
+    // identity (a lost ~id makes the save gate treat it as a new item).
+    const meta = old.text.match(new RegExp(BUCKET_META_RE.source, "gi"));
+    if (meta) text = `${text} ${meta.map((t) => t.trim()).join(" ")}`;
     next[idx] = { ...old, text: group ? `${group}: ${text}` : text };
     updateTasks(next);
     setEditingTask(null);
@@ -569,6 +575,18 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); setStageDialog({ idx, kind: "ready" }); }}
             title="Mark Ready — needs a next action and a size"
             className="px-1 py-0 rounded text-[10px] font-medium text-emerald-600 hover:bg-emerald-100">ready</button>
+        )}
+        {stageOf(task) === "ready" && (
+          <button onClick={(e) => {
+            e.stopPropagation(); setPrioMenu(null);
+            // Undo a misclassification (e.g. a migration-grandfathered
+            // "ready" that was never actually bound): back to the inbox,
+            // from where it can be bound normally. Steps and size stay.
+            updateTasks(tasks.map((t, i) => (i === idx
+              ? { ...t, stage: "captured", ready_since: "", horizon: "" } : t)));
+          }}
+            title="Wasn't actually bound? Send it back to Captured — bind it from there"
+            className="px-1 py-0 rounded text-[10px] font-medium text-gray-500 hover:bg-gray-100">inbox</button>
         )}
         <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); setStageDialog({ idx, kind: "dormant" }); }}
           title="Park with a wake date"

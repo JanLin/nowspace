@@ -257,7 +257,7 @@ async def resolve_return(body: ReturnResolve):
             tasks, pinned = plan_router._parse_bucket_file(bucket.read_text(encoding="utf-8"))
         for text in texts:
             tasks.append(BucketTask(
-                text=plan_router._stamp_bucket_week(f"{text} [[{note_name}]]"),
+                text=plan_router._stamp_bucket_tokens(f"{text} [[{note_name}]]"),
                 stage="captured",
             ))
         bucket.parent.mkdir(parents=True, exist_ok=True)
