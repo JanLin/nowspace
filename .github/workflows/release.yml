@@ -154,22 +154,53 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Nowspace ${{ github.ref_name }}'
           releaseBody: |
-            ## Download
-
-            | Platform | File |
-            |---|---|
-            | **macOS (Apple Silicon)** | `Nowspace_x.x.x_aarch64.dmg` |
-            | **Windows** | `Nowspace_x.x.x_x64-setup.exe` |
-            | **Linux (AppImage)** | `Nowspace_x.x.x_amd64.AppImage` |
-            | **Linux (deb)** | `nowspace_x.x.x_amd64.deb` |
-
-            ### First launch
-            1. Open the app — it will show the **Settings** tab on first run
-            2. Set your **Obsidian vault path** (the app auto-detects PARA structure)
-            3. Enter your **Claude API key** (get one at [console.anthropic.com](https://console.anthropic.com/))
-            4. The app switches to the Plan tab and loads your week
-
-            Your API key is stored locally in `~/.nowspace/.env` and never leaves your machine.
+            Release notes are added automatically from docs/releases/<version>.md
+            (see the publish-notes job); this placeholder is replaced.
           releaseDraft: true
           prerelease: false
+
+      # The README links to /releases/latest/download/<stable name> — those
+      # names must not change between versions, so upload a stable-named
+      # copy of each installer alongside the versioned one.
+      - name: Upload stable-named assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          bundle="frontend/src-tauri/target/${{ matrix.target }}/release/bundle"
+          stage="$(mktemp -d)"
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin)
+              cp "$bundle"/dmg/*.dmg "$stage/Nowspace-macos-arm64.dmg" ;;
+            x86_64-pc-windows-msvc)
+              cp "$bundle"/nsis/*-setup.exe "$stage/Nowspace-windows-x64-setup.exe" ;;
+            x86_64-unknown-linux-gnu)
+              cp "$bundle"/appimage/*.AppImage "$stage/Nowspace-linux-x86_64.AppImage"
+              cp "$bundle"/deb/*.deb "$stage/Nowspace-linux-amd64.deb" ;;
+          esac
+          gh release upload "$TAG" "$stage"/* --clobber
+
+  # Fill the (draft) release body from docs/releases/<version>.md so every
+  # release ships real notes; falls back to a pointer if the file is missing.
+  publish-notes:
+    needs: build-tauri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          notes="docs/releases/${version}.md"
+          if [ ! -f "$notes" ]; then
+            echo "No $notes — leaving a placeholder body" >&2
+            printf 'See the commit history for changes in %s.\n' "$TAG" > /tmp/notes.md
+            notes=/tmp/notes.md
+          fi
+          gh release edit "$TAG" --notes-file "$notes"
           args: --target ${{ matrix.target }}
