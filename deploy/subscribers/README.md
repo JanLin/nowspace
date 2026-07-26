@@ -29,8 +29,10 @@ published, so not even localhost on the mini can open their app.
 
 Removal (vault is archived, never deleted): `./remove-subscriber.sh alice`
 
-Updates for all instances (hook into the hourly job if desired):
-`./update-subscribers.sh`
+Updates are automatic: the mini's hourly update job runs
+`update-subscribers.sh` whenever main moves (guarded so a Docker failure
+never blocks the mini's own update — check ~/Library/Logs/nowspace-update.log).
+Run `./update-subscribers.sh` manually for an immediate update.
 
 ## Honest boundaries
 
