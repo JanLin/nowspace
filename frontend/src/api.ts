@@ -214,8 +214,14 @@ export interface DayNotesResponse {
   general?: string;
 }
 
+// Bucket wire-format version this build speaks — must match the backend's
+// BUCKET_SCHEMA_VERSION. Sent with every bucket write; the backend refuses
+// older senders (a stale PWA would otherwise flatten funnel fields), and
+// App.tsx compares it against /health to warn about skew at boot.
+export const CLIENT_SCHEMA_VERSION = 2;
+
 export const api = {
-  health: () => request<{ status: string }>("/health"),
+  health: () => request<{ status: string; schema_version?: number }>("/health"),
   updateCheck: () => request<{ version: string | null }>("/update-check"),
   saveDiaryFolder: (folder: string) =>
     request<{ status: string; diary_folder: string }>("/api/settings/diary-folder", {
@@ -297,19 +303,22 @@ export const api = {
   saveBucket: (tasks: BucketTask[], pinned_groups: string[], expectedMtime?: number | null) =>
     request<{ status: string; mtime?: number }>("/plan/bucket/save", {
       method: "POST",
-      body: JSON.stringify({ tasks, pinned_groups, expected_mtime: expectedMtime ?? null }),
+      body: JSON.stringify({
+        tasks, pinned_groups, expected_mtime: expectedMtime ?? null,
+        schema_version: CLIENT_SCHEMA_VERSION,
+      }),
     }),
 
   moveToBucket: (task_index: number, day_idx: number, week_offset: number = 0, horizon: string = "") =>
     request<{ status: string; bucket_count: number }>("/plan/bucket/move", {
       method: "POST",
-      body: JSON.stringify({ task_index, direction: "to_bucket", day_idx, week_offset, horizon }),
+      body: JSON.stringify({ task_index, direction: "to_bucket", day_idx, week_offset, horizon, schema_version: CLIENT_SCHEMA_VERSION }),
     }),
 
   moveFromBucket: (task_index: number, day_idx: number, week_offset: number = 0) =>
     request<{ status: string; bucket_count: number }>("/plan/bucket/move", {
       method: "POST",
-      body: JSON.stringify({ task_index, direction: "from_bucket", day_idx, week_offset }),
+      body: JSON.stringify({ task_index, direction: "from_bucket", day_idx, week_offset, schema_version: CLIENT_SCHEMA_VERSION }),
     }),
 
   // Carry forward

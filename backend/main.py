@@ -38,7 +38,12 @@ app.include_router(handoff.router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    from backend.models import BUCKET_SCHEMA_VERSION
+    # schema_version lets clients detect skew at boot: a client that speaks
+    # a NEWER version than this backend must not edit (its saves would be
+    # refused by extra=forbid anyway, but the banner explains why), and a
+    # client OLDER than this backend gets told to update/reload.
+    return {"status": "ok", "schema_version": BUCKET_SCHEMA_VERSION}
 
 
 @app.get("/update-check")

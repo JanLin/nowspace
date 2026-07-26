@@ -115,7 +115,7 @@ def test_move_refuses_non_ready(client, vault):
     _week_file(vault)
     _write_bucket(vault, "# Planning Bucket\n\n- unbounded topic\n")
     r = client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "from_bucket", "day_idx": 0,
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": 2,
     })
     assert r.status_code == 400
     assert "Ready" in r.json()["detail"]
@@ -130,7 +130,7 @@ def test_move_allows_ready_and_preserves_binding_artifacts(client, vault):
         "\t- do the first step\n",
     )
     r = client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "from_bucket", "day_idx": 0,
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": 2,
     })
     assert r.status_code == 200, r.text
     week = (vault / "0-Inbox" / WEEK).read_text()
@@ -149,11 +149,11 @@ def test_week_task_returns_ready_when_still_bound(client, vault):
         "\t- do the first step\n",
     )
     client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "from_bucket", "day_idx": 0,
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": 2,
     })
     # it is Monday's only task — send it back
     r = client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "to_bucket", "day_idx": 0,
+        "task_index": 0, "direction": "to_bucket", "day_idx": 0, "schema_version": 2,
     })
     assert r.status_code == 200, r.text
     tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
@@ -167,7 +167,7 @@ def test_unbound_week_task_returns_captured(client, vault):
     _week_file(vault, monday_task="loose idea from the week")
     _write_bucket(vault, "# Planning Bucket\n")
     r = client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "to_bucket", "day_idx": 0,
+        "task_index": 0, "direction": "to_bucket", "day_idx": 0, "schema_version": 2,
     })
     assert r.status_code == 200, r.text
     tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
@@ -179,6 +179,7 @@ def test_unbound_week_task_returns_captured(client, vault):
 def _save(client, tasks):
     return client.post("/plan/bucket/save", json={
         "tasks": [t.model_dump() for t in tasks], "pinned_groups": [],
+        "schema_version": 2,
     })
 
 
@@ -307,3 +308,38 @@ def test_over_limit_hand_edit_can_still_be_reduced(client, vault):
     tasks[0].wake_date = "2026-10-01"
     r = _save(client, tasks)  # reducing: allowed
     assert r.status_code == 200, r.text
+
+
+# ── Version-skew guard: every instance must speak the same schema ─
+
+def test_health_advertises_schema_version(client, vault):
+    from backend.models import BUCKET_SCHEMA_VERSION
+    r = client.get("/health")
+    assert r.json()["schema_version"] == BUCKET_SCHEMA_VERSION
+
+
+def test_old_client_save_refused(client, vault):
+    """A pre-funnel client omits schema_version (and the funnel fields);
+    accepting its save would reset every stage to captured."""
+    _write_bucket(vault, "# Planning Bucket\n\n- B: thing ~s:ready ~e:s\n\t- step\n")
+    r = client.post("/plan/bucket/save", json={
+        "tasks": [{"text": "thing", "priority": "B", "focused": False,
+                   "waiting": False, "subtasks": []}],
+        "pinned_groups": [],
+        # no schema_version → defaults to 1 → refused
+    })
+    assert r.status_code == 422
+    assert "out of date" in r.json()["detail"]
+    # and the file is untouched
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].stage == "ready"
+
+
+def test_old_client_move_refused(client, vault):
+    _week_file(vault)
+    _write_bucket(vault, "# Planning Bucket\n\n- B: thing ~s:ready ~e:s\n\t- step\n")
+    r = client.post("/plan/bucket/move", json={
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0,
+    })
+    assert r.status_code == 422
+    assert "out of date" in r.json()["detail"]

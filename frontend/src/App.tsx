@@ -12,7 +12,7 @@ import Tour from "./components/Tour";
 import HelpGuide from "./components/HelpGuide";
 import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
-import { api } from "./api";
+import { api, CLIENT_SCHEMA_VERSION } from "./api";
 
 type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
@@ -38,8 +38,17 @@ export default function App() {
     (async () => {
       while (!cancelled) {
         try {
-          await api.health();
-          if (!cancelled) setBackendUp(true);
+          const h = await api.health();
+          if (!cancelled) {
+            setBackendUp(true);
+            // Version-skew check: every instance (desktop app, PWA, dev)
+            // must speak the same bucket schema or writes are refused —
+            // surface the mismatch at boot instead of at the first save.
+            const backendSchema = h.schema_version ?? 1;
+            if (backendSchema > CLIENT_SCHEMA_VERSION) setSchemaSkew("client-old");
+            else if (backendSchema < CLIENT_SCHEMA_VERSION) setSchemaSkew("backend-old");
+            else setSchemaSkew(null);
+          }
           return;
         } catch {
           if (Date.now() - started > 15000) setSlowStart(true);
@@ -49,6 +58,7 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, []);
+  const [schemaSkew, setSchemaSkew] = useState<"client-old" | "backend-old" | null>(null);
 
   // Once the backend is up, check if vault is configured and valid
   useEffect(() => {
@@ -244,6 +254,27 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* Version-skew banner: this instance and its backend disagree on the
+          bucket data format — writes are refused server-side until they
+          match, so say it up front instead of failing at the first save. */}
+      {schemaSkew && (
+        <div className="px-3 py-1.5 text-center text-xs font-medium flex items-center justify-center gap-2"
+          style={{ backgroundColor: "rgb(245 158 11 / 0.15)", color: "#b45309", borderBottom: "1px solid rgb(245 158 11 / 0.4)" }}>
+          {schemaSkew === "client-old" ? (
+            <>
+              ⚠️ This Nowspace app is older than its server — bucket edits will be
+              refused to protect your data.
+              <button onClick={() => window.location.reload()} className="underline font-semibold">
+                Reload to update
+              </button>
+            </>
+          ) : (
+            <>⚠️ The Nowspace server on this machine is out of date — update it
+              (desktop app: rebuild the backend) before editing the bucket.</>
+          )}
+        </div>
+      )}
 
       {/* Offline banner */}
       {offlineAt !== false && (

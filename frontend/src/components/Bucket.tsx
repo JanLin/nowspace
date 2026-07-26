@@ -389,6 +389,9 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           setUndoCount(undoStack.current.length);
           setDirty(false);
         }
+        // Version skew: every retry would fail identically — stop the loop
+        // and leave the explanation on screen (App shows the banner too).
+        if (msg.includes("out of date")) setDirty(false);
       }
     }
     finally { setSaving(false); }

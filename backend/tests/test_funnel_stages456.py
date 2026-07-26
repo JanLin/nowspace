@@ -116,6 +116,7 @@ def test_transitions_are_logged(client, vault):
     tasks[0].wake_date = "2026-10-01"
     r = client.post("/plan/bucket/save", json={
         "tasks": [t.model_dump() for t in tasks], "pinned_groups": [],
+        "schema_version": 2,
     })
     assert r.status_code == 200
     log = (vault / "0-Inbox" / "Plan Week Funnel Log.md").read_text()

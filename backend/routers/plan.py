@@ -15,7 +15,24 @@ from backend.config import config
 from backend.models import (
     ApproveRequest, PlanResponse, Task, WeekPlanResponse, SaveWeekRequest,
     BucketResponse, BucketSaveRequest, BucketMoveRequest, BucketTask,
+    BUCKET_SCHEMA_VERSION,
 )
+
+
+def _require_current_schema(sent: int) -> None:
+    """Refuse bucket writes from instances that predate the current wire
+    format. An out-of-date PWA or desktop app omits the newer fields, and
+    accepting its write would silently flatten them for every device."""
+    if sent < BUCKET_SCHEMA_VERSION:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"This Nowspace instance is out of date (data version {sent}, "
+                f"server speaks {BUCKET_SCHEMA_VERSION}) — update or reload it "
+                "before editing. Refusing the write protects the vault from "
+                "silent field loss."
+            ),
+        )
 from backend.session import create_session, get_session
 from backend.utils.memory_manager import read_memory, append_weekly_log
 
@@ -1551,6 +1568,7 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
 @router.post("/bucket/save")
 async def save_bucket(req: BucketSaveRequest):
     """Write bucket tasks back to Bucket.md."""
+    _require_current_schema(req.schema_version)
     bucket = _bucket_path()
     # Sync guard — see save_week_plan
     if req.expected_mtime is not None and bucket.exists():
@@ -1577,6 +1595,7 @@ async def save_bucket(req: BucketSaveRequest):
 @router.post("/bucket/move")
 async def move_bucket_task(req: BucketMoveRequest):
     """Atomically move a task between bucket and week plan."""
+    _require_current_schema(req.schema_version)
     bucket = _bucket_path()
     if req.week_offset == 0:
         plan_file = config.vault_path / config.plan_week_file
