@@ -264,6 +264,30 @@ update, and find logs in `~/Library/Logs/nowspace-{server,update}.log`.
 
 4. Open **http://localhost:5173** in your browser.
 
+### Tests
+
+The backend has a pytest suite covering the funnel gates (stage transitions,
+WIP limits, migrations) and the handoff conformance check, including the
+canary harness that fails the build if any area's content ever crosses into
+another area's files. CI runs it on every PR.
+
+```bash
+pip install pytest
+python -m pytest backend/tests -q
+```
+
+Tests run against a throwaway vault (`tmp_path`) — see
+`backend/tests/conftest.py` for the `vault`/`client` fixtures new tests
+should build on. They never touch a real vault.
+
+### Staging
+
+To test against a separate vault on separate ports (never touching your
+daily vault or the deployed instance), point a worktree-local `config.yaml`
+at a staging vault and use the `staging-backend` (8100) / `staging-frontend`
+(5273) entries in `.claude/launch.json`. The frontend picks up
+`VITE_API_URL` to reach a non-default backend port.
+
 ### Building the Desktop App
 
 ```bash
