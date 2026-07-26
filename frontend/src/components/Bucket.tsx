@@ -1140,8 +1140,10 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </div>
         ))}
         <span className="w-px h-4 shrink-0" style={{ backgroundColor: "var(--border)" }} />
-        {/* Stage lens — default shows the active pipeline (captured + ready) */}
-        {([["", "Active"], ["captured", "Captured"], ["ready", "Ready"], ["dormant", "Dormant"], ["discarded", "Discarded"]] as const).map(([st, name]) => (
+        {/* Stage lens — default shows the active pipeline (captured + ready);
+            the Binding chip surfaces binding items as full list rows (edit,
+            🔗, 🐘) alongside the summary strip */}
+        {([["", "Active"], ["captured", "Captured"], ["binding", "Binding"], ["ready", "Ready"], ["dormant", "Dormant"], ["discarded", "Discarded"]] as const).map(([st, name]) => (
           <button key={st || "active"} onClick={() => setStageFilter(st as "" | BucketStage)}
             title={st ? STAGE_META[st as BucketStage].hint : "Captured + Ready (Binding has its own strip; Dormant stays silent)"}
             className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${stageFilter === st ? "bg-blue-100 text-blue-700" : ""}`}
@@ -1355,7 +1357,9 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                 — what you're actively carrying
               </span>
             </div>
-            {bindingItems.map(({ task, originalIdx }) => (
+            {bindingItems.map(({ task, originalIdx }) => {
+              const stripLinks = extractLinks(task.text);
+              return (
               <div key={originalIdx} className="pl-1.5 py-1 flex items-start gap-1.5 group/bind" style={{ borderLeft: "2px solid rgb(168 85 247 / 0.4)" }}>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs" style={{ color: "var(--text)" }}>
@@ -1364,11 +1368,27 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       <span className="ml-1.5 text-[9px] px-1 rounded bg-purple-100 text-purple-600" title="Retrieval practice — safe for the evening slate; never hand it to an AI">rehearse</span>
                     )}
                   </p>
+                  {/* Linked notes render as clickable chips — clarify in the
+                      note without leaving the strip to hunt for it */}
                   <p className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
-                    {stripBucketMeta(stripCtxTokens(task.text))}
+                    {renderWikiText(stripBucketMeta(stripCtxTokens(task.text)), onOpenNote)}
                   </p>
                 </div>
-                <div className="flex gap-1 shrink-0 opacity-0 group-hover/bind:opacity-100 transition-opacity max-sm:opacity-60">
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={(e) => {
+                    e.stopPropagation();
+                    const rect = (e.target as HTMLElement).getBoundingClientRect();
+                    const { group } = parseGroup(task.text);
+                    setNotePicker(notePicker?.idx === originalIdx ? null : {
+                      idx: originalIdx, group, links: stripLinks,
+                      pos: { top: rect.bottom + 4, left: rect.left - 100 },
+                    });
+                  }}
+                    className={`px-1 rounded text-[10px] transition-opacity ${stripLinks.length ? "opacity-80" : "opacity-0 group-hover/bind:opacity-100 max-sm:opacity-60"}`}
+                    title="Link a vault note to this question">
+                    🔗{stripLinks.length > 1 && <sup className="text-[8px] font-bold">{stripLinks.length}</sup>}
+                  </button>
+                  <span className="flex gap-1 opacity-0 group-hover/bind:opacity-100 transition-opacity max-sm:opacity-60">
                   <button onClick={() => setStageDialog({ idx: originalIdx, kind: "ready" })}
                     className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-100 text-emerald-700"
                     title="Bound it: next action + size → Ready">ready</button>
@@ -1376,9 +1396,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                     className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-sky-100 text-sky-700" title="Park with a wake date">sleep</button>
                   <button onClick={() => setStageDialog({ idx: originalIdx, kind: "discard" })}
                     className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-gray-100 text-gray-500" title="Discard with a reason">drop</button>
+                  </span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
