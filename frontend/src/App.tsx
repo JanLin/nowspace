@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import Nav from "./components/Nav";
 import WeekPlan from "./components/WeekPlan";
 import Bucket from "./components/Bucket";
+import Slate from "./components/Slate";
 import Habits from "./components/Habits";
 import TimeTab from "./components/TimeTab";
 import Goals from "./components/Goals";
@@ -13,7 +14,7 @@ import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
 import { api } from "./api";
 
-type View = "week" | "bucket" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
+type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function App() {
   const [view, setView] = useState<View>("week");
@@ -264,6 +265,9 @@ export default function App() {
           </div>
           <div className={view === "bucket" ? "" : "hidden"}>
             <Bucket onOpenNote={showNote} />
+          </div>
+          <div className={view === "slate" ? "" : "hidden"}>
+            <Slate active={view === "slate"} />
           </div>
           <div className={view === "notes" ? "" : "hidden"}>
             {openNote ? (

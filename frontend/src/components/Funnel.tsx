@@ -5,6 +5,7 @@
    See docs/funnel-discovery.md and the implementation brief. */
 
 import { useEffect, useRef, useState } from "react";
+import { api } from "../api";
 import type { BucketTask, BucketStage, DiscardReason } from "../api";
 import { stripBucketMeta, stripCtxTokens } from "../contexts";
 
@@ -380,6 +381,72 @@ export function EvictionDialog({ bindingItems, limit, incoming, onEvict, onCance
           onCancel={() => setResolving(null)} />
       )}
     </>
+  );
+}
+
+/* ── Diagnostics (stage 6): system metrics, never a user score ─ */
+
+type FunnelStats = Awaited<ReturnType<typeof api.getFunnelStats>>;
+
+export function FunnelStatsModal({ onClose }: { onClose: () => void }) {
+  const [stats, setStats] = useState<FunnelStats | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api.getFunnelStats().then(setStats).catch((e) => setErr(e instanceof Error ? e.message : "Failed"));
+  }, []);
+
+  return (
+    <ModalShell onClose={onClose} wide>
+      <div>
+        <h3 className="text-sm font-semibold">Funnel diagnostics</h3>
+        <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+          These measure the system, not you. Slips and age-in-ready are separate figures on purpose.
+        </p>
+      </div>
+      {err && <p className="text-xs text-red-500">{err}</p>}
+      {stats && (
+        <div className="space-y-3 text-xs" style={{ color: "var(--text-secondary)" }}>
+          <div>
+            <p className="font-medium mb-1" style={{ color: "var(--text)" }}>Time in stage</p>
+            {(Object.entries(STAGE_META) as [BucketStage, typeof STAGE_META[BucketStage]][]).map(([st, meta]) => {
+              const row = stats.stages[st];
+              if (!row || !row.count) return null;
+              return (
+                <p key={st}>
+                  <span className={`px-1 rounded text-[10px] ${meta.chip}`}>{meta.label}</span>{" "}
+                  {row.count} item{row.count !== 1 ? "s" : ""}
+                  {row.avg_days_in_stage !== null && ` · avg ${row.avg_days_in_stage}d in stage`}
+                </p>
+              );
+            })}
+            {stats.ready_age_days.avg !== null && (
+              <p className="mt-0.5">Age in Ready: avg {stats.ready_age_days.avg}d, max {stats.ready_age_days.max}d</p>
+            )}
+          </div>
+          <div>
+            <p className="font-medium mb-1" style={{ color: "var(--text)" }}>How items leave Binding</p>
+            <p>
+              → Ready {stats.binding_exits.ready} · → Dormant {stats.binding_exits.dormant} · → Discarded {stats.binding_exits.discarded}
+            </p>
+          </div>
+          {Object.keys(stats.slip_by_group).length > 0 && (
+            <div>
+              <p className="font-medium mb-1" style={{ color: "var(--text)" }}>Slips by group (ready items)</p>
+              {Object.entries(stats.slip_by_group).map(([g, row]) => (
+                <p key={g}>{g}: {row.slipped_items}/{row.ready_items} slipped ({row.total_slips} slips total)</p>
+              ))}
+            </div>
+          )}
+          <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+            Last review: {stats.last_review || "never"}
+            {stats.last_review_secs > 0 && ` · took ${Math.floor(stats.last_review_secs / 60)}:${String(stats.last_review_secs % 60).padStart(2, "0")} (target 5:00)`}
+          </p>
+        </div>
+      )}
+      <div className="flex justify-end">
+        <button onClick={onClose} className={btnGhost} style={ghostStyle}>Close</button>
+      </div>
+    </ModalShell>
   );
 }
 

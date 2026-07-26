@@ -6,6 +6,7 @@ import { Cluster } from "../clusters";
 import {
   STAGE_META, ESTIMATES, stageOf, applyResolution, type StageResolution,
   BindDialog, ReadyDialog, DormantDialog, DiscardDialog, EvictionDialog, WeeklyReview,
+  FunnelStatsModal,
 } from "./Funnel";
 
 // Same annotation as the Plan tab; "-" = unassigned
@@ -167,6 +168,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   const [stageDialog, setStageDialog] = useState<{ idx: number; kind: "bind" | "ready" | "dormant" | "discard" } | null>(null);
   const [evictionFor, setEvictionFor] = useState<number | null>(null); // idx of item waiting for a Binding slot
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
 
   // Context filter — follows the selection set in the week view (shared via localStorage)
   const [ctxMap, setCtxMap] = useState<CtxMap>({});
@@ -1079,6 +1081,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             title="Sort each group by horizon (n → nw → m → none), then priority (A–D, blank last)">
             Sort GTD
           </button>
+          <button onClick={() => setStatsOpen(true)}
+            className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+            title="Funnel diagnostics — time in stage, Binding exits, slip rate. System metrics only.">
+            📊 Stats
+          </button>
         </Cluster>
       </div>
 
@@ -1754,6 +1761,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           onFinish={finishReview}
           onClose={() => setReviewOpen(false)} />
       )}
+      {statsOpen && <FunnelStatsModal onClose={() => setStatsOpen(false)} />}
 
       {/* Sticky bottom bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1.5" style={{ background: 'color-mix(in srgb, var(--bg) 95%, transparent)', borderColor: 'var(--border)' }}>

@@ -64,6 +64,66 @@ body. Don't let the desk, or the AI, overrule your life. The point of
 recording everything is to be able to *stop* thinking about it — take the
 mental break; the system will still know everything when you return.
 
+## Bounded work, or no work
+
+An unbounded task cannot be finished, so it cannot be closed, so it stays.
+It doesn't stay in the list — it stays in you, resurfacing on walks and at
+two in the morning, costing far more than the work would have. Nowspace
+refuses to schedule anything that hasn't been bound, not to be strict, but
+because scheduling an unbounded thing is a promise neither you nor the
+software can keep.
+
+Binding is real work and gets real time. It is not administration.
+
+## The limit is the feature
+
+Four carried topics, and the software refuses the fifth. A limit that can be
+exceeded is a suggestion, and suggestions don't force trade-offs. The moment
+you have to decide what leaves is the only moment in the system where genuine
+prioritisation happens — so it is deliberately unavoidable, and deliberately
+rare.
+
+## Capture is never judged
+
+There are no required fields at capture, no categories to choose, no
+questions asked. This is the one place friction is unacceptable, because the
+entire value of an inbox is the trust that lets you let go of a thought.
+Judge at capture and the mind stops handing things over, which returns you to
+holding them yourself — the exact problem the inbox was for.
+
+All filtering happens later, in daylight, once a week.
+
+## Nowspace does not interrupt you
+
+No notifications about overdue work. No badges, no red counts, no streaks
+you can break, no nudges engineered to pull you back. A reminder about
+something you failed three weeks running arrives when you can't act on it
+and does nothing except make the loop louder — it converts your list into a
+source of guilt, and guilt is not a scheduling mechanism.
+
+Everything that needs your attention waits for the weekly review, where you
+have context and can actually decide. The trigger is a ritual you own, not a
+timer we set. This is the same principle as the rest of Nowspace: your
+attention is yours, and the software does not have a claim on it. No hidden
+hooks applies to your time as much as to your data.
+
+## What we measure, and what we refuse to
+
+We measure the system: how long topics sit unbound, how they leave, what
+fraction of an area's work never actually gets done. Those numbers tell you
+whether your setup is working.
+
+We do not measure you. There is no score for thinking, because thinking
+cannot be verified and anything scored eventually gets performed instead of
+done. You can track whether you opened the slate. You cannot track whether
+you thought, and Nowspace will not pretend otherwise.
+
+## Dormant is a decision
+
+Parking something with a date is a legitimate outcome, not a failure state,
+and it is the difference between a calm list and a heavy one. Most of what
+feels like too much work is actually too much undecided work.
+
 ## Sovereign by design
 
 Everything Nowspace knows lives in plain, readable files on a disk you

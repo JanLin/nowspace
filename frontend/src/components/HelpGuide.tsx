@@ -84,6 +84,37 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     ],
   },
   {
+    title: "Bucket stages — the funnel",
+    body: [
+      "Everything you capture lands in Captured. Nothing is judged there and nothing is required — capture stays fast on purpose, because an inbox you hesitate to use is an inbox you stop trusting.",
+      "Once a week you promote a few items into Binding. This is the small set of topics you're actively carrying — at most four, because the limit is what makes it a priority list rather than a pile. Each one holds a question rather than a title, since your mind works on questions and ignores nouns.",
+      "An item leaves Binding when it has one concrete next action and a size. That's what Ready means, and only Ready items can be scheduled in the Plan tab. This is deliberate: an unbounded topic can't be scheduled honestly, and pretending otherwise is how weeks quietly fail.",
+      "Dormant is a decision, not a failure. A dormant item has a wake date and stays silent until then. Parking something on purpose feels completely different from carrying it undecided, and most of the weight you feel in a task list comes from items in the second category.",
+      "Discarded items record why they were dropped — no agency, already decided, or not yours. The reason is what stops the same topic reappearing next month.",
+    ],
+  },
+  {
+    title: "Solve and rehearse — the Slate",
+    body: [
+      "Binding items are marked solve or rehearse. Solve items are open problems: they generate loops, so the Slate shows them in the morning and hides them after your evening cutoff. Rehearse items are practice on things you already know — a question you got wrong, a form you keep misusing. They resolve nothing and start nothing, which makes them safe to look at before sleep.",
+      "One rule worth keeping: don't take rehearse items to an AI chat. The value is in the effort of recalling; being handed the answer removes the part that makes it stick.",
+      "The Slate also has a capture box, so the pre-sleep ritual becomes read-then-write: glance at what you're rehearsing, put down whatever surfaced, let it go. If you like a morning trigger, add an \"open the slate\" habit — opening it may be tracked; thinking may not.",
+    ],
+  },
+  {
+    title: "The weekly review",
+    body: [
+      "Five minutes, once a week — the 🧭 Review button on the Bucket tab. You reconcile what slipped, check whether your Binding items produced anything new, refill empty slots, and set one line for the week.",
+      "If an item slips three weeks running, you'll be asked one question: was it too big, or was it not actually important? Too big sends it back to Binding to be re-scoped. Not important sends it to Dormant. Those are the only two honest answers, and the system would rather you gave one than carried it a fourth week.",
+    ],
+  },
+  {
+    title: "Why Nowspace never notifies you about overdue work",
+    body: [
+      "It doesn't, and it won't. See the principles (Philosophy in the help menu).",
+    ],
+  },
+  {
     title: "Habits — gentle rhythms",
     body: [
       "Recurring habits for body, mind and soul, ticked through the week. A small strip on the Plan tab keeps them visible without turning them into chores.",

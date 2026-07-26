@@ -280,6 +280,30 @@ def _file_week_info(plan_file: Path) -> Optional[tuple[int, int]]:
     return None
 
 
+def _increment_bucket_slips() -> int:
+    """Week closed: ready items committed to it (horizon n) that are still in
+    the bucket slipped. Increment their slipCount (funnel stage 4). Slips and
+    age-in-ready stay separate figures — never summed anywhere.
+
+    Called once per archived week. Returns how many items slipped.
+    """
+    bucket = _bucket_path()
+    if not bucket.exists():
+        return 0
+    try:
+        tasks, pinned = _parse_bucket_file(bucket.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    slipped = 0
+    for t in tasks:
+        if t.stage == "ready" and t.horizon == "n":
+            t.slip_count += 1
+            slipped += 1
+    if slipped:
+        bucket.write_text(_format_bucket_tasks(tasks, pinned), encoding="utf-8")
+    return slipped
+
+
 def _auto_transition_if_needed() -> list[str]:
     """Check if Plan Week.md is stale and transition forward as needed.
 
@@ -321,6 +345,11 @@ def _auto_transition_if_needed() -> list[str]:
         else:
             shutil.move(str(current_file), str(archive_file))
         transitions.append(f"Archived wk{file_week:02d}")
+
+        # Funnel: this-week commitments that never completed have slipped
+        slipped = _increment_bucket_slips()
+        if slipped:
+            transitions.append(f"{slipped} bucket item(s) slipped")
 
         # Determine next week after the file's week (not today+1)
         next_date = date.fromisocalendar(file_year, file_week, 1) + timedelta(weeks=1)
@@ -694,6 +723,9 @@ async def transition_week():
     archive_dir.mkdir(parents=True, exist_ok=True)
     archive_file = _archive_path() / f"{config.plan_week_file.replace('.md', '')} - {arch_year}-wk{arch_week:02d}.md"
     shutil.move(str(current_file), str(archive_file))
+
+    # Funnel: this-week commitments that never completed have slipped
+    _increment_bucket_slips()
 
     # 2. Promote next week file if it exists
     # Use file's week + 1, not today + 1, to handle multi-week gaps correctly
@@ -1402,8 +1434,38 @@ async def get_bucket():
     return BucketResponse(tasks=tasks, pinned_groups=pinned, mtime=bucket.stat().st_mtime)
 
 
-def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask]) -> None:
+def _funnel_log_path() -> Path:
+    return config.vault_path / "Plan Week Funnel Log.md"
+
+
+def _log_funnel_transitions(entries: list[tuple[str, str, str]]) -> None:
+    """Append stage transitions to the funnel log (stage 6 diagnostics).
+
+    Each entry: (from_stage, to_stage, label). System metrics only — the log
+    records what the *system* did, never a score for the user.
+    """
+    if not entries:
+        return
+    path = _funnel_log_path()
+    today = date.today().isoformat()
+    lines = [f"- {today} {frm}->{to}: {label}" for frm, to, label in entries]
+    try:
+        if not path.exists():
+            path.write_text(
+                "# Funnel Log\n\nStage transitions, for the diagnostics view. "
+                "Append-only; safe to prune old lines.\n\n" + "\n".join(lines) + "\n",
+                encoding="utf-8",
+            )
+        else:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+    except OSError:
+        pass  # diagnostics never block a save
+
+
+def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask]) -> list[tuple[str, str, str]]:
     """Enforce funnel invariants on a bucket save. Raises 422 on violation.
+    Returns the list of detected transitions for the funnel log.
 
     Gates apply to *transitions*: an item whose stage differs from its on-disk
     twin (matched by normalized text) must satisfy the target stage's entry
@@ -1419,6 +1481,7 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
         disk_by_key.setdefault(_funnel_key(t.text), t)
 
     errors: list[str] = []
+    transitions: list[tuple[str, str, str]] = []
     for t in incoming:
         label = _strip_bucket_meta(t.text) or "(untitled)"
         if t.stage not in FUNNEL_STAGES:
@@ -1441,6 +1504,7 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
             continue
         # Entering a stage: stamp the transition date
         t.stage_entered_at = today
+        transitions.append((prev.stage if prev else "(new)", t.stage, label))
         if t.stage == "binding":
             q = (t.question or "").strip()
             if len(q) < 2 or not q.endswith("?"):
@@ -1481,6 +1545,7 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
 
     if errors:
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    return transitions
 
 
 @router.post("/bucket/save")
@@ -1498,13 +1563,14 @@ async def save_bucket(req: BucketSaveRequest):
     on_disk: list[BucketTask] = []
     if bucket.exists():
         on_disk, _ = _parse_bucket_file(bucket.read_text(encoding="utf-8"))
-    _validate_funnel_save(req.tasks, on_disk)
+    transitions = _validate_funnel_save(req.tasks, on_disk)
     # Inline group teaching: learn "wallet@w:"-style tags and clean them.
     # Stamp entered-week metadata on tasks that don't carry it yet (age hint).
     for task in req.tasks:
         task.text = _stamp_bucket_week(_learn_and_clean_group_tag(task.text))
     md = _format_bucket_tasks(req.tasks, req.pinned_groups)
     bucket.write_text(md, encoding="utf-8")
+    _log_funnel_transitions(transitions)
     return {"status": "saved", "task_count": len(req.tasks), "mtime": bucket.stat().st_mtime}
 
 
@@ -1622,6 +1688,141 @@ async def move_bucket_task(req: BucketMoveRequest):
     await save_week_plan(SaveWeekRequest(days=plan_days, offset=req.week_offset))
 
     return {"status": "moved", "direction": req.direction, "bucket_count": len(bucket_tasks)}
+
+
+# ── Funnel: ambient slate + diagnostics ───────────────────────
+
+
+class SlateCaptureRequest(BaseModel):
+    text: str
+
+
+def _is_evening() -> bool:
+    """After the configurable evening cutoff (or before 05:00 — the pre-sleep
+    window runs past midnight)."""
+    from datetime import datetime
+    now = datetime.now()
+    cutoff = str(config.funnel.get("evening_cutoff") or "21:00")
+    try:
+        ch, cm = (int(x) for x in cutoff.split(":"))
+    except ValueError:
+        ch, cm = 21, 0
+    mins = now.hour * 60 + now.minute
+    return mins >= ch * 60 + cm or mins < 5 * 60
+
+
+@router.get("/slate")
+async def get_slate():
+    """The ambient slate (funnel stage 5): the questions being carried,
+    read-only, filtered by time of day. The filter is server-side on purpose —
+    after the cutoff no `solve` item is reachable from this surface by any
+    route, which is the acceptance criterion.
+    """
+    evening = _is_evening()
+    items: list[dict] = []
+    bucket = _bucket_path()
+    if bucket.exists():
+        tasks, _ = _parse_bucket_file(bucket.read_text(encoding="utf-8"))
+        for t in tasks:
+            if t.stage != "binding":
+                continue
+            if evening != (t.mode == "rehearse"):
+                continue  # evening → rehearse only; daytime → solve only
+            items.append({
+                "question": t.question,
+                "label": _strip_bucket_meta(t.text),
+                "mode": t.mode,
+            })
+    return {
+        "evening": evening,
+        "cutoff": str(config.funnel.get("evening_cutoff") or "21:00"),
+        "items": items,
+    }
+
+
+@router.post("/slate/capture")
+async def slate_capture(req: SlateCaptureRequest):
+    """Zero-friction capture from the slate — the one write it allows."""
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Nothing to capture")
+    bucket = _bucket_path()
+    tasks: list[BucketTask] = []
+    pinned: list[str] = []
+    if bucket.exists():
+        tasks, pinned = _parse_bucket_file(bucket.read_text(encoding="utf-8"))
+    tasks.append(BucketTask(
+        text=_stamp_bucket_week(_learn_and_clean_group_tag(text)),
+        stage="captured",
+    ))
+    bucket.parent.mkdir(parents=True, exist_ok=True)
+    bucket.write_text(_format_bucket_tasks(tasks, pinned), encoding="utf-8")
+    return {"status": "captured"}
+
+
+@router.get("/funnel/stats")
+async def funnel_stats():
+    """Funnel diagnostics (stage 6). System metrics only: time-in-stage, exit
+    distribution from Binding, slip rate per group. Nothing here scores the
+    user — slips and age-in-ready are reported separately and never summed.
+    """
+    tasks: list[BucketTask] = []
+    bucket = _bucket_path()
+    if bucket.exists():
+        tasks, _ = _parse_bucket_file(bucket.read_text(encoding="utf-8"))
+    today = date.today()
+
+    def _days_since(iso: str) -> Optional[int]:
+        try:
+            return (today - date.fromisoformat(iso)).days
+        except ValueError:
+            return None
+
+    stages: dict[str, dict] = {}
+    for st in FUNNEL_STAGES:
+        in_stage = [t for t in tasks if t.stage == st]
+        ages = [d for t in in_stage if t.stage_entered_at
+                for d in [_days_since(t.stage_entered_at)] if d is not None]
+        stages[st] = {
+            "count": len(in_stage),
+            "avg_days_in_stage": round(sum(ages) / len(ages), 1) if ages else None,
+        }
+
+    ready_ages = [d for t in tasks if t.stage == "ready" and t.ready_since
+                  for d in [_days_since(t.ready_since)] if d is not None]
+
+    slip_by_group: dict[str, dict] = {}
+    for t in tasks:
+        if t.stage != "ready":
+            continue
+        group, _ = _parse_group(t.text)
+        g = group or "(ungrouped)"
+        row = slip_by_group.setdefault(g, {"ready_items": 0, "slipped_items": 0, "total_slips": 0})
+        row["ready_items"] += 1
+        if t.slip_count:
+            row["slipped_items"] += 1
+            row["total_slips"] += t.slip_count
+
+    binding_exits = {"ready": 0, "dormant": 0, "discarded": 0}
+    log_path = _funnel_log_path()
+    if log_path.exists():
+        try:
+            for m in re.finditer(r"binding->(ready|dormant|discarded)", log_path.read_text(encoding="utf-8")):
+                binding_exits[m.group(1)] += 1
+        except OSError:
+            pass
+
+    return {
+        "stages": stages,
+        "ready_age_days": {
+            "avg": round(sum(ready_ages) / len(ready_ages), 1) if ready_ages else None,
+            "max": max(ready_ages) if ready_ages else None,
+        },
+        "binding_exits": binding_exits,
+        "slip_by_group": slip_by_group,
+        "last_review": config.funnel.get("last_review") or "",
+        "last_review_secs": int(config.funnel.get("last_review_secs") or 0),
+    }
 
 
 # ── Plan Notes endpoints ──────────────────────────────────────

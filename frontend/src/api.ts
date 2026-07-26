@@ -422,6 +422,26 @@ export const api = {
       body: JSON.stringify(updates),
     }),
 
+  // Funnel: ambient slate + diagnostics
+  getSlate: () =>
+    request<{ evening: boolean; cutoff: string; items: { question: string; label: string; mode: string }[] }>("/plan/slate"),
+
+  slateCapture: (text: string) =>
+    request<{ status: string }>("/plan/slate/capture", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+
+  getFunnelStats: () =>
+    request<{
+      stages: Record<string, { count: number; avg_days_in_stage: number | null }>;
+      ready_age_days: { avg: number | null; max: number | null };
+      binding_exits: Record<string, number>;
+      slip_by_group: Record<string, { ready_items: number; slipped_items: number; total_slips: number }>;
+      last_review: string;
+      last_review_secs: number;
+    }>("/plan/funnel/stats"),
+
   // Habits
   getHabits: () =>
     request<{ found: boolean; habits: Habit[] }>("/plan/habits"),
