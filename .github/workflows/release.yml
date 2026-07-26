@@ -197,4 +197,3 @@ jobs:
             notes=/tmp/notes.md
           fi
           gh release edit "$TAG" --notes-file "$notes"
-          args: --target ${{ matrix.target }}
