@@ -159,36 +159,30 @@ jobs:
           releaseDraft: true
           prerelease: false
 
-      # The README links to /releases/latest/download/<stable name> — those
-      # names must not change between versions, so upload a stable-named
-      # copy of each installer alongside the versioned one.
+  # After all platforms upload their versioned installers, add stable-named
+  # copies (the README's /releases/latest/download links depend on these
+  # names never changing) and fill the release body from
+  # docs/releases/<version>.md. Deriving the copies from the release's own
+  # assets is layout-proof — bundle paths on the runners are not (that
+  # exact mistake broke the first 0.4.0 run).
+  finalize-release:
+    needs: build-tauri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Upload stable-named assets
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          bundle="frontend/src-tauri/target/${{ matrix.target }}/release/bundle"
           stage="$(mktemp -d)"
-          case "${{ matrix.target }}" in
-            aarch64-apple-darwin)
-              cp "$bundle"/dmg/*.dmg "$stage/Nowspace-macos-arm64.dmg" ;;
-            x86_64-pc-windows-msvc)
-              cp "$bundle"/nsis/*-setup.exe "$stage/Nowspace-windows-x64-setup.exe" ;;
-            x86_64-unknown-linux-gnu)
-              cp "$bundle"/appimage/*.AppImage "$stage/Nowspace-linux-x86_64.AppImage"
-              cp "$bundle"/deb/*.deb "$stage/Nowspace-linux-amd64.deb" ;;
-          esac
+          dl() { gh release download "$TAG" --pattern "$1" --output "$stage/$2"; }
+          dl "*_aarch64.dmg"     Nowspace-macos-arm64.dmg
+          dl "*_x64-setup.exe"   Nowspace-windows-x64-setup.exe
+          dl "*_amd64.AppImage"  Nowspace-linux-x86_64.AppImage
+          dl "*_amd64.deb"       Nowspace-linux-amd64.deb
           gh release upload "$TAG" "$stage"/* --clobber
-
-  # Fill the (draft) release body from docs/releases/<version>.md so every
-  # release ships real notes; falls back to a pointer if the file is missing.
-  publish-notes:
-    needs: build-tauri
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - name: Set release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
