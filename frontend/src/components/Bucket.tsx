@@ -57,8 +57,9 @@ function extractLinks(text: string): TaskLink[] {
   return links;
 }
 
-/** Render text with wiki links and markdown hyperlinks as clickable elements */
-function renderWikiText(text: string, onOpenNote?: (path: string, name: string) => void) {
+/** Render text with wiki links and markdown hyperlinks as clickable elements.
+    Exported — the Slate reuses it for solve questions' linked notes. */
+export function renderWikiText(text: string, onOpenNote?: (path: string, name: string) => void) {
   // Combined regex: wiki links [[...]] and markdown links [text](url)
   const COMBINED_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)]+)\)/g;
   const parts: React.ReactNode[] = [];
@@ -78,11 +79,11 @@ function renderWikiText(text: string, onOpenNote?: (path: string, name: string) 
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            api.vaultSearch(name, 1).then((res) => {
-              if (res.results.length > 0 && onOpenNote) {
-                onOpenNote(res.results[0].path, name);
-              }
-            });
+            // vaultResolve (not search): it re-indexes on a miss, so a note
+            // created moments ago in Obsidian or synced in still opens
+            api.vaultResolve(name).then((res) => {
+              if (res.path && onOpenNote) onOpenNote(res.path, res.name || name);
+            }).catch(() => {});
           }}
           className="inline-flex items-center gap-0.5 px-1.5 py-0 bg-blue-50 text-blue-700 rounded text-[11px] font-medium hover:bg-blue-100 transition-colors"
           title={`Open ${name}`}

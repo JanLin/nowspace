@@ -296,7 +296,7 @@ export default function App() {
             <Bucket onOpenNote={showNote} />
           </div>
           <div className={view === "slate" ? "" : "hidden"}>
-            <Slate active={view === "slate"} />
+            <Slate active={view === "slate"} onOpenNote={showNote} />
           </div>
           <div className={view === "notes" ? "" : "hidden"}>
             {openNote ? (

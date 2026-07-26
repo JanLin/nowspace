@@ -7,10 +7,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { renderWikiText } from "./Bucket";
 
 type SlateData = { evening: boolean; cutoff: string; items: { question: string; label: string; mode: string }[] };
 
-export default function Slate({ active }: { active: boolean }) {
+/** [[Note|Display]] → Display, plain text — rehearse questions must not
+    offer a one-tap path to the answer; the effort of recall is the value. */
+function flattenWikiLinks(text: string): string {
+  return text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, name, display) => display || name);
+}
+
+export default function Slate({ active, onOpenNote }: {
+  active: boolean; onOpenNote: (path: string, name: string) => void;
+}) {
   const [data, setData] = useState<SlateData | null>(null);
   const [captured, setCaptured] = useState<string[]>([]); // this session, for quiet confirmation
   const [error, setError] = useState("");
@@ -60,8 +69,14 @@ export default function Slate({ active }: { active: boolean }) {
         )}
         {data.items.map((it, i) => (
           <div key={i} className="text-center space-y-0.5">
-            <p className="text-base leading-snug" style={{ color: "var(--text)" }}>{it.question || it.label}</p>
-            <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{it.label}</p>
+            <p className="text-base leading-snug" style={{ color: "var(--text)" }}>
+              {flattenWikiLinks(it.question || it.label)}
+            </p>
+            {/* Solve questions link to their notes (clarifying is daywork);
+                rehearse shows names only — recall first, look up never */}
+            <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              {it.mode === "solve" ? renderWikiText(it.label, onOpenNote) : flattenWikiLinks(it.label)}
+            </p>
           </div>
         ))}
       </div>
