@@ -56,6 +56,7 @@ export default function App() {
     api.getSettings().then((s) => {
       const coach = s.coach_enabled !== false;
       setCoachEnabled(coach);
+      if (s.funnel?.evening_cutoff) setEveningCutoff(s.funnel.evening_cutoff);
       // The API key only matters when the coach feature is on
       if (s.vault_status.exists && s.vault_status.has_para && (s.api_key_status.configured || !coach)) {
         setVaultReady(true);
@@ -69,6 +70,24 @@ export default function App() {
     });
   }, [backendUp]);
   const { theme, setTheme } = useTheme();
+
+  // The Slate opens from the compass logo (no tab — the app's face is the
+  // ambient surface). After the evening cutoff a quiet half-moon appears
+  // next to the logo: a state signal, never a badge or a count. Entry stays
+  // available at any hour — the surface filters itself by time.
+  const [eveningCutoff, setEveningCutoff] = useState("21:00");
+  const [minuteTick, setMinuteTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setMinuteTick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const isEvening = (() => {
+    void minuteTick; // recompute each minute
+    const [ch, cm] = eveningCutoff.split(":").map((x) => parseInt(x, 10));
+    const now = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    return mins >= (isNaN(ch) ? 21 : ch) * 60 + (isNaN(cm) ? 0 : cm) || mins < 5 * 60;
+  })();
 
   // Offline banner: api.ts broadcasts state changes when the service
   // worker starts (or stops) serving cache fallbacks. false = online,
@@ -158,9 +177,19 @@ export default function App() {
       {/* Sticky top nav */}
       <div className="sticky top-0 z-40 px-2 sm:px-4 py-2" style={{ backgroundColor: "var(--bg)", borderBottom: "1px solid var(--border)" }}>
         <div className="mx-auto max-w-6xl flex items-center gap-2 sm:gap-4">
-          <header className="flex items-center gap-2 shrink-0">
-            <img src="/nowspace-compass-icon.svg" alt="Nowspace" className="w-6 h-6 sm:w-7 sm:h-7" />
-            <h1 className="text-base sm:text-lg font-bold hidden sm:block" style={{ color: "var(--text)" }}>Nowspace</h1>
+          <header className="shrink-0">
+            <button
+              onClick={() => setView(view === "slate" ? "week" : "slate")}
+              className="flex items-center gap-2 rounded-md px-0.5 transition-opacity hover:opacity-80"
+              title={isEvening
+                ? "The evening slate — what you're rehearsing (tap again to leave)"
+                : "The slate — the questions you're carrying (tap again to leave)"}
+              aria-label="Open the slate"
+            >
+              <img src="/nowspace-compass-icon.svg" alt="" className="w-6 h-6 sm:w-7 sm:h-7" />
+              <h1 className="text-base sm:text-lg font-bold hidden sm:block" style={{ color: "var(--text)" }}>Nowspace</h1>
+              {isEvening && <span className="text-xs -ml-1" aria-hidden="true">🌒</span>}
+            </button>
           </header>
           <Nav current={view} onChange={setView} hideCoach={!coachEnabled} />
           {/* Help: replay the tour or open the guide */}

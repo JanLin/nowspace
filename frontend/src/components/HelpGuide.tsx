@@ -98,6 +98,7 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     body: [
       "Binding items are marked solve or rehearse. Solve items are open problems: they generate loops, so the Slate shows them in the morning and hides them after your evening cutoff. Rehearse items are practice on things you already know — a question you got wrong, a form you keep misusing. They resolve nothing and start nothing, which makes them safe to look at before sleep.",
       "One rule worth keeping: don't take rehearse items to an AI chat. The value is in the effort of recalling; being handed the answer removes the part that makes it stick.",
+      "The Slate opens from the Nowspace compass in the top-left corner — tap the logo, at any hour; tap it again to leave. It has no tab on purpose: it's a pause, not a destination. After your evening cutoff a small half-moon appears beside the logo — a quiet state signal, never a badge.",
       "The Slate also has a capture box, so the pre-sleep ritual becomes read-then-write: glance at what you're rehearsing, put down whatever surfaced, let it go. If you like a morning trigger, add an \"open the slate\" habit — opening it may be tracked; thinking may not.",
     ],
   },

@@ -12,7 +12,8 @@ export default function Nav({
   const tabs: { id: View; icon: string; name: string }[] = [
     { id: "week", icon: "📅", name: "Plan" },
     { id: "bucket", icon: "🪣", name: "Bucket" },
-    { id: "slate", icon: "🌓", name: "Slate" },
+    // The Slate has no tab — it opens from the Nowspace logo (App.tsx),
+    // keeping the ambient surface out of the working navigation.
     { id: "notes", icon: "📝", name: "Notes" },
     { id: "habits", icon: "🌱", name: "Habits" },
     { id: "time", icon: "⏱", name: "Time" },
