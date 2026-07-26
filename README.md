@@ -54,6 +54,16 @@ installer alongside the versioned ones):
 
 Or browse all releases: [github.com/JanLin/coaching-agent/releases](https://github.com/JanLin/coaching-agent/releases)
 
+> **macOS says the app "is damaged and can't be opened"?** Nothing is
+> damaged — the app is not notarized with Apple (no Developer ID
+> certificate), and Gatekeeper uses that wording for quarantined unsigned
+> apps. After copying Nowspace.app to /Applications, clear the quarantine
+> flag once per install/update:
+>
+> ```bash
+> xattr -cr /Applications/Nowspace.app
+> ```
+
 ### First Launch
 
 1. Open the app — on first launch it will open the **Settings** tab
