@@ -1,7 +1,9 @@
 #!/bin/sh
 # Rebuild the image from the repo clone and restart every subscriber
-# instance on it. Mirrors the mini's own update flow: the hourly job
-# pulls the repo; run this after (or hook it into the same job).
+# instance on it. Runs automatically from the mini's hourly update job
+# (deploy/update-nowspace.sh) whenever main moves; safe to run manually
+# any time. Subscribers therefore track main — use the staging setup to
+# check anything risky before merging (README "Staging").
 set -e
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

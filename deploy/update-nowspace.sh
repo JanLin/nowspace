@@ -27,3 +27,14 @@ export NVM_DIR="$HOME/.nvm"
 
 launchctl kickstart -k "gui/$(id -u)/com.nowspace.server" || true
 echo "$(date '+%F %T') now at ${REMOTE:0:7} — server restarted"
+
+# Subscriber instances ride the same update: rebuild the image from this
+# clone and restart every instance. Guarded — a Docker hiccup must never
+# block the mini's own update (the server is already restarted above).
+if [ -d "$REPO/deploy/subscribers/instances" ] && command -v docker >/dev/null 2>&1; then
+  if "$REPO/deploy/subscribers/update-subscribers.sh"; then
+    echo "$(date '+%F %T') subscriber instances updated"
+  else
+    echo "$(date '+%F %T') subscriber update FAILED — run deploy/subscribers/update-subscribers.sh manually"
+  fi
+fi
