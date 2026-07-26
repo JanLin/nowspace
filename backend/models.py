@@ -112,6 +112,19 @@ class BucketTask(BaseModel):
     focused: bool = False
     waiting: bool = False
     subtasks: List[Subtask] = []
+    # ── Funnel (bucket stages) ──────────────────────────────────
+    # Persisted as tilde tokens on the line (see FUNNEL_META in plan.py);
+    # "active"/"done" are never stored here — scheduled items live in the
+    # week files, which is what those stages mean.
+    stage: str = "captured"  # captured | binding | ready | dormant | discarded
+    question: str = ""       # binding only; must end with "?"
+    mode: str = "solve"      # solve | rehearse (meaningful on binding)
+    estimate: str = ""       # "" | s | m | l — required to become ready
+    slip_count: int = 0      # weeks committed (horizon n) but not completed
+    ready_since: str = ""    # ISO date set on entry to ready
+    wake_date: str = ""      # ISO date, required on dormant
+    discard_reason: str = "" # no_agency | already_decided | not_mine
+    stage_entered_at: str = ""  # ISO date, updated on every stage change
 
 
 class BucketResponse(BaseModel):

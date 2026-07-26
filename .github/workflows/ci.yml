@@ -15,11 +15,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt pytest
       # config.yaml is loaded at import time — the exact failure mode that
       # took down the first real deployment of main (PR #51)
       - run: cp config.yaml.example config.yaml
       - run: python -c "from backend.main import app; print('backend imports OK')"
+      - run: python -m pytest backend/tests -q
 
   frontend:
     name: Type-check + build

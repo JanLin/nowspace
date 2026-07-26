@@ -1,0 +1,291 @@
+"""Funnel stage 1–2 acceptance tests.
+
+Stage 1: an item with no next action or no estimate cannot appear in Timing,
+by any route including direct API call.
+Stage 2: adding a fifth Binding item is impossible without resolving an
+existing one; `question` cannot be empty and must end in '?'.
+"""
+
+from datetime import date
+
+from backend.routers.plan import (
+    _extract_funnel_meta,
+    _format_bucket_tasks,
+    _parse_bucket_file,
+    _strip_bucket_meta,
+)
+from backend.models import BucketTask, Subtask
+
+
+BUCKET = "Plan Week Bucket.md"
+WEEK = "Plan Week.md"
+
+
+def _week_file(vault, monday_task=""):
+    iso = date.today().isocalendar()
+    label = f"Week {iso[0]}-wk{iso[1]:02d}"
+    blocks = []
+    for d in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"):
+        block = f"##### {d} 01.01"
+        if d == "Monday" and monday_task:
+            block += f"\n- [ ] C1: {monday_task}"
+        blocks.append(block)
+    days = "\n\n".join(blocks)
+    (vault / "0-Inbox" / WEEK).write_text(f"## Goals\n\n{label}\n\n{days}\n\n#### Notes\n")
+
+
+def _write_bucket(vault, content):
+    (vault / "0-Inbox" / BUCKET).write_text(content)
+
+
+def _ready_task(text="Group: bounded thing", **over):
+    base = dict(
+        text=text, priority="B", stage="ready", estimate="s",
+        subtasks=[Subtask(text="do the first step")],
+    )
+    base.update(over)
+    return BucketTask(**base)
+
+
+# ── Token layer ─────────────────────────────────────────────────
+
+def test_funnel_tokens_round_trip():
+    t = BucketTask(
+        text="Rotary: fundraiser", priority="A", stage="binding",
+        question="What would make the fundraiser worth running?",
+        mode="rehearse", estimate="m", slip_count=2,
+        ready_since="2026-07-01", wake_date="2026-09-01",
+        discard_reason="", stage_entered_at="2026-07-20",
+    )
+    md = _format_bucket_tasks([t], [])
+    parsed, _ = _parse_bucket_file(md)
+    assert len(parsed) == 1
+    p = parsed[0]
+    assert p.stage == "binding"
+    assert p.question == "What would make the fundraiser worth running?"
+    assert p.mode == "rehearse"
+    assert p.estimate == "m"
+    assert p.slip_count == 2
+    assert p.ready_since == "2026-07-01"
+    assert p.wake_date == "2026-09-01"
+    assert p.stage_entered_at == "2026-07-20"
+    assert "~" not in p.text  # tokens never leak into the label
+    assert p.text == "Rotary: fundraiser"
+
+
+def test_extract_strips_all_tokens():
+    clean, fields = _extract_funnel_meta(
+        "call the bank ~s:dormant ~wake:2026-08-01 ~sl:3"
+    )
+    assert clean == "call the bank"
+    assert fields == {"stage": "dormant", "wake_date": "2026-08-01", "slip_count": 3}
+    assert _strip_bucket_meta("x ~s:ready ~e:s ~w2628 ~m") == "x"
+
+
+def test_migration_defaults():
+    """Pre-funnel items: prioritised/horizoned → ready, others → captured."""
+    md = (
+        "# Planning Bucket\n\n"
+        "- Rotary:\n"
+        "\t- nA: fundraiser ~w2624\n"
+        "\t- plan next meeting ~w2628\n"
+        "- C: renew domains\n"
+        "- someday woodworking\n"
+    )
+    tasks, _ = _parse_bucket_file(md)
+    by_label = {_strip_bucket_meta(t.text): t.stage for t in tasks}
+    assert by_label["Rotary: fundraiser"] == "ready"
+    assert by_label["Rotary: plan next meeting"] == "captured"
+    assert by_label["renew domains"] == "ready"
+    assert by_label["someday woodworking"] == "captured"
+
+
+def test_question_persists_as_subtask_line():
+    t = BucketTask(text="topic", stage="binding", question="Is this mine to solve?")
+    md = _format_bucket_tasks([t], [])
+    assert "- ? Is this mine to solve?" in md
+    parsed, _ = _parse_bucket_file(md)
+    assert parsed[0].question == "Is this mine to solve?"
+    assert parsed[0].subtasks == []
+
+
+# ── Stage 1: the ready gate on Timing ───────────────────────────
+
+def test_move_refuses_non_ready(client, vault):
+    _week_file(vault)
+    _write_bucket(vault, "# Planning Bucket\n\n- unbounded topic\n")
+    r = client.post("/plan/bucket/move", json={
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0,
+    })
+    assert r.status_code == 400
+    assert "Ready" in r.json()["detail"]
+
+
+def test_move_allows_ready_and_preserves_binding_artifacts(client, vault):
+    _week_file(vault)
+    _write_bucket(
+        vault,
+        "# Planning Bucket\n\n"
+        "- B: bounded thing ~s:ready ~e:s ~rs:2026-07-01\n"
+        "\t- do the first step\n",
+    )
+    r = client.post("/plan/bucket/move", json={
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0,
+    })
+    assert r.status_code == 200, r.text
+    week = (vault / "0-Inbox" / WEEK).read_text()
+    assert "bounded thing" in week
+    assert "~es" in week             # estimate survives the round trip
+    assert "do the first step" in week  # next action survives the move
+    assert "~s:" not in week         # stage tokens do not leak into the week
+
+
+def test_week_task_returns_ready_when_still_bound(client, vault):
+    _week_file(vault)
+    _write_bucket(
+        vault,
+        "# Planning Bucket\n\n"
+        "- B: bounded thing ~s:ready ~e:s\n"
+        "\t- do the first step\n",
+    )
+    client.post("/plan/bucket/move", json={
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0,
+    })
+    # it is Monday's only task — send it back
+    r = client.post("/plan/bucket/move", json={
+        "task_index": 0, "direction": "to_bucket", "day_idx": 0,
+    })
+    assert r.status_code == 200, r.text
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    back = [t for t in tasks if "bounded thing" in t.text][0]
+    assert back.stage == "ready"
+    assert back.estimate == "s"
+    assert [s.text for s in back.subtasks] == ["do the first step"]
+
+
+def test_unbound_week_task_returns_captured(client, vault):
+    _week_file(vault, monday_task="loose idea from the week")
+    _write_bucket(vault, "# Planning Bucket\n")
+    r = client.post("/plan/bucket/move", json={
+        "task_index": 0, "direction": "to_bucket", "day_idx": 0,
+    })
+    assert r.status_code == 200, r.text
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].stage == "captured"
+
+
+# ── Stage 1/2: save-side transition gates ───────────────────────
+
+def _save(client, tasks):
+    return client.post("/plan/bucket/save", json={
+        "tasks": [t.model_dump() for t in tasks], "pinned_groups": [],
+    })
+
+
+def test_ready_transition_requires_next_action_and_estimate(client, vault):
+    _write_bucket(vault, "# Planning Bucket\n\n- topic\n")
+    # no subtask, no estimate
+    r = _save(client, [BucketTask(text="topic", stage="ready")])
+    assert r.status_code == 422
+    assert "next action" in r.json()["detail"]
+    assert "estimate" in r.json()["detail"]
+    # subtask but no estimate
+    r = _save(client, [BucketTask(
+        text="topic", stage="ready", subtasks=[Subtask(text="step")],
+    )])
+    assert r.status_code == 422
+    # both → passes, readySince stamped
+    r = _save(client, [BucketTask(
+        text="topic", stage="ready", estimate="l", subtasks=[Subtask(text="step")],
+    )])
+    assert r.status_code == 200, r.text
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].stage == "ready"
+    assert tasks[0].ready_since == date.today().isoformat()
+    assert tasks[0].stage_entered_at == date.today().isoformat()
+
+
+def test_grandfathered_state_saves_without_gates(client, vault):
+    """Unchanged stages pass through — pre-funnel files stay saveable."""
+    _write_bucket(vault, "# Planning Bucket\n\n- nA: old thing ~w2624\n")
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].stage == "ready"  # grandfathered, no estimate/subtask
+    r = _save(client, tasks)
+    assert r.status_code == 200, r.text
+
+
+def test_binding_requires_question(client, vault):
+    _write_bucket(vault, "# Planning Bucket\n\n- topic\n")
+    r = _save(client, [BucketTask(text="topic", stage="binding")])
+    assert r.status_code == 422
+    r = _save(client, [BucketTask(text="topic", stage="binding", question="no mark")])
+    assert r.status_code == 422
+    r = _save(client, [BucketTask(
+        text="topic", stage="binding", question="What is the real blocker?",
+    )])
+    assert r.status_code == 200, r.text
+
+
+def test_dormant_requires_wake_date_discard_requires_reason(client, vault):
+    _write_bucket(vault, "# Planning Bucket\n\n- a\n- b\n")
+    r = _save(client, [BucketTask(text="a", stage="dormant")])
+    assert r.status_code == 422
+    r = _save(client, [
+        BucketTask(text="a", stage="dormant", wake_date="2026-09-01"),
+        BucketTask(text="b", stage="discarded"),
+    ])
+    assert r.status_code == 422
+    r = _save(client, [
+        BucketTask(text="a", stage="dormant", wake_date="2026-09-01"),
+        BucketTask(text="b", stage="discarded", discard_reason="not_mine"),
+    ])
+    assert r.status_code == 200, r.text
+
+
+# ── Stage 2: the WIP limit ──────────────────────────────────────
+
+def _binding(text):
+    return BucketTask(text=text, stage="binding", question=f"{text}?")
+
+
+def test_fifth_binding_item_refused(client, vault):
+    existing = "\n".join(
+        f"- topic {i} ~s:binding\n\t- ? topic {i}?" for i in range(4)
+    )
+    _write_bucket(vault, f"# Planning Bucket\n\n{existing}\n- new topic\n")
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    tasks[-1] = _binding("new topic")
+    r = _save(client, tasks)
+    assert r.status_code == 422
+    assert "at most 4" in r.json()["detail"]
+
+
+def test_binding_swap_allowed_at_limit(client, vault):
+    """Evicting one and admitting another in the same save is fine."""
+    existing = "\n".join(
+        f"- topic {i} ~s:binding\n\t- ? topic {i}?" for i in range(4)
+    )
+    _write_bucket(vault, f"# Planning Bucket\n\n{existing}\n- new topic\n")
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    tasks[0].stage = "dormant"
+    tasks[0].wake_date = "2026-10-01"
+    tasks[-1] = _binding("new topic")
+    r = _save(client, tasks)
+    assert r.status_code == 200, r.text
+
+
+def test_over_limit_hand_edit_can_still_be_reduced(client, vault):
+    """A hand-edited file with 6 binding items must remain saveable
+    as long as the save doesn't grow the count."""
+    existing = "\n".join(
+        f"- topic {i} ~s:binding\n\t- ? topic {i}?" for i in range(6)
+    )
+    _write_bucket(vault, f"# Planning Bucket\n\n{existing}\n")
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert sum(1 for t in tasks if t.stage == "binding") == 6
+    r = _save(client, tasks)  # unchanged: allowed
+    assert r.status_code == 200, r.text
+    tasks[0].stage = "dormant"
+    tasks[0].wake_date = "2026-10-01"
+    r = _save(client, tasks)  # reducing: allowed
+    assert r.status_code == 200, r.text

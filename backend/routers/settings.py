@@ -1,6 +1,7 @@
 """Settings API — vault path and reference links configuration."""
 
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -44,11 +45,18 @@ class SettingsResponse(BaseModel):
     context_tags: Dict[str, str] = {}
     coach_enabled: bool = True
     diary_folder: str = ""
+    funnel: Dict = {}
 
 
 class ContextSettingsUpdate(BaseModel):
     contexts: Dict[str, list]
     context_tags: Dict[str, str]
+
+
+class FunnelSettingsUpdate(BaseModel):
+    binding_limit: Optional[int] = None
+    evening_cutoff: Optional[str] = None
+    dispatch_limit: Optional[int] = None
 
 
 class DiaryFolderUpdate(BaseModel):
@@ -209,7 +217,22 @@ async def get_settings():
         context_tags=config.context_tags,
         coach_enabled=config.coach_enabled,
         diary_folder=config.diary_folder,
+        funnel=config.funnel,
     )
+
+
+@router.post("/funnel")
+async def save_funnel_settings(body: FunnelSettingsUpdate):
+    """Persist funnel settings (vault settings file — shared everywhere)."""
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "binding_limit" in updates:
+        updates["binding_limit"] = max(1, min(10, int(updates["binding_limit"])))
+    if "dispatch_limit" in updates:
+        updates["dispatch_limit"] = max(1, min(10, int(updates["dispatch_limit"])))
+    if "evening_cutoff" in updates and not re.match(r"^\d{2}:\d{2}$", updates["evening_cutoff"]):
+        raise HTTPException(status_code=400, detail="evening_cutoff must be HH:MM")
+    config.save_funnel(updates)
+    return {"status": "saved", "funnel": config.funnel}
 
 
 @router.post("/diary-folder")

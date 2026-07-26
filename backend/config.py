@@ -267,6 +267,42 @@ class Config:
             tags.setdefault(abbrev, name)
         return tags
 
+    # ── Funnel settings (vault-shared, like the rest) ───────────
+    _FUNNEL_DEFAULTS = {
+        "binding_limit": 4,     # WIP limit on the Binding stage
+        "evening_cutoff": "21:00",  # slate: solve items hidden after this
+        "dispatch_limit": 3,    # handoff: max in-flight dispatches
+        "last_review": "",      # ISO date the weekly review last completed
+    }
+
+    @property
+    def funnel(self) -> dict:
+        merged = dict(self._FUNNEL_DEFAULTS)
+        raw = self._vault_settings().get("funnel")
+        if isinstance(raw, dict):
+            merged.update({k: raw[k] for k in self._FUNNEL_DEFAULTS if k in raw})
+        return merged
+
+    @property
+    def binding_limit(self) -> int:
+        try:
+            return max(1, int(self.funnel["binding_limit"]))
+        except (TypeError, ValueError):
+            return int(self._FUNNEL_DEFAULTS["binding_limit"])
+
+    @property
+    def dispatch_limit(self) -> int:
+        try:
+            return max(1, int(self.funnel["dispatch_limit"]))
+        except (TypeError, ValueError):
+            return int(self._FUNNEL_DEFAULTS["dispatch_limit"])
+
+    def save_funnel(self, updates: dict) -> None:
+        merged = dict(self.funnel)
+        merged.update({k: v for k, v in (updates or {}).items()
+                       if k in self._FUNNEL_DEFAULTS})
+        self._save_vault_settings({"funnel": merged})
+
     @property
     def diary_folder(self) -> str:
         """Vault folder for daily diary files (<date> diary.md). Empty = off."""
