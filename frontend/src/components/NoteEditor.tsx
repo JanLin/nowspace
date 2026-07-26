@@ -104,6 +104,16 @@ export interface NoteEditorProps {
 }
 
 export default function NoteEditor({ initialPath, initialName, onClose, embedded = false }: NoteEditorProps) {
+  // Small screens can't afford the split live view — each half ends up too
+  // narrow to read. Below the breakpoint the editor is single-pane: write
+  // in "edit", flip to "preview" when done (toggle in the header).
+  const [narrow, setNarrow] = useState(() => window.innerWidth < 768);
+  const [mobilePreview, setMobilePreview] = useState(false);
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -576,6 +586,15 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
                 <span>{openAPs.length} AP{openAPs.length !== 1 ? "s" : ""}</span>
               </button>
             )}
+            {narrow && (
+              <button onClick={() => setMobilePreview((p) => !p)}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                  mobilePreview ? "bg-blue-50 text-blue-700 border-blue-200" : "text-gray-500 border-gray-200"
+                }`}
+                title={mobilePreview ? "Back to editing" : "Preview the rendered note"}>
+                {mobilePreview ? "✎ Edit" : "👁 Preview"}
+              </button>
+            )}
             {saving && <span className="text-[10px] text-blue-500">Saving...</span>}
             {hasUnsaved && !saving && <span className="text-[10px] text-amber-500">Unsaved</span>}
             {!hasUnsaved && !saving && !loading && <span className="text-[10px] text-green-500">Saved</span>}
@@ -681,8 +700,8 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
               value={content}
               onChange={handleChange}
               height="100%"
-              preview="live"
-              hideToolbar={false}
+              preview={narrow ? (mobilePreview ? "preview" : "edit") : "live"}
+              hideToolbar={narrow && mobilePreview}
               previewOptions={previewOptions}
               visibleDragbar={false}
             />
