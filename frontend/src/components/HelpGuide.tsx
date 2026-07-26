@@ -109,6 +109,16 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     ],
   },
   {
+    title: "Handing work to an agent",
+    body: [
+      "A Bucket item can be handed to an agent for the area it belongs to (the 🤝 Handoff button, or \"agent\" in an item's badge menu). You attach the notes the agent should read, name what you expect back — a diagnosis, a patch, some options, a critique — and Nowspace checks that everything you named stays inside that one area.",
+      "If a note reaches outside the area, through a link or an embed, the handoff isn't available. That isn't strictness for its own sake: the whole point of separating areas is that one customer's material never reaches an agent working for another, and a check you can click past isn't a check.",
+      "Captured items can't be handed off. Neither can rehearse items — the value of practice is the effort of recalling, and an answer removes it.",
+      "What comes back arrives in the Returned lane and lands in your inbox as Captured, exactly like anything else you write down. It doesn't become a scheduled task, and nothing is promoted on your behalf. The agent can help you answer a question; deciding which questions you carry stays yours.",
+      "Why only three at once? The same reason there are only four Binding items. Agent work is fast, satisfying and visible, which makes it the easiest thing in your week to do instead of the work that was actually due. Three in flight, and a fourth asks you which one is finished.",
+    ],
+  },
+  {
     title: "Why Nowspace never notifies you about overdue work",
     body: [
       "It doesn't, and it won't. See the principles (Philosophy in the help menu).",

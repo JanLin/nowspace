@@ -8,6 +8,7 @@ import {
   BindDialog, ReadyDialog, DormantDialog, DiscardDialog, EvictionDialog, WeeklyReview,
   FunnelStatsModal,
 } from "./Funnel";
+import HandoffSurface, { DispatchComposer } from "./Handoff";
 
 // Same annotation as the Plan tab; "-" = unassigned
 const PRIORITIES = ["A", "B", "C", "D"] as const;
@@ -169,6 +170,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   const [evictionFor, setEvictionFor] = useState<number | null>(null); // idx of item waiting for a Binding slot
   const [reviewOpen, setReviewOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [composerFor, setComposerFor] = useState<{ idx: number; area: string } | null>(null);
 
   // Context filter — follows the selection set in the week view (shared via localStorage)
   const [ctxMap, setCtxMap] = useState<CtxMap>({});
@@ -569,6 +572,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
         <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); setStageDialog({ idx, kind: "discard" }); }}
           title="Discard with a reason"
           className="px-1 py-0 rounded text-[10px] font-medium text-gray-500 hover:bg-gray-100">drop</button>
+        {(stageOf(task) === "ready" || stageOf(task) === "binding") && task.mode !== "rehearse" && (
+          <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); requestHandoff(idx); }}
+            title="Hand off to the area's agent — Nowspace checks everything named stays inside the area"
+            className="px-1 py-0 rounded text-[10px] font-medium text-teal-600 hover:bg-teal-100">agent</button>
+        )}
       </div>
       {withPlan && stageOf(task) === "ready" && (
         <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
@@ -809,6 +817,21 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   const bindingItems = tasks
     .map((t, i) => ({ task: t, originalIdx: i }))
     .filter(({ task }) => stageOf(task) === "binding" && taskVisibleInMode(task.text));
+
+  // Hand off to the item's area agent (handoff brief): the area is derived
+  // from the item's group, never chosen here. Ready/binding only; rehearse never.
+  const requestHandoff = async (idx: number) => {
+    const t = tasks[idx];
+    if (!t || t.mode === "rehearse") return;
+    const { group } = parseGroup(t.text);
+    if (!group) { setError("Handoff needs a group that maps to an agent area"); return; }
+    try {
+      const r = await api.handoffAreaForGroup(group);
+      if (!r.area) { setError(`Group “${group}” doesn't map to an area with an agent binding (Settings → Agent areas)`); return; }
+      if (dirty) await saveBucket();
+      setComposerFor({ idx, area: r.area });
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed"); }
+  };
 
   /* ── drag & drop ─────────────────────────────────────── */
 
@@ -1085,6 +1108,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
             title="Funnel diagnostics — time in stage, Binding exits, slip rate. System metrics only.">
             📊 Stats
+          </button>
+          <button onClick={() => setHandoffOpen(true)}
+            className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+            title="Agent handoff — drafting / in flight / returned. Opens, empties, closes.">
+            🤝 Handoff
           </button>
         </Cluster>
       </div>
@@ -1762,6 +1790,12 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           onClose={() => setReviewOpen(false)} />
       )}
       {statsOpen && <FunnelStatsModal onClose={() => setStatsOpen(false)} />}
+      {handoffOpen && <HandoffSurface onClose={() => setHandoffOpen(false)} onOpenNote={onOpenNote} />}
+      {composerFor && tasks[composerFor.idx] && (
+        <DispatchComposer task={tasks[composerFor.idx]} area={composerFor.area}
+          onDone={() => { setComposerFor(null); setHandoffOpen(true); }}
+          onCancel={() => setComposerFor(null)} />
+      )}
 
       {/* Sticky bottom bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1.5" style={{ background: 'color-mix(in srgb, var(--bg) 95%, transparent)', borderColor: 'var(--border)' }}>

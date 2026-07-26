@@ -88,6 +88,25 @@ const SECTIONS: { title: string; body: string[] }[] = [
     ],
   },
   {
+    title: "Nowspace hands over paths, never content",
+    body: [
+      "When you hand work to an agent, Nowspace tells it where to look. It never reads your notes and passes them along. Access is enforced where it can actually be enforced — by the operating system, outside this application — and Nowspace's job is to make sure the request you're about to make stays inside one area.",
+      "This is deliberate humility about what a note-taking application can promise. Software that implements its own access control and asks you to trust it has given you a feeling rather than a boundary.",
+    ],
+  },
+  {
+    title: "Areas do not leak into each other",
+    body: [
+      "One area, one agent, one body of material. There is no way to ask an agent about two customers at once, and there won't be. If you need the comparison, that is a signal about how your notes are organised, not a limitation to work around.",
+    ],
+  },
+  {
+    title: "The agent answers your question; it does not choose it",
+    body: [
+      "Nothing an agent produces enters your plan directly. It arrives in your inbox, unjudged and unpromoted, and waits for the same weekly decision as everything else you capture. The single most valuable thing in this system is your own judgment about what deserves your attention, and it is the last thing that should be automated away.",
+    ],
+  },
+  {
     title: "Sovereign by design",
     body: [
       "Everything Nowspace knows lives in plain, readable files on a disk you control. No accounts, no cloud you can't leave, no lock-in — open the folder in any editor and it's all just there, yours. This was a founding motivation, not an afterthought: a second brain you don't own is someone else's brain.",

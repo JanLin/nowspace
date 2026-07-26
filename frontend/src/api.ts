@@ -134,6 +134,38 @@ export interface BucketTask {
   stage_entered_at?: string; // ISO date
 }
 
+export interface HandoffArea {
+  name: string;
+  root: string;
+  agent_binding: string;
+  proposals_path: string;
+  transcripts_path: string;
+  valid?: boolean;
+}
+
+export interface Dispatch {
+  id: string;
+  area: string;
+  source_item: string;
+  source_label: string;
+  attached_notes: string[];
+  expected_artifact: string;
+  state: "drafting" | "in_flight" | "returned" | "closed";
+  opened_at: string;
+  closed_at: string;
+  exchange_count: number;
+  transcript_path: string;
+  conformance: "pass" | "fail";
+}
+
+export interface HandoffReturn {
+  name: string;
+  path: string;
+  area: string;
+  modified: string;
+  dispatch_id: string;
+}
+
 export interface FunnelSettings {
   binding_limit: number;
   evening_cutoff: string; // "HH:MM"
@@ -430,6 +462,50 @@ export const api = {
     request<{ status: string }>("/plan/slate/capture", {
       method: "POST",
       body: JSON.stringify({ text }),
+    }),
+
+  // Handoff (agent dispatch)
+  getHandoffAreas: () =>
+    request<{ areas: HandoffArea[]; dispatch_limit: number }>("/api/handoff/areas"),
+
+  saveHandoffAreas: (areas: HandoffArea[]) =>
+    request<{ status: string; areas: HandoffArea[] }>("/api/handoff/areas", {
+      method: "PUT",
+      body: JSON.stringify({ areas }),
+    }),
+
+  handoffAreaForGroup: (group: string) =>
+    request<{ area: string | null }>(`/api/handoff/area-for-group?group=${encodeURIComponent(group)}`),
+
+  handoffCheck: (body: { source_text: string; area: string; attached_notes: string[]; expected_artifact: string }) =>
+    request<{ conformance: "pass" | "fail"; failures: string[] }>("/api/handoff/check", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  createDispatch: (body: { source_text: string; area: string; attached_notes: string[]; expected_artifact: string }) =>
+    request<Dispatch>("/api/handoff/dispatches", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getDispatches: (area: string = "") =>
+    request<{ dispatches: Dispatch[]; closed_count: number; in_flight: number; limit: number }>(
+      `/api/handoff/dispatches${area ? `?area=${encodeURIComponent(area)}` : ""}`),
+
+  updateDispatch: (area: string, id: string, body: { state?: string; exchange_count?: number; transcript_path?: string }) =>
+    request<Dispatch>(`/api/handoff/dispatches/${encodeURIComponent(area)}/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  getHandoffReturns: (area: string = "") =>
+    request<{ returns: HandoffReturn[] }>(`/api/handoff/returns${area ? `?area=${encodeURIComponent(area)}` : ""}`),
+
+  resolveHandoffReturn: (body: { area: string; path: string; action: "discard" | "capture"; capture_texts?: string[] }) =>
+    request<{ status: string }>("/api/handoff/returns/resolve", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 
   getFunnelStats: () =>
