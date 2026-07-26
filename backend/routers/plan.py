@@ -33,6 +33,29 @@ def _require_current_schema(sent: int) -> None:
                 "silent field loss."
             ),
         )
+    # The vault itself may have been written by a NEWER installation (the
+    # marker syncs in with the files) — a matched pair like the desktop app
+    # can only find that out here, from the data, not from any API skew.
+    marker = config.bucket_schema_marker
+    if marker > BUCKET_SCHEMA_VERSION:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"This vault's data is format {marker}, but this Nowspace "
+                f"installation only speaks {BUCKET_SCHEMA_VERSION} — update "
+                "this installation before editing (another device already "
+                "upgraded the vault)."
+            ),
+        )
+
+
+def _stamp_vault_schema() -> None:
+    """After a successful v-current bucket write, record the format in the
+    vault-shared settings so older installations can detect it."""
+    try:
+        config.stamp_bucket_schema(BUCKET_SCHEMA_VERSION)
+    except OSError:
+        pass  # marker upkeep never blocks a save
 from backend.session import create_session, get_session
 from backend.utils.memory_manager import read_memory, append_weekly_log
 
@@ -1589,6 +1612,7 @@ async def save_bucket(req: BucketSaveRequest):
     md = _format_bucket_tasks(req.tasks, req.pinned_groups)
     bucket.write_text(md, encoding="utf-8")
     _log_funnel_transitions(transitions)
+    _stamp_vault_schema()
     return {"status": "saved", "task_count": len(req.tasks), "mtime": bucket.stat().st_mtime}
 
 
@@ -1706,6 +1730,7 @@ async def move_bucket_task(req: BucketMoveRequest):
     from backend.models import SaveWeekRequest
     await save_week_plan(SaveWeekRequest(days=plan_days, offset=req.week_offset))
 
+    _stamp_vault_schema()
     return {"status": "moved", "direction": req.direction, "bucket_count": len(bucket_tasks)}
 
 

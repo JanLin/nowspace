@@ -41,13 +41,7 @@ export default function App() {
           const h = await api.health();
           if (!cancelled) {
             setBackendUp(true);
-            // Version-skew check: every instance (desktop app, PWA, dev)
-            // must speak the same bucket schema or writes are refused —
-            // surface the mismatch at boot instead of at the first save.
-            const backendSchema = h.schema_version ?? 1;
-            if (backendSchema > CLIENT_SCHEMA_VERSION) setSchemaSkew("client-old");
-            else if (backendSchema < CLIENT_SCHEMA_VERSION) setSchemaSkew("backend-old");
-            else setSchemaSkew(null);
+            applySkew(h);
           }
           return;
         } catch {
@@ -58,7 +52,32 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, []);
-  const [schemaSkew, setSchemaSkew] = useState<"client-old" | "backend-old" | null>(null);
+  const [schemaSkew, setSchemaSkew] = useState<"client-old" | "backend-old" | "vault-newer" | null>(null);
+
+  // Version-skew check: every instance (desktop app, PWA, dev) must speak
+  // the same bucket schema or writes are refused — surface the mismatch
+  // proactively instead of at the first save. Three cases:
+  //  - backend newer than this UI  → stale bundle (PWA cache) → reload
+  //  - backend older than this UI  → server needs updating
+  //  - VAULT newer than both       → the marker synced in with the files:
+  //    another device already upgraded. This is the only signal an
+  //    isolated matched pair (the desktop app) can ever receive.
+  const applySkew = (h: { schema_version?: number; vault_schema?: number }) => {
+    const backendSchema = h.schema_version ?? 1;
+    const vaultSchema = h.vault_schema ?? 0;
+    if (backendSchema > CLIENT_SCHEMA_VERSION) setSchemaSkew("client-old");
+    else if (backendSchema < CLIENT_SCHEMA_VERSION) setSchemaSkew("backend-old");
+    else if (vaultSchema > CLIENT_SCHEMA_VERSION) setSchemaSkew("vault-newer");
+    else setSchemaSkew(null);
+  };
+
+  // Re-check every 5 minutes: Syncthing can deliver an upgraded vault (or a
+  // deployment can update the backend) while the app sits open.
+  useEffect(() => {
+    if (!backendUp) return;
+    const t = setInterval(() => { api.health().then(applySkew).catch(() => {}); }, 5 * 60_000);
+    return () => clearInterval(t);
+  }, [backendUp]);
 
   // Once the backend is up, check if vault is configured and valid
   useEffect(() => {
@@ -269,6 +288,9 @@ export default function App() {
                 Reload to update
               </button>
             </>
+          ) : schemaSkew === "vault-newer" ? (
+            <>⚠️ Another device already writes a newer data format to this vault —
+              update this Nowspace installation before editing the bucket.</>
           ) : (
             <>⚠️ The Nowspace server on this machine is out of date — update it
               (desktop app: rebuild the backend) before editing the bucket.</>

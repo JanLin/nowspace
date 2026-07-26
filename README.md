@@ -266,6 +266,22 @@ update, and find logs in `~/Library/Logs/nowspace-{server,update}.log`.
 
 4. Open **http://localhost:5173** in your browser.
 
+### Versioning and compatibility
+
+Instances (desktop apps, PWA, self-hosted server) interoperate as long as
+they speak the same **bucket data format** (`BUCKET_SCHEMA_VERSION` in
+`backend/models.py`), which is independent of the app version:
+
+- **Patch releases (0.x.y)** never change the data format. Mixed patch
+  levels work together; upgrading is optional.
+- **Minor releases (0.x)** may bump the format. When they do, every
+  instance must upgrade: out-of-date instances show an amber banner and
+  refuse bucket edits (the format marker also travels inside the vault's
+  synced settings file, so even the self-contained desktop app detects it).
+
+Rule for contributors: bump `BUCKET_SCHEMA_VERSION` only together with a
+minor version bump, and never in a patch release.
+
 ### Tests
 
 The backend has a pytest suite covering the funnel gates (stage transitions,

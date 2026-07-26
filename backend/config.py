@@ -305,6 +305,25 @@ class Config:
                        if k in self._FUNNEL_DEFAULTS})
         self._save_vault_settings({"funnel": merged})
 
+    # ── Bucket format marker (travels WITH the vault via Syncthing) ──
+    # The API-level schema guard can't reach an isolated matched pair like
+    # the desktop app (its UI and bundled backend always agree with each
+    # other). This marker rides the synced settings file, so any instance —
+    # however isolated — can see from the data itself that the vault is
+    # written in a newer format than it understands, and refuse to edit.
+
+    @property
+    def bucket_schema_marker(self) -> int:
+        val = self._vault_settings().get("bucket_schema")
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return 0  # pre-marker vault
+
+    def stamp_bucket_schema(self, version: int) -> None:
+        if self.bucket_schema_marker != version:
+            self._save_vault_settings({"bucket_schema": int(version)})
+
     @property
     def diary_folder(self) -> str:
         """Vault folder for daily diary files (<date> diary.md). Empty = off."""

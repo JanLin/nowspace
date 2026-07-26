@@ -343,3 +343,34 @@ def test_old_client_move_refused(client, vault):
     })
     assert r.status_code == 422
     assert "out of date" in r.json()["detail"]
+
+
+def test_vault_marker_written_and_advertised(client, vault):
+    """A successful save stamps the vault-shared marker so other (isolated)
+    installations can see the format from the synced files."""
+    from backend.models import BUCKET_SCHEMA_VERSION
+    from backend.config import config
+    _write_bucket(vault, "# Planning Bucket\n\n- topic\n")
+    r = _save(client, [BucketTask(text="topic")])
+    assert r.status_code == 200
+    assert config.bucket_schema_marker == BUCKET_SCHEMA_VERSION
+    assert "bucket_schema" in (vault / "0-Inbox" / "Plan Week Configuration.md").read_text()
+    assert client.get("/health").json()["vault_schema"] == BUCKET_SCHEMA_VERSION
+
+
+def test_vault_from_the_future_refuses_edits(client, vault):
+    """A matched pair (desktop app) never sees API skew — the synced marker
+    is how it learns the vault is written in a newer format than it speaks."""
+    from backend.config import config
+    config._save_vault_settings({"bucket_schema": 99})
+    _write_bucket(vault, "# Planning Bucket\n\n- B: thing ~s:ready ~e:s\n\t- step\n")
+    before = (vault / "0-Inbox" / BUCKET).read_text()
+    r = _save(client, [BucketTask(text="thing", priority="B", stage="ready",
+                                  estimate="s", subtasks=[Subtask(text="step")])])
+    assert r.status_code == 422
+    assert "another device" in r.json()["detail"].lower() or "format 99" in r.json()["detail"]
+    assert (vault / "0-Inbox" / BUCKET).read_text() == before
+    r = client.post("/plan/bucket/move", json={
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": 2,
+    })
+    assert r.status_code == 422

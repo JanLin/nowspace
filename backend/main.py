@@ -43,7 +43,18 @@ async def health():
     # a NEWER version than this backend must not edit (its saves would be
     # refused by extra=forbid anyway, but the banner explains why), and a
     # client OLDER than this backend gets told to update/reload.
-    return {"status": "ok", "schema_version": BUCKET_SCHEMA_VERSION}
+    # vault_schema is the marker synced in WITH the vault files — it is how
+    # an isolated matched pair (the desktop app) finds out that another
+    # device already writes a newer format.
+    try:
+        vault_schema = config.bucket_schema_marker
+    except Exception:
+        vault_schema = 0
+    return {
+        "status": "ok",
+        "schema_version": BUCKET_SCHEMA_VERSION,
+        "vault_schema": vault_schema,
+    }
 
 
 @app.get("/update-check")
