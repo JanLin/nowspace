@@ -111,6 +111,9 @@ export interface WeekPlanResponse {
   is_archive: boolean;
 }
 
+export type BucketStage = "captured" | "binding" | "ready" | "dormant" | "discarded";
+export type DiscardReason = "no_agency" | "already_decided" | "not_mine";
+
 export interface BucketTask {
   text: string;
   priority: string;
@@ -118,6 +121,58 @@ export interface BucketTask {
   focused: boolean;
   waiting: boolean;
   subtasks: Subtask[];
+  // Funnel — see docs/funnel-discovery.md. Fields round-trip through tilde
+  // tokens on the bucket line; the server enforces the transition gates.
+  stage?: BucketStage;      // default captured
+  question?: string;        // binding only, must end in "?"
+  mode?: "solve" | "rehearse";
+  estimate?: "" | "s" | "m" | "l";
+  slip_count?: number;
+  ready_since?: string;     // ISO date
+  wake_date?: string;       // ISO date (dormant)
+  discard_reason?: DiscardReason | "";
+  stage_entered_at?: string; // ISO date
+}
+
+export interface HandoffArea {
+  name: string;
+  root: string;
+  agent_binding: string;
+  proposals_path: string;
+  transcripts_path: string;
+  valid?: boolean;
+}
+
+export interface Dispatch {
+  id: string;
+  area: string;
+  source_item: string;
+  source_label: string;
+  attached_notes: string[];
+  expected_artifact: string;
+  state: "drafting" | "in_flight" | "returned" | "closed";
+  opened_at: string;
+  closed_at: string;
+  exchange_count: number;
+  transcript_path: string;
+  conformance: "pass" | "fail";
+}
+
+export interface HandoffReturn {
+  name: string;
+  path: string;
+  area: string;
+  modified: string;
+  dispatch_id: string;
+}
+
+export interface FunnelSettings {
+  binding_limit: number;
+  evening_cutoff: string; // "HH:MM"
+  dispatch_limit: number;
+  last_review: string;    // ISO date, "" = never
+  last_review_secs: number;
+  week_focus: string;
 }
 
 export interface BucketResponse {
@@ -159,8 +214,14 @@ export interface DayNotesResponse {
   general?: string;
 }
 
+// Bucket wire-format version this build speaks — must match the backend's
+// BUCKET_SCHEMA_VERSION. Sent with every bucket write; the backend refuses
+// older senders (a stale PWA would otherwise flatten funnel fields), and
+// App.tsx compares it against /health to warn about skew at boot.
+export const CLIENT_SCHEMA_VERSION = 2;
+
 export const api = {
-  health: () => request<{ status: string }>("/health"),
+  health: () => request<{ status: string; schema_version?: number }>("/health"),
   updateCheck: () => request<{ version: string | null }>("/update-check"),
   saveDiaryFolder: (folder: string) =>
     request<{ status: string; diary_folder: string }>("/api/settings/diary-folder", {
@@ -242,19 +303,22 @@ export const api = {
   saveBucket: (tasks: BucketTask[], pinned_groups: string[], expectedMtime?: number | null) =>
     request<{ status: string; mtime?: number }>("/plan/bucket/save", {
       method: "POST",
-      body: JSON.stringify({ tasks, pinned_groups, expected_mtime: expectedMtime ?? null }),
+      body: JSON.stringify({
+        tasks, pinned_groups, expected_mtime: expectedMtime ?? null,
+        schema_version: CLIENT_SCHEMA_VERSION,
+      }),
     }),
 
   moveToBucket: (task_index: number, day_idx: number, week_offset: number = 0, horizon: string = "") =>
     request<{ status: string; bucket_count: number }>("/plan/bucket/move", {
       method: "POST",
-      body: JSON.stringify({ task_index, direction: "to_bucket", day_idx, week_offset, horizon }),
+      body: JSON.stringify({ task_index, direction: "to_bucket", day_idx, week_offset, horizon, schema_version: CLIENT_SCHEMA_VERSION }),
     }),
 
   moveFromBucket: (task_index: number, day_idx: number, week_offset: number = 0) =>
     request<{ status: string; bucket_count: number }>("/plan/bucket/move", {
       method: "POST",
-      body: JSON.stringify({ task_index, direction: "from_bucket", day_idx, week_offset }),
+      body: JSON.stringify({ task_index, direction: "from_bucket", day_idx, week_offset, schema_version: CLIENT_SCHEMA_VERSION }),
     }),
 
   // Carry forward
@@ -390,7 +454,78 @@ export const api = {
       context_tags: Record<string, string>;
       coach_enabled?: boolean;
       diary_folder?: string;
+      funnel?: FunnelSettings;
     }>("/api/settings"),
+
+  saveFunnelSettings: (updates: Partial<FunnelSettings> & { last_review_secs?: number }) =>
+    request<{ status: string; funnel: FunnelSettings }>("/api/settings/funnel", {
+      method: "POST",
+      body: JSON.stringify(updates),
+    }),
+
+  // Funnel: ambient slate + diagnostics
+  getSlate: () =>
+    request<{ evening: boolean; cutoff: string; items: { question: string; label: string; mode: string }[] }>("/plan/slate"),
+
+  slateCapture: (text: string) =>
+    request<{ status: string }>("/plan/slate/capture", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+
+  // Handoff (agent dispatch)
+  getHandoffAreas: () =>
+    request<{ areas: HandoffArea[]; dispatch_limit: number }>("/api/handoff/areas"),
+
+  saveHandoffAreas: (areas: HandoffArea[]) =>
+    request<{ status: string; areas: HandoffArea[] }>("/api/handoff/areas", {
+      method: "PUT",
+      body: JSON.stringify({ areas }),
+    }),
+
+  handoffAreaForGroup: (group: string) =>
+    request<{ area: string | null }>(`/api/handoff/area-for-group?group=${encodeURIComponent(group)}`),
+
+  handoffCheck: (body: { source_text: string; area: string; attached_notes: string[]; expected_artifact: string }) =>
+    request<{ conformance: "pass" | "fail"; failures: string[] }>("/api/handoff/check", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  createDispatch: (body: { source_text: string; area: string; attached_notes: string[]; expected_artifact: string }) =>
+    request<Dispatch>("/api/handoff/dispatches", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getDispatches: (area: string = "") =>
+    request<{ dispatches: Dispatch[]; closed_count: number; in_flight: number; limit: number }>(
+      `/api/handoff/dispatches${area ? `?area=${encodeURIComponent(area)}` : ""}`),
+
+  updateDispatch: (area: string, id: string, body: { state?: string; exchange_count?: number; transcript_path?: string }) =>
+    request<Dispatch>(`/api/handoff/dispatches/${encodeURIComponent(area)}/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  getHandoffReturns: (area: string = "") =>
+    request<{ returns: HandoffReturn[] }>(`/api/handoff/returns${area ? `?area=${encodeURIComponent(area)}` : ""}`),
+
+  resolveHandoffReturn: (body: { area: string; path: string; action: "discard" | "capture"; capture_texts?: string[] }) =>
+    request<{ status: string }>("/api/handoff/returns/resolve", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getFunnelStats: () =>
+    request<{
+      stages: Record<string, { count: number; avg_days_in_stage: number | null }>;
+      ready_age_days: { avg: number | null; max: number | null };
+      binding_exits: Record<string, number>;
+      slip_by_group: Record<string, { ready_items: number; slipped_items: number; total_slips: number }>;
+      last_review: string;
+      last_review_secs: number;
+    }>("/plan/funnel/stats"),
 
   // Habits
   getHabits: () =>

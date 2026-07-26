@@ -41,14 +41,16 @@ A task planning and coaching tool that reads your [Obsidian](https://obsidian.md
 
 ## Download Desktop App
 
-Download the latest version for your platform:
+Download the latest version for your platform (these links always point at
+the newest release — the workflow uploads stable-named copies of every
+installer alongside the versioned ones):
 
 | Platform | Download |
 |---|---|
-| **macOS (Apple Silicon)** | [Nowspace_0.2.0_aarch64.dmg](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.2.0_aarch64.dmg) |
-| **Windows** | [Nowspace_0.2.0_x64-setup.exe](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.2.0_x64-setup.exe) |
-| **Linux (AppImage)** | [Nowspace_0.2.0_amd64.AppImage](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace_0.2.0_amd64.AppImage) |
-| **Linux (deb)** | [nowspace_0.2.0_amd64.deb](https://github.com/JanLin/coaching-agent/releases/latest/download/nowspace_0.2.0_amd64.deb) |
+| **macOS (Apple Silicon)** | [Nowspace-macos-arm64.dmg](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace-macos-arm64.dmg) |
+| **Windows** | [Nowspace-windows-x64-setup.exe](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace-windows-x64-setup.exe) |
+| **Linux (AppImage)** | [Nowspace-linux-x86_64.AppImage](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace-linux-x86_64.AppImage) |
+| **Linux (deb)** | [Nowspace-linux-amd64.deb](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace-linux-amd64.deb) |
 
 Or browse all releases: [github.com/JanLin/coaching-agent/releases](https://github.com/JanLin/coaching-agent/releases)
 
@@ -263,6 +265,30 @@ update, and find logs in `~/Library/Logs/nowspace-{server,update}.log`.
    ```
 
 4. Open **http://localhost:5173** in your browser.
+
+### Tests
+
+The backend has a pytest suite covering the funnel gates (stage transitions,
+WIP limits, migrations) and the handoff conformance check, including the
+canary harness that fails the build if any area's content ever crosses into
+another area's files. CI runs it on every PR.
+
+```bash
+pip install pytest
+python -m pytest backend/tests -q
+```
+
+Tests run against a throwaway vault (`tmp_path`) — see
+`backend/tests/conftest.py` for the `vault`/`client` fixtures new tests
+should build on. They never touch a real vault.
+
+### Staging
+
+To test against a separate vault on separate ports (never touching your
+daily vault or the deployed instance), point a worktree-local `config.yaml`
+at a staging vault and use the `staging-backend` (8100) / `staging-frontend`
+(5273) entries in `.claude/launch.json`. The frontend picks up
+`VITE_API_URL` to reach a non-default backend port.
 
 ### Building the Desktop App
 

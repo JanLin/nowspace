@@ -41,7 +41,9 @@ export default defineConfig({
       : undefined,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // NOWSPACE_API_TARGET lets a staging instance proxy to a backend on
+        // a different port (e.g. 8100) without touching this file
+        target: process.env.NOWSPACE_API_TARGET || 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

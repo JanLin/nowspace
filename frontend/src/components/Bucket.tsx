@@ -1,8 +1,14 @@
 import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
-import type { BucketTask, BucketResponse, TaskLink } from "../api";
+import type { BucketTask, BucketResponse, TaskLink, BucketStage, FunnelSettings } from "../api";
 import TaskCheck from "./TaskCheck";
 import { Cluster } from "../clusters";
+import {
+  STAGE_META, ESTIMATES, stageOf, applyResolution, type StageResolution,
+  BindDialog, ReadyDialog, DormantDialog, DiscardDialog, EvictionDialog, WeeklyReview,
+  FunnelStatsModal,
+} from "./Funnel";
+import HandoffSurface, { DispatchComposer } from "./Handoff";
 
 // Same annotation as the Plan tab; "-" = unassigned
 const PRIORITIES = ["A", "B", "C", "D"] as const;
@@ -51,8 +57,9 @@ function extractLinks(text: string): TaskLink[] {
   return links;
 }
 
-/** Render text with wiki links and markdown hyperlinks as clickable elements */
-function renderWikiText(text: string, onOpenNote?: (path: string, name: string) => void) {
+/** Render text with wiki links and markdown hyperlinks as clickable elements.
+    Exported — the Slate reuses it for solve questions' linked notes. */
+export function renderWikiText(text: string, onOpenNote?: (path: string, name: string) => void) {
   // Combined regex: wiki links [[...]] and markdown links [text](url)
   const COMBINED_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)]+)\)/g;
   const parts: React.ReactNode[] = [];
@@ -72,11 +79,11 @@ function renderWikiText(text: string, onOpenNote?: (path: string, name: string) 
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            api.vaultSearch(name, 1).then((res) => {
-              if (res.results.length > 0 && onOpenNote) {
-                onOpenNote(res.results[0].path, name);
-              }
-            });
+            // vaultResolve (not search): it re-indexes on a miss, so a note
+            // created moments ago in Obsidian or synced in still opens
+            api.vaultResolve(name).then((res) => {
+              if (res.path && onOpenNote) onOpenNote(res.path, res.name || name);
+            }).catch(() => {});
           }}
           className="inline-flex items-center gap-0.5 px-1.5 py-0 bg-blue-50 text-blue-700 rounded text-[11px] font-medium hover:bg-blue-100 transition-colors"
           title={`Open ${name}`}
@@ -155,6 +162,18 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | null>(null);
   const toggleCluster = (k: "tag" | "view" | "filter") => setOpenCluster((prev) => (prev === k ? null : k));
 
+  // ── Funnel state ──────────────────────────────────────────
+  const [funnel, setFunnel] = useState<FunnelSettings | null>(null);
+  const bindingLimit = funnel?.binding_limit ?? 4;
+  // "" = active pipeline (captured + ready); dormant/discarded only on request
+  const [stageFilter, setStageFilter] = useState<"" | BucketStage>("");
+  const [stageDialog, setStageDialog] = useState<{ idx: number; kind: "bind" | "ready" | "dormant" | "discard" } | null>(null);
+  const [evictionFor, setEvictionFor] = useState<number | null>(null); // idx of item waiting for a Binding slot
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [composerFor, setComposerFor] = useState<{ idx: number; area: string } | null>(null);
+
   // Context filter — follows the selection set in the week view (shared via localStorage)
   const [ctxMap, setCtxMap] = useState<CtxMap>({});
   const [ctxTags, setCtxTags] = useState<CtxTags>(DEFAULT_CTX_TAGS);
@@ -173,6 +192,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     const load = () => api.getSettings().then((s) => {
       setCtxMap(s.contexts || {});
       setCtxTags({ ...DEFAULT_CTX_TAGS, ...(s.context_tags || {}) });
+      if (s.funnel) setFunnel(s.funnel);
     }).catch(() => {});
     load();
     const sync = () => setCtxSelState(loadCtxSelection());
@@ -358,7 +378,21 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save";
       // Changed on another device / in Obsidian — don't clobber; banner offers Reload
-      if (msg.includes("changed on disk")) setExternalChange(true); else setError(msg);
+      if (msg.includes("changed on disk")) { setExternalChange(true); }
+      else {
+        setError(msg);
+        // Funnel gate refusals (422) would otherwise loop the 2s auto-save
+        // forever — revert the offending change and keep the message visible.
+        if (/Binding holds|needs|unknown stage|unknown mode/.test(msg) && undoStack.current.length > 0) {
+          const entry = undoStack.current.pop()!;
+          setData({ tasks: entry.tasks, pinned_groups: entry.pinned_groups });
+          setUndoCount(undoStack.current.length);
+          setDirty(false);
+        }
+        // Version skew: every retry would fail identically — stop the loop
+        // and leave the explanation on screen (App shows the banner too).
+        if (msg.includes("out of date")) setDirty(false);
+      }
     }
     finally { setSaving(false); }
   };
@@ -407,7 +441,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
 
   const addTask = (afterIdx: number, text: string, group?: string) => {
     const fullText = group ? `${group}: ${text}` : text;
-    const newTask: BucketTask = { text: fullText, priority: "", focused: false, waiting: false, subtasks: [] };
+    // Capture is never judged: new items are always captured, no required fields
+    const newTask: BucketTask = { text: fullText, priority: "", focused: false, waiting: false, subtasks: [], stage: "captured" };
     const next = [...tasks];
     next.splice(afterIdx + 1, 0, newTask);
     updateTasks(next);
@@ -428,7 +463,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     }
     const newTask: BucketTask = {
       text: canonical ? `${canonical}: ${label}` : text,
-      priority: "", focused: false, waiting: false, subtasks: [],
+      priority: "", focused: false, waiting: false, subtasks: [], stage: "captured",
     };
     // Keep groups contiguous: insert after the group's last task
     let insertAfter = tasks.length - 1;
@@ -509,7 +544,45 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </button>
         ))}
       </div>
-      {withPlan && (
+      {/* Estimate — part of the definition of ready */}
+      {stageOf(task) === "ready" && (
+        <div className="flex gap-0.5 items-center">
+          {ESTIMATES.map(([e, name]) => (
+            <button key={e} onClick={(ev) => { ev.stopPropagation(); setEstimate(idx, task.estimate === e ? "" : e); }}
+              title={name}
+              className={`px-1 py-0 rounded text-[10px] font-mono ${task.estimate === e ? "bg-emerald-100 text-emerald-700 font-bold" : "text-gray-500"}`}
+              style={task.estimate !== e ? { border: "1px solid var(--border)" } : undefined}>
+              {e}
+            </button>
+          ))}
+          <span className="text-[8px] pl-0.5" style={{ color: "var(--text-tertiary)" }}>size</span>
+        </div>
+      )}
+      {/* Stage transitions — each opens its gate dialog */}
+      <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
+        {stageOf(task) !== "binding" && stageOf(task) !== "ready" && (
+          <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); requestBind(idx); }}
+            title="Promote to Binding — the small set you're carrying"
+            className="px-1 py-0 rounded text-[10px] font-medium text-purple-600 hover:bg-purple-100">bind</button>
+        )}
+        {stageOf(task) !== "ready" && (
+          <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); setStageDialog({ idx, kind: "ready" }); }}
+            title="Mark Ready — needs a next action and a size"
+            className="px-1 py-0 rounded text-[10px] font-medium text-emerald-600 hover:bg-emerald-100">ready</button>
+        )}
+        <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); setStageDialog({ idx, kind: "dormant" }); }}
+          title="Park with a wake date"
+          className="px-1 py-0 rounded text-[10px] font-medium text-sky-600 hover:bg-sky-100">sleep</button>
+        <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); setStageDialog({ idx, kind: "discard" }); }}
+          title="Discard with a reason"
+          className="px-1 py-0 rounded text-[10px] font-medium text-gray-500 hover:bg-gray-100">drop</button>
+        {(stageOf(task) === "ready" || stageOf(task) === "binding") && task.mode !== "rehearse" && (
+          <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); requestHandoff(idx); }}
+            title="Hand off to the area's agent — Nowspace checks everything named stays inside the area"
+            className="px-1 py-0 rounded text-[10px] font-medium text-teal-600 hover:bg-teal-100">agent</button>
+        )}
+      </div>
+      {withPlan && stageOf(task) === "ready" && (
         <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
           {dayNames.map((d, di) => (
             <button key={d} onClick={(e) => { e.stopPropagation(); setPrioMenu(null); moveToPlan(idx, di); }}
@@ -520,6 +593,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             </button>
           ))}
         </div>
+      )}
+      {withPlan && stageOf(task) !== "ready" && (
+        <p className="text-[9px] px-1 pt-0.5" style={{ color: "var(--text-tertiary)", borderTop: "1px solid var(--border)" }}>
+          Only Ready items can be scheduled
+        </p>
       )}
     </div>
   );
@@ -641,6 +719,9 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       text: group ? `${group}: ${promoted.text}` : promoted.text,
       priority: parent.priority, horizon: parent.horizon || "",
       focused: false, waiting: false, subtasks: [],
+      // A promoted step is its own topic again — it re-enters as captured
+      // and earns its own bounds (the parent's estimate isn't its estimate)
+      stage: "captured",
     });
     updateTasks(next);
   };
@@ -678,6 +759,82 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       await fetchBucket();
       window.dispatchEvent(new CustomEvent("week-changed"));
     } catch (e) { setError(e instanceof Error ? e.message : "Failed to move"); }
+  };
+
+  /* ── funnel operations ───────────────────────────────── */
+
+  const applyStageResolution = (idx: number, r: StageResolution) => {
+    updateTasks(tasks.map((t, i) => (i === idx ? applyResolution(t, r) : t)));
+    setStageDialog(null);
+  };
+
+  // Binding entry always goes through here: a free slot opens the bind
+  // dialog; a full Binding opens the eviction dialog instead. The dialog
+  // cannot be bypassed — the server refuses over-limit saves anyway.
+  const requestBind = (idx: number) => {
+    const count = tasks.filter((t) => stageOf(t) === "binding").length;
+    if (count >= bindingLimit) setEvictionFor(idx);
+    else setStageDialog({ idx, kind: "bind" });
+  };
+
+  // "Already decided" inside the bind flow still passes the ready gate
+  const handleBindResolve = (idx: number, r: StageResolution) => {
+    if (r.kind === "ready") { setStageDialog({ idx, kind: "ready" }); return; }
+    applyStageResolution(idx, r);
+  };
+
+  const evictThenBind = (evictIdx: number, r: StageResolution) => {
+    updateTasks(tasks.map((t, i) => (i === evictIdx ? applyResolution(t, r) : t)));
+    const incoming = evictionFor;
+    setEvictionFor(null);
+    if (incoming !== null) setStageDialog({ idx: incoming, kind: "bind" });
+  };
+
+  const setEstimate = (idx: number, e: "" | "s" | "m" | "l") => {
+    updateTasks(tasks.map((t, i) => (i === idx ? { ...t, estimate: e } : t)));
+    setPrioMenu(null);
+  };
+
+  const finishReview = async (focus: string, secs: number) => {
+    setReviewOpen(false);
+    try {
+      const r = await api.saveFunnelSettings({
+        last_review: new Date().toISOString().slice(0, 10),
+        last_review_secs: secs,
+        week_focus: focus,
+      });
+      setFunnel(r.funnel);
+    } catch { /* review edits are already saved with the bucket */ }
+  };
+
+  // Due when no review has completed since Monday of the current week
+  const reviewDue = (() => {
+    if (!funnel) return false;
+    if (!funnel.last_review) return true;
+    const now = new Date();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    monday.setHours(0, 0, 0, 0);
+    return new Date(funnel.last_review) < monday;
+  })();
+
+  const bindingItems = tasks
+    .map((t, i) => ({ task: t, originalIdx: i }))
+    .filter(({ task }) => stageOf(task) === "binding" && taskVisibleInMode(task.text));
+
+  // Hand off to the item's area agent (handoff brief): the area is derived
+  // from the item's group, never chosen here. Ready/binding only; rehearse never.
+  const requestHandoff = async (idx: number) => {
+    const t = tasks[idx];
+    if (!t || t.mode === "rehearse") return;
+    const { group } = parseGroup(t.text);
+    if (!group) { setError("Handoff needs a group that maps to an agent area"); return; }
+    try {
+      const r = await api.handoffAreaForGroup(group);
+      if (!r.area) { setError(`Group “${group}” doesn't map to an area with an agent binding (Settings → Agent areas)`); return; }
+      if (dirty) await saveBucket();
+      setComposerFor({ idx, area: r.area });
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed"); }
   };
 
   /* ── drag & drop ─────────────────────────────────────── */
@@ -795,6 +952,14 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     const byGroup = new Map<string, Section>();
     let filtered = tasks.map((t, i) => ({ task: t, originalIdx: i }))
       .filter(({ task }) => taskVisibleInMode(task.text));
+    // Stage lens: the default view is the active pipeline (captured + ready).
+    // Binding lives in its strip; dormant is silent until woken; discarded
+    // only appears when explicitly asked for.
+    filtered = filtered.filter(({ task }) => {
+      const st = stageOf(task);
+      if (stageFilter) return st === stageFilter;
+      return st === "captured" || st === "ready";
+    });
     if (horizonFilter) {
       filtered = filtered.filter(({ task }) =>
         horizonFilter === "none" ? !(task.horizon || "") : (task.horizon || "") === horizonFilter);
@@ -894,6 +1059,14 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       {/* Toolbar — three labeled clusters: Tag / View / Filter */}
       <div className="flex items-start flex-wrap gap-x-2 gap-y-1.5 text-xs pr-6" style={{ color: 'var(--text-secondary)' }}>
         <span className="whitespace-nowrap py-1.5">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""}</span>
+        <button onClick={() => setReviewOpen(true)}
+          className="whitespace-nowrap px-2 py-1 mt-0.5 rounded text-[10px] font-medium transition-colors"
+          style={reviewDue
+            ? { background: "rgb(245 158 11 / 0.12)", color: "#b45309", border: "1px solid rgb(245 158 11 / 0.4)" }
+            : { background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+          title="The weekly review: reconcile slips, check Binding, refill slots, set the week's line. ~5 minutes.">
+          🧭 Review{reviewDue ? " · due" : ""}
+        </button>
         {ctxEnabled && (
           <Cluster kind="tag" label="Tag" open={openCluster === "tag"} onToggle={() => toggleCluster("tag")}
             summary={ctxSel.length ? ctxSel.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join("+") : "All"}>
@@ -935,6 +1108,16 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             title="Sort each group by horizon (n → nw → m → none), then priority (A–D, blank last)">
             Sort GTD
           </button>
+          <button onClick={() => setStatsOpen(true)}
+            className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+            title="Funnel diagnostics — time in stage, Binding exits, slip rate. System metrics only.">
+            📊 Stats
+          </button>
+          <button onClick={() => setHandoffOpen(true)}
+            className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+            title="Agent handoff — drafting / in flight / returned. Opens, empties, closes.">
+            🤝 Handoff
+          </button>
         </Cluster>
       </div>
 
@@ -959,6 +1142,18 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
               ⭐
             </button>
           </div>
+        ))}
+        <span className="w-px h-4 shrink-0" style={{ backgroundColor: "var(--border)" }} />
+        {/* Stage lens — default shows the active pipeline (captured + ready);
+            the Binding chip surfaces binding items as full list rows (edit,
+            🔗, 🐘) alongside the summary strip */}
+        {([["", "Active"], ["captured", "Captured"], ["binding", "Binding"], ["ready", "Ready"], ["dormant", "Dormant"], ["discarded", "Discarded"]] as const).map(([st, name]) => (
+          <button key={st || "active"} onClick={() => setStageFilter(st as "" | BucketStage)}
+            title={st ? STAGE_META[st as BucketStage].hint : "Captured + Ready (Binding has its own strip; Dormant stays silent)"}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${stageFilter === st ? "bg-blue-100 text-blue-700" : ""}`}
+            style={stageFilter !== st ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
+            {name}
+          </button>
         ))}
         <span className="w-px h-4 shrink-0" style={{ backgroundColor: "var(--border)" }} />
         {([["", "Any time"], ["n", "n"], ["nw", "nw"], ["m", "m"], ["none", "unplanned"]] as const).map(([h, name]) => (
@@ -1016,6 +1211,9 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             {(() => {
               const visible = tasks.map((t, i) => ({ t, i }))
                 .filter(({ t }) => taskVisibleInMode(t.text))
+                // The board files work into horizons, i.e. schedules — only
+                // Ready items belong here (the Bucket–Timing contract)
+                .filter(({ t }) => stageOf(t) === "ready")
                 .filter(({ t }) => !filterGroup || parseGroup(t.text).group === filterGroup)
                 .sort((a, b) => bucketAgeKey(a.t.text) - bucketAgeKey(b.t.text));
               // Legacy ~m month tokens count as the "m" horizon
@@ -1134,6 +1332,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </div>
           <p className="text-[10px] text-center" style={{ color: "var(--text-tertiary)" }}>
             Columns are virtual horizons (nA / nwA / mA prefixes in the file) — nothing leaves the bucket until you pick a weekday in a card's badge menu.
+            Only Ready items appear here; Captured and Binding live in the list view.
           </p>
         </div>
       )}
@@ -1141,6 +1340,74 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       {/* Tasks + side panels: flex layout */}
       <div className={`flex gap-0 items-start ${boardView ? "hidden" : ""}`}>
       <div className={`space-y-2 ${vaultBrowserOpen ? "flex-1 min-w-0" : "max-w-2xl w-full"}`}>
+        {/* Week focus line — set in the weekly review */}
+        {funnel?.week_focus && (
+          <p className="text-[11px] italic px-1" style={{ color: "var(--text-tertiary)" }}>
+            This week: {funnel.week_focus}
+          </p>
+        )}
+
+        {/* Binding strip — the small set of topics being carried (WIP-limited) */}
+        {bindingItems.length > 0 && (
+          <div className="rounded-xl p-2.5 space-y-1.5"
+            style={{ background: "var(--bg-secondary)", border: "1px solid rgb(168 85 247 / 0.25)" }}>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>🧠 Binding</span>
+              <span className={`text-[10px] font-mono px-1 rounded ${bindingItems.length >= bindingLimit ? "bg-purple-100 text-purple-700 font-bold" : ""}`}
+                style={bindingItems.length < bindingLimit ? { color: "var(--text-tertiary)" } : undefined}>
+                {bindingItems.length}/{bindingLimit}
+              </span>
+              <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                — what you're actively carrying
+              </span>
+            </div>
+            {bindingItems.map(({ task, originalIdx }) => {
+              const stripLinks = extractLinks(task.text);
+              return (
+              <div key={originalIdx} className="pl-1.5 py-1 flex items-start gap-1.5 group/bind" style={{ borderLeft: "2px solid rgb(168 85 247 / 0.4)" }}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs" style={{ color: "var(--text)" }}>
+                    {task.question || "(no question)"}
+                    {task.mode === "rehearse" && (
+                      <span className="ml-1.5 text-[9px] px-1 rounded bg-purple-100 text-purple-600" title="Retrieval practice — safe for the evening slate; never hand it to an AI">rehearse</span>
+                    )}
+                  </p>
+                  {/* Linked notes render as clickable chips — clarify in the
+                      note without leaving the strip to hunt for it */}
+                  <p className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
+                    {renderWikiText(stripBucketMeta(stripCtxTokens(task.text)), onOpenNote)}
+                  </p>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={(e) => {
+                    e.stopPropagation();
+                    const rect = (e.target as HTMLElement).getBoundingClientRect();
+                    const { group } = parseGroup(task.text);
+                    setNotePicker(notePicker?.idx === originalIdx ? null : {
+                      idx: originalIdx, group, links: stripLinks,
+                      pos: { top: rect.bottom + 4, left: rect.left - 100 },
+                    });
+                  }}
+                    className={`px-1 rounded text-[10px] transition-opacity ${stripLinks.length ? "opacity-80" : "opacity-0 group-hover/bind:opacity-100 max-sm:opacity-60"}`}
+                    title="Link a vault note to this question">
+                    🔗{stripLinks.length > 1 && <sup className="text-[8px] font-bold">{stripLinks.length}</sup>}
+                  </button>
+                  <span className="flex gap-1 opacity-0 group-hover/bind:opacity-100 transition-opacity max-sm:opacity-60">
+                  <button onClick={() => setStageDialog({ idx: originalIdx, kind: "ready" })}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-100 text-emerald-700"
+                    title="Bound it: next action + size → Ready">ready</button>
+                  <button onClick={() => setStageDialog({ idx: originalIdx, kind: "dormant" })}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-sky-100 text-sky-700" title="Park with a wake date">sleep</button>
+                  <button onClick={() => setStageDialog({ idx: originalIdx, kind: "discard" })}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-gray-100 text-gray-500" title="Discard with a reason">drop</button>
+                  </span>
+                </div>
+              </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Quick add — "Group: task" files it under that group */}
         <div className="flex items-center gap-1.5">
           <input
@@ -1250,6 +1517,16 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         </button>
                         {prioMenu === originalIdx && prioHorizonMenu(task, originalIdx, true)}
                       </span>
+
+                      {/* Stage pill — captured stays unmarked (the default is not a judgment) */}
+                      {stageOf(task) !== "captured" && (
+                        <span className={`shrink-0 text-[8px] px-1 rounded font-medium ${STAGE_META[stageOf(task)].chip}`}
+                          title={stageOf(task) === "dormant" && task.wake_date
+                            ? `Dormant — wakes ${task.wake_date}`
+                            : STAGE_META[stageOf(task)].hint}>
+                          {stageOf(task) === "ready" ? (task.estimate ? `rdy·${task.estimate}` : "rdy") : STAGE_META[stageOf(task)].label.toLowerCase()}
+                        </span>
+                      )}
 
                       {/* Task text */}
                       {editingTask === originalIdx ? (
@@ -1504,6 +1781,47 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           📂
         </div>
       </div>
+
+      {/* Funnel dialogs — every stage transition passes through its gate */}
+      {stageDialog?.kind === "bind" && tasks[stageDialog.idx] && (
+        <BindDialog task={tasks[stageDialog.idx]}
+          onResolve={(r) => handleBindResolve(stageDialog.idx, r)}
+          onCancel={() => setStageDialog(null)} />
+      )}
+      {stageDialog?.kind === "ready" && tasks[stageDialog.idx] && (
+        <ReadyDialog task={tasks[stageDialog.idx]}
+          onResolve={(r) => applyStageResolution(stageDialog.idx, r)}
+          onCancel={() => setStageDialog(null)} />
+      )}
+      {stageDialog?.kind === "dormant" && tasks[stageDialog.idx] && (
+        <DormantDialog task={tasks[stageDialog.idx]}
+          onResolve={(r) => applyStageResolution(stageDialog.idx, r)}
+          onCancel={() => setStageDialog(null)} />
+      )}
+      {stageDialog?.kind === "discard" && tasks[stageDialog.idx] && (
+        <DiscardDialog task={tasks[stageDialog.idx]}
+          onResolve={(r) => applyStageResolution(stageDialog.idx, r)}
+          onCancel={() => setStageDialog(null)} />
+      )}
+      {evictionFor !== null && tasks[evictionFor] && (
+        <EvictionDialog bindingItems={bindingItems} limit={bindingLimit}
+          incoming={tasks[evictionFor]}
+          onEvict={evictThenBind}
+          onCancel={() => setEvictionFor(null)} />
+      )}
+      {reviewOpen && (
+        <WeeklyReview tasks={tasks} limit={bindingLimit} weekFocus={funnel?.week_focus || ""}
+          onApply={(idx, updated) => updateTasks(tasks.map((t, i) => (i === idx ? updated : t)))}
+          onFinish={finishReview}
+          onClose={() => setReviewOpen(false)} />
+      )}
+      {statsOpen && <FunnelStatsModal onClose={() => setStatsOpen(false)} />}
+      {handoffOpen && <HandoffSurface onClose={() => setHandoffOpen(false)} onOpenNote={onOpenNote} />}
+      {composerFor && tasks[composerFor.idx] && (
+        <DispatchComposer task={tasks[composerFor.idx]} area={composerFor.area}
+          onDone={() => { setComposerFor(null); setHandoffOpen(true); }}
+          onCancel={() => setComposerFor(null)} />
+      )}
 
       {/* Sticky bottom bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1.5" style={{ background: 'color-mix(in srgb, var(--bg) 95%, transparent)', borderColor: 'var(--border)' }}>

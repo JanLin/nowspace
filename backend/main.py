@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
 from backend.config import config
-from backend.routers import plan, coach, memory, vault, notes, settings, habits, timelog
+from backend.routers import plan, coach, memory, vault, notes, settings, habits, timelog, handoff
 
 app = FastAPI(title="Personal Coaching Agent", version="0.1.0")
 
@@ -33,11 +33,17 @@ app.include_router(notes.router)
 app.include_router(settings.router)
 app.include_router(habits.router)
 app.include_router(timelog.router)
+app.include_router(handoff.router)
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    from backend.models import BUCKET_SCHEMA_VERSION
+    # schema_version lets clients detect skew at boot: a client that speaks
+    # a NEWER version than this backend must not edit (its saves would be
+    # refused by extra=forbid anyway, but the banner explains why), and a
+    # client OLDER than this backend gets told to update/reload.
+    return {"status": "ok", "schema_version": BUCKET_SCHEMA_VERSION}
 
 
 @app.get("/update-check")

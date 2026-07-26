@@ -1,4 +1,4 @@
-type View = "week" | "bucket" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
+type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function Nav({
   current,
@@ -12,6 +12,8 @@ export default function Nav({
   const tabs: { id: View; icon: string; name: string }[] = [
     { id: "week", icon: "📅", name: "Plan" },
     { id: "bucket", icon: "🪣", name: "Bucket" },
+    // The Slate has no tab — it opens from the Nowspace logo (App.tsx),
+    // keeping the ambient surface out of the working navigation.
     { id: "notes", icon: "📝", name: "Notes" },
     { id: "habits", icon: "🌱", name: "Habits" },
     { id: "time", icon: "⏱", name: "Time" },

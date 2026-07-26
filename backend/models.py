@@ -4,6 +4,15 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
+# Bucket wire-format version. Bump whenever BucketTask gains fields whose
+# absence in a write would lose data (an old client omits them and the
+# defaults would overwrite real state — the funnel fields, for instance).
+# Writes carry the sender's version; the backend refuses older senders, and
+# the frontend refuses to edit against an older backend. Both directions of
+# version skew then fail loudly instead of silently flattening the vault.
+#   1 = pre-funnel · 2 = funnel (stage/question/mode/estimate/…)
+BUCKET_SCHEMA_VERSION = 2
+
 
 class Subtask(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -112,6 +121,19 @@ class BucketTask(BaseModel):
     focused: bool = False
     waiting: bool = False
     subtasks: List[Subtask] = []
+    # ── Funnel (bucket stages) ──────────────────────────────────
+    # Persisted as tilde tokens on the line (see FUNNEL_META in plan.py);
+    # "active"/"done" are never stored here — scheduled items live in the
+    # week files, which is what those stages mean.
+    stage: str = "captured"  # captured | binding | ready | dormant | discarded
+    question: str = ""       # binding only; must end with "?"
+    mode: str = "solve"      # solve | rehearse (meaningful on binding)
+    estimate: str = ""       # "" | s | m | l — required to become ready
+    slip_count: int = 0      # weeks committed (horizon n) but not completed
+    ready_since: str = ""    # ISO date set on entry to ready
+    wake_date: str = ""      # ISO date, required on dormant
+    discard_reason: str = "" # no_agency | already_decided | not_mine
+    stage_entered_at: str = ""  # ISO date, updated on every stage change
 
 
 class BucketResponse(BaseModel):
@@ -124,6 +146,10 @@ class BucketSaveRequest(BaseModel):
     tasks: List[BucketTask] = []
     pinned_groups: List[str] = []
     expected_mtime: Optional[float] = None  # sync guard, same as SaveWeekRequest
+    # Clients predating the funnel don't send this (default 1) and are
+    # refused: their task objects lack the funnel fields, so accepting the
+    # save would reset every stage/question to defaults.
+    schema_version: int = 1
 
 
 class BucketMoveRequest(BaseModel):
@@ -134,6 +160,7 @@ class BucketMoveRequest(BaseModel):
     day_idx: int = 0  # which day in week plan (0=Mon .. 6=Sun)
     week_offset: int = 0  # which week file
     horizon: str = ""  # to_bucket only: park at "n" | "nw" | "m" (empty = plain bucket)
+    schema_version: int = 1  # see BucketSaveRequest
 
 
 class DayNotes(BaseModel):

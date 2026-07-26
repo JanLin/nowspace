@@ -137,9 +137,13 @@ export function taskVisibleInCtxSelection(text: string, sel: CtxSelection, ctxMa
 
 /* ── Bucket metadata (tilde tokens, hidden from labels) ─────────
    ~w2628 = entered the bucket in ISO week 28 of 2026 (YYWW) — age hint
-   ~m     = "this month" GTD horizon on the bucket board */
+   ~m     = "this month" GTD horizon on the bucket board
+   Funnel tokens (~s: stage, ~e:/~es estimate, ~sl: slips, ~rs:/~se: dates,
+   ~wake:, ~dr:, ~rh) are parsed into fields server-side; the regex still
+   strips them so hand-edited files and week lines (~es) never show them. */
 
-export const BUCKET_META_RE = /\s*~(w\d{4}|m)\b/gi;
+export const BUCKET_META_RE =
+  /\s*~(w\d{4}|m|s:(?:captured|binding|ready|dormant|discarded)|e:?[sml]|sl:\d+|rs:\d{4}-\d{2}-\d{2}|se:\d{4}-\d{2}-\d{2}|wake:\d{4}-\d{2}-\d{2}|dr:\w+|rh)\b/gi;
 
 export function stripBucketMeta(text: string): string {
   return text.replace(BUCKET_META_RE, "").trim();

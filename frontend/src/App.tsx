@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import Nav from "./components/Nav";
 import WeekPlan from "./components/WeekPlan";
 import Bucket from "./components/Bucket";
+import Slate from "./components/Slate";
 import Habits from "./components/Habits";
 import TimeTab from "./components/TimeTab";
 import Goals from "./components/Goals";
@@ -11,9 +12,9 @@ import Tour from "./components/Tour";
 import HelpGuide from "./components/HelpGuide";
 import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
-import { api } from "./api";
+import { api, CLIENT_SCHEMA_VERSION } from "./api";
 
-type View = "week" | "bucket" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
+type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function App() {
   const [view, setView] = useState<View>("week");
@@ -37,8 +38,17 @@ export default function App() {
     (async () => {
       while (!cancelled) {
         try {
-          await api.health();
-          if (!cancelled) setBackendUp(true);
+          const h = await api.health();
+          if (!cancelled) {
+            setBackendUp(true);
+            // Version-skew check: every instance (desktop app, PWA, dev)
+            // must speak the same bucket schema or writes are refused —
+            // surface the mismatch at boot instead of at the first save.
+            const backendSchema = h.schema_version ?? 1;
+            if (backendSchema > CLIENT_SCHEMA_VERSION) setSchemaSkew("client-old");
+            else if (backendSchema < CLIENT_SCHEMA_VERSION) setSchemaSkew("backend-old");
+            else setSchemaSkew(null);
+          }
           return;
         } catch {
           if (Date.now() - started > 15000) setSlowStart(true);
@@ -48,6 +58,7 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, []);
+  const [schemaSkew, setSchemaSkew] = useState<"client-old" | "backend-old" | null>(null);
 
   // Once the backend is up, check if vault is configured and valid
   useEffect(() => {
@@ -55,6 +66,7 @@ export default function App() {
     api.getSettings().then((s) => {
       const coach = s.coach_enabled !== false;
       setCoachEnabled(coach);
+      if (s.funnel?.evening_cutoff) setEveningCutoff(s.funnel.evening_cutoff);
       // The API key only matters when the coach feature is on
       if (s.vault_status.exists && s.vault_status.has_para && (s.api_key_status.configured || !coach)) {
         setVaultReady(true);
@@ -68,6 +80,24 @@ export default function App() {
     });
   }, [backendUp]);
   const { theme, setTheme } = useTheme();
+
+  // The Slate opens from the compass logo (no tab — the app's face is the
+  // ambient surface). After the evening cutoff a quiet half-moon appears
+  // next to the logo: a state signal, never a badge or a count. Entry stays
+  // available at any hour — the surface filters itself by time.
+  const [eveningCutoff, setEveningCutoff] = useState("21:00");
+  const [minuteTick, setMinuteTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setMinuteTick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const isEvening = (() => {
+    void minuteTick; // recompute each minute
+    const [ch, cm] = eveningCutoff.split(":").map((x) => parseInt(x, 10));
+    const now = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    return mins >= (isNaN(ch) ? 21 : ch) * 60 + (isNaN(cm) ? 0 : cm) || mins < 5 * 60;
+  })();
 
   // Offline banner: api.ts broadcasts state changes when the service
   // worker starts (or stops) serving cache fallbacks. false = online,
@@ -157,9 +187,19 @@ export default function App() {
       {/* Sticky top nav */}
       <div className="sticky top-0 z-40 px-2 sm:px-4 py-2" style={{ backgroundColor: "var(--bg)", borderBottom: "1px solid var(--border)" }}>
         <div className="mx-auto max-w-6xl flex items-center gap-2 sm:gap-4">
-          <header className="flex items-center gap-2 shrink-0">
-            <img src="/nowspace-compass-icon.svg" alt="Nowspace" className="w-6 h-6 sm:w-7 sm:h-7" />
-            <h1 className="text-base sm:text-lg font-bold hidden sm:block" style={{ color: "var(--text)" }}>Nowspace</h1>
+          <header className="shrink-0">
+            <button
+              onClick={() => setView(view === "slate" ? "week" : "slate")}
+              className="flex items-center gap-2 rounded-md px-0.5 transition-opacity hover:opacity-80"
+              title={isEvening
+                ? "The evening slate — what you're rehearsing (tap again to leave)"
+                : "The slate — the questions you're carrying (tap again to leave)"}
+              aria-label="Open the slate"
+            >
+              <img src="/nowspace-compass-icon.svg" alt="" className="w-6 h-6 sm:w-7 sm:h-7" />
+              <h1 className="text-base sm:text-lg font-bold hidden sm:block" style={{ color: "var(--text)" }}>Nowspace</h1>
+              {isEvening && <span className="text-xs -ml-1" aria-hidden="true">🌒</span>}
+            </button>
           </header>
           <Nav current={view} onChange={setView} hideCoach={!coachEnabled} />
           {/* Help: replay the tour or open the guide */}
@@ -215,6 +255,27 @@ export default function App() {
         </div>
       </div>
 
+      {/* Version-skew banner: this instance and its backend disagree on the
+          bucket data format — writes are refused server-side until they
+          match, so say it up front instead of failing at the first save. */}
+      {schemaSkew && (
+        <div className="px-3 py-1.5 text-center text-xs font-medium flex items-center justify-center gap-2"
+          style={{ backgroundColor: "rgb(245 158 11 / 0.15)", color: "#b45309", borderBottom: "1px solid rgb(245 158 11 / 0.4)" }}>
+          {schemaSkew === "client-old" ? (
+            <>
+              ⚠️ This Nowspace app is older than its server — bucket edits will be
+              refused to protect your data.
+              <button onClick={() => window.location.reload()} className="underline font-semibold">
+                Reload to update
+              </button>
+            </>
+          ) : (
+            <>⚠️ The Nowspace server on this machine is out of date — update it
+              (desktop app: rebuild the backend) before editing the bucket.</>
+          )}
+        </div>
+      )}
+
       {/* Offline banner */}
       {offlineAt !== false && (
         <div className="px-3 py-1.5 text-center text-xs font-medium"
@@ -264,6 +325,9 @@ export default function App() {
           </div>
           <div className={view === "bucket" ? "" : "hidden"}>
             <Bucket onOpenNote={showNote} />
+          </div>
+          <div className={view === "slate" ? "" : "hidden"}>
+            <Slate active={view === "slate"} onOpenNote={showNote} />
           </div>
           <div className={view === "notes" ? "" : "hidden"}>
             {openNote ? (

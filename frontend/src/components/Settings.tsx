@@ -33,6 +33,11 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
   const [referenceLinks, setReferenceLinks] = useState<Record<string, string>>({});
   const [diaryFolder, setDiaryFolder] = useState("");
   const [diaryFolderSaved, setDiaryFolderSaved] = useState(false);
+  const [funnelLimit, setFunnelLimit] = useState(4);
+  const [funnelCutoff, setFunnelCutoff] = useState("21:00");
+  const [funnelSaved, setFunnelSaved] = useState(false);
+  const [agentAreas, setAgentAreas] = useState<import("../api").HandoffArea[]>([]);
+  const [areasSaved, setAreasSaved] = useState(false);
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -119,6 +124,11 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
       setApiKeyStatus(s.api_key_status);
       setCtxRows(buildCtxRows(s.contexts || {}, s.context_tags || {}));
       setDiaryFolder(s.diary_folder || "");
+      if (s.funnel) {
+        setFunnelLimit(s.funnel.binding_limit ?? 4);
+        setFunnelCutoff(s.funnel.evening_cutoff || "21:00");
+      }
+      api.getHandoffAreas().then((r) => setAgentAreas(r.areas)).catch(() => {});
       setLoading(false);
     }).catch(() => {
       flash("err", "Failed to load settings");
@@ -577,6 +587,111 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
           >
             {diaryFolderSaved ? "Saved ✓" : "Save"}
           </button>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* Funnel                                                           */}
+      {/* ================================================================ */}
+      <section
+        className="rounded-xl p-5 sm:p-6"
+        style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+      >
+        <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
+          Funnel
+        </h2>
+        <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+          The Binding limit is what makes it a priority list rather than a pile — raise it
+          reluctantly. The evening cutoff hides open problems from the Slate before sleep.
+          Stored in <span className="font-mono">Plan Week Configuration.md</span>, shared by every installation.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+            Binding limit
+            <input
+              type="number" min={1} max={10} value={funnelLimit}
+              onChange={(e) => { setFunnelLimit(Math.max(1, Math.min(10, parseInt(e.target.value || "4", 10)))); setFunnelSaved(false); }}
+              className="w-16 text-sm px-2 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-blue-400"
+              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+            Evening cutoff
+            <input
+              type="time" value={funnelCutoff}
+              onChange={(e) => { setFunnelCutoff(e.target.value); setFunnelSaved(false); }}
+              className="text-sm px-2 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-blue-400"
+              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+            />
+          </label>
+          <button
+            onClick={() => api.saveFunnelSettings({ binding_limit: funnelLimit, evening_cutoff: funnelCutoff })
+              .then(() => setFunnelSaved(true)).catch(() => flash("err", "Failed to save funnel settings"))}
+            className="px-3 py-2 rounded-lg text-sm font-medium text-white shrink-0"
+            style={{ backgroundColor: "var(--accent)" }}
+          >
+            {funnelSaved ? "Saved ✓" : "Save"}
+          </button>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* Agent areas (handoff)                                            */}
+      {/* ================================================================ */}
+      <section
+        className="rounded-xl p-5 sm:p-6"
+        style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+      >
+        <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
+          Agent areas
+        </h2>
+        <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+          One area, one agent, one body of material. The root folder is the boundary the
+          conformance check enforces. The binding is only a label — keys, mounts and egress
+          rules live outside Nowspace, where they're actually enforceable. Areas without a
+          binding simply can't dispatch, and most never will.
+        </p>
+        <div className="space-y-2">
+          {agentAreas.map((a, i) => (
+            <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 items-center">
+              {([["name", "name"], ["root", "2-Areas/Customer"], ["agent_binding", "binding label"],
+                 ["proposals_path", "proposals folder"], ["transcripts_path", "transcripts folder"]] as const).map(([field, ph]) => (
+                <input key={field} type="text" value={(a as Record<string, string>)[field] || ""} placeholder={ph}
+                  onChange={(e) => {
+                    setAreasSaved(false);
+                    setAgentAreas((prev) => prev.map((x, j) => (j === i ? { ...x, [field]: e.target.value } : x)));
+                  }}
+                  className="text-xs px-2 py-1.5 rounded-lg font-mono outline-none focus:ring-1 focus:ring-blue-400"
+                  style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: a.valid === false ? "1px solid #ef4444" : "1px solid var(--border)" }}
+                />
+              ))}
+              <button onClick={() => { setAgentAreas((prev) => prev.filter((_, j) => j !== i)); setAreasSaved(false); }}
+                className="text-xs text-red-400 hover:text-red-600 justify-self-start">remove</button>
+            </div>
+          ))}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAgentAreas((prev) => [...prev, { name: "", root: "", agent_binding: "", proposals_path: "", transcripts_path: "" }])}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium"
+              style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+            >
+              + Add area
+            </button>
+            <button
+              onClick={() => api.saveHandoffAreas(agentAreas)
+                .then((r) => { setAgentAreas(r.areas); setAreasSaved(true); })
+                .catch(() => flash("err", "Failed to save areas"))}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-white"
+              style={{ backgroundColor: "var(--accent)" }}
+            >
+              {areasSaved ? "Saved ✓" : "Save areas"}
+            </button>
+          </div>
+          <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+            Proposals and transcripts folders must sit under the area root (they inherit its
+            boundary). Leave them empty for the <span className="font-mono">_agent/proposals</span> and{" "}
+            <span className="font-mono">_agent/transcripts</span> defaults.
+          </p>
         </div>
       </section>
 
