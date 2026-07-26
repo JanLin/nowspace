@@ -273,6 +273,8 @@ class Config:
         "evening_cutoff": "21:00",  # slate: solve items hidden after this
         "dispatch_limit": 3,    # handoff: max in-flight dispatches
         "last_review": "",      # ISO date the weekly review last completed
+        "last_review_secs": 0,  # how long that review took (instrumented)
+        "week_focus": "",       # the week's one-line focus, set in the review
     }
 
     @property

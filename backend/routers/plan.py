@@ -1428,7 +1428,17 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
             errors.append(f"“{label}”: unknown mode '{t.mode}'")
         prev = disk_by_key.get(_funnel_key(t.text))
         if prev is not None and prev.stage == t.stage:
-            continue  # no transition — no gate
+            # No transition — no gate. Server-side stamps (stageEnteredAt,
+            # readySince, slipCount) aren't echoed back to the client between
+            # saves, so an unchanged item must not lose them to the client's
+            # staler copy.
+            if not t.stage_entered_at:
+                t.stage_entered_at = prev.stage_entered_at
+            if t.stage == "ready" and not t.ready_since:
+                t.ready_since = prev.ready_since
+            if not t.slip_count:
+                t.slip_count = prev.slip_count
+            continue
         # Entering a stage: stamp the transition date
         t.stage_entered_at = today
         if t.stage == "binding":

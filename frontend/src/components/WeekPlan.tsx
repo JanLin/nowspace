@@ -91,7 +91,9 @@ function parseGroup(rawText: string): { group: string; label: string } {
 function getDisplayText(task: Task): string {
   // clean_text has [[...]] stripped; fall back to parsing the label from group prefix
   const base = task.clean_text || task.text;
-  return stripCtxTokens(parseGroup(base).label);
+  // stripBucketMeta: scheduled items carry their size as a ~es/~em/~el token
+  // (it survives the round trip back to the bucket) — never shown
+  return stripBucketMeta(stripCtxTokens(parseGroup(base).label));
 }
 
 /** Collect all unique group names across all days */
@@ -4454,11 +4456,15 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             <p className="text-xs text-gray-400 text-center py-4">Empty — drag tasks here to defer</p>
           )}
           {(() => {
-            // Build grouped sections for bucket panel — coalesce by group name
+            // Build grouped sections for bucket panel — coalesce by group name.
+            // Only Ready items are offered here: this panel schedules, and the
+            // Bucket–Timing contract is that nothing unbound is schedulable.
             type BucketSection = { name: string; items: { task: import("../api").BucketTask; idx: number; label: string }[] };
             const byGroup = new Map<string, BucketSection>();
+            let unboundCount = 0;
             bucketTasks.forEach((task, idx) => {
               if (!taskVisibleInMode(task.text)) return;
+              if ((task.stage || "captured") !== "ready") { unboundCount++; return; }
               const { group, label } = parseGroup(stripBucketMeta(stripCtxTokens(task.text)));
               let section = byGroup.get(group);
               if (!section) {
@@ -4559,7 +4565,14 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               </div>
             );
 
-            return sections.map((section, si) => {
+            const unboundNote = unboundCount > 0 ? (
+              <p key="unbound-note" className="text-[10px] text-center py-1.5 px-2" style={{ color: "var(--text-tertiary)" }}>
+                +{unboundCount} unbound (captured / binding / dormant) — only
+                Ready items can be scheduled; bind them in the Bucket tab.
+              </p>
+            ) : null;
+
+            return [...sections.map((section, si) => {
               // If only one section and ungrouped, show tasks directly (no header)
               if (!section.name && sections.length === 1) {
                 return section.items.map(({ task, idx, label }) => renderBucketItem(task, idx, label));
@@ -4607,7 +4620,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   )}
                 </div>
               );
-            });
+            }), unboundNote];
           })()}
         </div>
       </div>

@@ -57,6 +57,9 @@ class FunnelSettingsUpdate(BaseModel):
     binding_limit: Optional[int] = None
     evening_cutoff: Optional[str] = None
     dispatch_limit: Optional[int] = None
+    last_review: Optional[str] = None       # ISO date
+    last_review_secs: Optional[int] = None  # instrumented review duration
+    week_focus: Optional[str] = None
 
 
 class DiaryFolderUpdate(BaseModel):

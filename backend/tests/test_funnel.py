@@ -242,6 +242,24 @@ def test_dormant_requires_wake_date_discard_requires_reason(client, vault):
     assert r.status_code == 200, r.text
 
 
+def test_server_stamps_survive_a_second_save(client, vault):
+    """The client never sees server-side stamps between saves — an unchanged
+    item must keep stageEnteredAt/readySince/slipCount from disk."""
+    _write_bucket(vault, "# Planning Bucket\n\n- topic\n")
+    r = _save(client, [BucketTask(
+        text="topic", stage="ready", estimate="s", subtasks=[Subtask(text="step")],
+    )])
+    assert r.status_code == 200
+    # Second save: client's copy has no stamps (it never refetched)
+    r = _save(client, [BucketTask(
+        text="topic", stage="ready", estimate="s", subtasks=[Subtask(text="step")],
+    )])
+    assert r.status_code == 200
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].ready_since == date.today().isoformat()
+    assert tasks[0].stage_entered_at == date.today().isoformat()
+
+
 # ── Stage 2: the WIP limit ──────────────────────────────────────
 
 def _binding(text):

@@ -111,6 +111,9 @@ export interface WeekPlanResponse {
   is_archive: boolean;
 }
 
+export type BucketStage = "captured" | "binding" | "ready" | "dormant" | "discarded";
+export type DiscardReason = "no_agency" | "already_decided" | "not_mine";
+
 export interface BucketTask {
   text: string;
   priority: string;
@@ -118,6 +121,26 @@ export interface BucketTask {
   focused: boolean;
   waiting: boolean;
   subtasks: Subtask[];
+  // Funnel — see docs/funnel-discovery.md. Fields round-trip through tilde
+  // tokens on the bucket line; the server enforces the transition gates.
+  stage?: BucketStage;      // default captured
+  question?: string;        // binding only, must end in "?"
+  mode?: "solve" | "rehearse";
+  estimate?: "" | "s" | "m" | "l";
+  slip_count?: number;
+  ready_since?: string;     // ISO date
+  wake_date?: string;       // ISO date (dormant)
+  discard_reason?: DiscardReason | "";
+  stage_entered_at?: string; // ISO date
+}
+
+export interface FunnelSettings {
+  binding_limit: number;
+  evening_cutoff: string; // "HH:MM"
+  dispatch_limit: number;
+  last_review: string;    // ISO date, "" = never
+  last_review_secs: number;
+  week_focus: string;
 }
 
 export interface BucketResponse {
@@ -390,7 +413,14 @@ export const api = {
       context_tags: Record<string, string>;
       coach_enabled?: boolean;
       diary_folder?: string;
+      funnel?: FunnelSettings;
     }>("/api/settings"),
+
+  saveFunnelSettings: (updates: Partial<FunnelSettings> & { last_review_secs?: number }) =>
+    request<{ status: string; funnel: FunnelSettings }>("/api/settings/funnel", {
+      method: "POST",
+      body: JSON.stringify(updates),
+    }),
 
   // Habits
   getHabits: () =>
