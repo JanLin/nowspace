@@ -145,6 +145,8 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
 
   // Auto-save with debounce
   const save = useCallback(async (text: string) => {
+    // Archive weeks are read only — no path here may write an old week file
+    if (isArchive) return;
     if (text === lastSaved) return;
     setSaving(true);
     try {
@@ -153,7 +155,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
       window.dispatchEvent(new CustomEvent("notes-saved"));
     } catch { /* silent */ }
     finally { setSaving(false); }
-  }, [dayName, weekOffset, lastSaved]);
+  }, [dayName, weekOffset, lastSaved, isArchive]);
 
   // On phones the floating corner buttons and bottom bar overlap the text
   // being typed — broadcast editing state so WeekPlan can hide them there
@@ -270,9 +272,10 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     <div
       className="relative"
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes("vault-note-name")) e.preventDefault();
+        if (!isArchive && e.dataTransfer.types.includes("vault-note-name")) e.preventDefault();
       }}
       onDrop={(e) => {
+        if (isArchive) return;
         const name = e.dataTransfer.getData("vault-note-name");
         if (name) {
           e.preventDefault();
@@ -284,12 +287,11 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
       {saving && <span className="absolute top-0 right-0 text-[9px] text-gray-400">Saving...</span>}
       {!saving && content !== lastSaved && <span className="absolute top-0 right-0 text-[9px] text-orange-400">Unsaved</span>}
 
-      {focused || isArchive ? (
+      {focused ? (
         // Uncontrolled — see AutoFocusInput for the Samsung IME rationale:
         // React writing `value` back per keystroke desyncs the composition
         // and swallows backspaces. State mirrors the DOM via onChange; the
-        // key remounts with fresh content when the day changes (archive
-        // mode keeps the textarea mounted across switches).
+        // key remounts with fresh content when the day changes.
         <textarea
           key={`notes-${dayName}-${weekOffset}`}
           ref={textareaRef}
@@ -308,6 +310,9 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
       ) : (
         <div
           onClick={(e) => {
+            // Archive weeks render the same preview so links stay clickable,
+            // but tapping the text must never open the editor.
+            if (isArchive) return;
             // Don't enter edit mode when clicking a wiki link
             if ((e.target as HTMLElement).closest("a.wiki-link")) return;
             // Map the tapped point to a source position so the caret lands
@@ -344,7 +349,9 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
             pendingEditRef.current = { caret: caretPos, scroll: panel?.scrollTop ?? 0 };
             setFocused(true);
           }}
-          className="w-full text-xs px-2 py-2 border border-gray-200 rounded-lg bg-white cursor-text min-h-[45vh] hover:border-blue-300 transition-colors scratchpad-preview"
+          className={`w-full text-xs px-2 py-2 border border-gray-200 rounded-lg bg-white min-h-[45vh] transition-colors scratchpad-preview ${
+            isArchive ? "cursor-default" : "cursor-text hover:border-blue-300"
+          }`}
           data-color-mode="light"
         >
           {content ? (
@@ -369,7 +376,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           )}
           {/* Hidden textarea for focus management (uncontrolled like the
               real one — its value is never shown) */}
-          <textarea ref={textareaRef} defaultValue={content} onChange={handleChange}
+          <textarea ref={textareaRef} defaultValue={content} onChange={handleChange} readOnly={isArchive}
             className="absolute opacity-0 pointer-events-none w-0 h-0" tabIndex={-1} />
         </div>
       )}
