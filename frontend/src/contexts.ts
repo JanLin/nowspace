@@ -149,6 +149,14 @@ export function stripBucketMeta(text: string): string {
   return text.replace(BUCKET_META_RE, "").trim();
 }
 
+/** Stable anchor for scroll-to-task reveals: the ~i identity when present,
+    else the cleaned text. Must match on both the search side and the row
+    (data-task-anchor) side. */
+export function bucketAnchorKey(text: string): string {
+  const m = (text || "").match(/~i(?:d:)?([0-9a-f]{6})\b/i);
+  return m ? `i:${m[1].toLowerCase()}` : stripBucketMeta(stripCtxTokens(text));
+}
+
 /** Entered-week stamp as {yy, week} or null if unstamped */
 export function bucketEnteredWeek(text: string): { yy: number; week: number } | null {
   const m = text.match(/~w(\d{2})(\d{2})\b/i);

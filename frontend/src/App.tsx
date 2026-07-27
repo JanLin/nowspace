@@ -3,6 +3,7 @@ import Nav from "./components/Nav";
 import WeekPlan from "./components/WeekPlan";
 import Bucket from "./components/Bucket";
 import Slate from "./components/Slate";
+import TaskSearch, { type SearchHit } from "./components/TaskSearch";
 import Habits from "./components/Habits";
 import TimeTab from "./components/TimeTab";
 import Goals from "./components/Goals";
@@ -133,6 +134,27 @@ export default function App() {
     };
   }, []);
 
+  // Task search: 🔍 in the header or ⌘K / Ctrl-K. Picking a hit switches
+  // to the owning tab and fires nowspace-reveal so the view scrolls to and
+  // flashes the task.
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const pickSearchHit = (hit: SearchHit) => {
+    setSearchOpen(false);
+    setView(hit.source === "bucket" ? "bucket" : "week");
+    // let the tab mount/show before the view tries to scroll
+    setTimeout(() => window.dispatchEvent(new CustomEvent("nowspace-reveal", { detail: hit })), 120);
+  };
+
   // First-run tour + help. The tour auto-opens once the vault is ready on a
   // browser that has never finished (or skipped) it.
   const [tourOpen, setTourOpen] = useState(false);
@@ -221,6 +243,16 @@ export default function App() {
             </button>
           </header>
           <Nav current={view} onChange={setView} hideCoach={!coachEnabled} />
+          {/* Task search */}
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-sm transition-colors"
+            style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+            title="Search tasks — Plan week + Bucket (⌘K)"
+            aria-label="Search tasks"
+          >
+            🔍
+          </button>
           {/* Help: replay the tour or open the guide */}
           <div className="relative shrink-0">
             <button
@@ -389,6 +421,7 @@ export default function App() {
         </div>
       </main>
 
+      {searchOpen && <TaskSearch onPick={pickSearchHit} onClose={() => setSearchOpen(false)} />}
       {tourOpen && <Tour onClose={closeTour} onOpenGuide={() => { closeTour(); setGuideOpen(true); }} />}
       {guideOpen && <HelpGuide onClose={() => setGuideOpen(false)} />}
       {philosophyOpen && <Philosophy onClose={() => setPhilosophyOpen(false)} />}

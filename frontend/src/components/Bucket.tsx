@@ -26,7 +26,7 @@ import {
   stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
   stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, setMonthHorizon,
-  BUCKET_META_RE,
+  BUCKET_META_RE, bucketAnchorKey,
 } from "../contexts";
 import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 
@@ -414,6 +414,43 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     window.addEventListener("bucket-changed", handler);
     return () => window.removeEventListener("bucket-changed", handler);
   }, []);
+
+  // Task search reveal: make the item visible (right stage lens, list view,
+  // group expanded), then scroll to it and flash.
+  useEffect(() => {
+    const reveal = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      if (!d || d.source !== "bucket") return;
+      setFilterGroup(null);
+      setHorizonFilter("");
+      const st = d.stage || "captured";
+      // dormant/discarded are silent by default — switch the lens to them;
+      // binding lives in the always-visible strip; the rest is the default view
+      setStageFilter(st === "dormant" || st === "discarded" ? st : "");
+      if (boardView) toggleBoardView();
+      if (d.group) expandGroup(d.group);
+      const locate = () => document.querySelector(`[data-task-anchor="${CSS.escape(`bucket:${d.key}`)}"]`);
+      const flash = (el: HTMLElement) => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.style.transition = "box-shadow 0.3s";
+        el.style.boxShadow = "0 0 0 2px var(--accent)";
+        el.style.borderRadius = "8px";
+        setTimeout(() => { el.style.boxShadow = ""; }, 2200);
+      };
+      setTimeout(() => {
+        const el = locate();
+        if (el instanceof HTMLElement) { flash(el); return; }
+        // stale local data — the search saw fresher state; reload and retry
+        window.dispatchEvent(new CustomEvent("bucket-changed"));
+        setTimeout(() => {
+          const el2 = locate();
+          if (el2 instanceof HTMLElement) flash(el2);
+        }, 700);
+      }, 250);
+    };
+    window.addEventListener("nowspace-reveal", reveal);
+    return () => window.removeEventListener("nowspace-reveal", reveal);
+  }, [boardView]);
 
   if (!data) {
     return (
@@ -1382,7 +1419,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             {bindingItems.map(({ task, originalIdx }) => {
               const stripLinks = extractLinks(task.text);
               return (
-              <div key={originalIdx} className="pl-1.5 py-1 flex items-start gap-1.5 group/bind" style={{ borderLeft: "2px solid rgb(168 85 247 / 0.4)" }}>
+              <div key={originalIdx} data-task-anchor={`bucket:${bucketAnchorKey(task.text)}`}
+                className="pl-1.5 py-1 flex items-start gap-1.5 group/bind" style={{ borderLeft: "2px solid rgb(168 85 247 / 0.4)" }}>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs" style={{ color: "var(--text)" }}>
                     {task.question || "(no question)"}
@@ -1498,7 +1536,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                 const displayLabel = stripBucketMeta(stripCtxTokens(label.replace(WIKI_LINK_RE, "").trim()));
 
                 return (
-                  <div key={originalIdx}>
+                  <div key={originalIdx} data-task-anchor={`bucket:${bucketAnchorKey(task.text)}`}>
                     <div
                       draggable
                       onDragStart={() => handleDragStart(originalIdx)}

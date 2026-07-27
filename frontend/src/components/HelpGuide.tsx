@@ -146,6 +146,12 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     ],
   },
   {
+    title: "Finding a task",
+    body: [
+      "The \u{1F50D} in the header (or \u2318K / Ctrl-K) searches the current Plan week and the Bucket together \u2014 or either alone with the scope chips. Results show where each task lives (day of the week, or bucket stage) and its group; picking one jumps to that tab, opens the group and flashes the task. Group names match too, so searching a group lists everything in it.",
+    ],
+  },
+  {
     title: "Safety nets",
     body: [
       "Everything autosaves a moment after you stop editing. If the file changed on disk meanwhile — another device, or an editor like Obsidian — Nowspace never overwrites silently: a banner offers Compare (see exactly what differs), Keep mine, or Reload.",

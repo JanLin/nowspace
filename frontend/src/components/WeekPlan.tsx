@@ -1031,6 +1031,40 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     };
   }, []);
 
+  // Task search reveal: jump to the day and flash the task row (TaskSearch
+  // dispatches after App switches to this tab).
+  useEffect(() => {
+    const reveal = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      if (!d || d.source !== "week") return;
+      setSelectedDayIdx(d.dayIdx);
+      // wait for the day to render, then scroll + flash; if the row isn't
+      // there (stale local data — the search fetched fresher state than the
+      // view holds), refetch once and retry
+      const locate = () =>
+        document.querySelector(`[data-task-anchor="${CSS.escape(`week:${d.dayIdx}:${d.key}`)}"]`)
+          || document.querySelector(`[data-task-anchor$="${CSS.escape(d.key)}"]`);
+      const flash = (el: HTMLElement) => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.style.transition = "box-shadow 0.3s";
+        el.style.boxShadow = "0 0 0 2px var(--accent)";
+        el.style.borderRadius = "8px";
+        setTimeout(() => { el.style.boxShadow = ""; }, 2200);
+      };
+      setTimeout(() => {
+        const el = locate();
+        if (el instanceof HTMLElement) { flash(el); return; }
+        window.dispatchEvent(new CustomEvent("week-changed"));
+        setTimeout(() => {
+          const el2 = locate();
+          if (el2 instanceof HTMLElement) flash(el2);
+        }, 700);
+      }, 250);
+    };
+    window.addEventListener("nowspace-reveal", reveal);
+    return () => window.removeEventListener("nowspace-reveal", reveal);
+  }, []);
+
   useEffect(() => {
     refreshHabits();
     refreshTime();
@@ -2752,7 +2786,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     // Edges help whenever more than one context is on screen
     const showEdge = taskCtx !== null && (ctxSel.length === 0 || ctxSel.length > 1 || isException);
     return (
-    <div key={`day-${taskIdx}`}>
+    <div key={`day-${taskIdx}`} data-task-anchor={`week:${dayIdx}:${trackedTextOf(task)}`}>
       <div
         draggable={!task.done}
         onDragStart={!task.done ? (e) => handleDragStart(dayIdx, taskIdx, group, e) : undefined}
