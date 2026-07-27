@@ -24,6 +24,7 @@ import NoteFilePicker from "./NoteFilePicker";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
   ctxChipClass, ctxEdgeColor, allContextNames, resolveContext,
+  contextOfGroupName, withGroupInContext,
   stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
   stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, setMonthHorizon,
@@ -252,11 +253,23 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   const isGroupCollapsed = (name: string) => !expandedGroups.has(name);
   const expandGroup = (name: string) =>
     setExpandedGroups((prev) => persistExpanded(new Set(prev).add(name)));
+  // Fold or unfold a whole tag lane in one state write — calling a per-group
+  // setter in a loop would queue updates against the same stale set
+  const setLaneExpanded = (names: string[], expanded: boolean) =>
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      names.forEach((n) => (expanded ? next.add(n) : next.delete(n)));
+      return persistExpanded(next);
+    });
   const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
   const vaultBrowserStateRef = useRef<VaultBrowserState | null>(null);
   const dragRef = useRef<{ fromIdx: number } | null>(null);
+  // A whole group being dragged by its ≡ handle — checked before dragRef, so
+  // dropping on a group header reorders groups instead of refiling one task
+  const groupDragRef = useRef<{ groupName: string } | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [dropGroupTarget, setDropGroupTarget] = useState<string | null>(null);
+  const [dropLaneTarget, setDropLaneTarget] = useState<CtxName | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Undo / Redo
@@ -948,7 +961,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     e.preventDefault(); setDropTarget(idx); setDropGroupTarget(null);
   };
   const handleDragOverGroup = (e: React.DragEvent, groupName: string) => {
-    if (!dragRef.current) return;
+    if (!dragRef.current && !groupDragRef.current) return;
+    if (groupDragRef.current?.groupName === groupName) return; // no self-drop
     e.preventDefault(); setDropGroupTarget(groupName); setDropTarget(null);
   };
   const handleDrop = (idx: number, targetGroup: string, e?: React.DragEvent) => {
@@ -980,6 +994,14 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     dragRef.current = null; setDropTarget(null); setDropGroupTarget(null);
   };
   const handleDropOnGroup = (groupName: string) => {
+    // A group dragged by its handle reorders; a task dropped here refiles
+    if (groupDragRef.current) {
+      const moving = groupDragRef.current.groupName;
+      groupDragRef.current = null;
+      setDropGroupTarget(null);
+      moveGroupTo(moving, groupName);
+      return;
+    }
     if (!dragRef.current) return;
     const { fromIdx } = dragRef.current;
     const next = [...tasks];
@@ -1085,6 +1107,25 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
 
   const sections = buildSections();
 
+  // Tag lanes: the visible groups split by the tag their group name maps to,
+  // in the standard context order. Only when contexts are configured —
+  // otherwise the Bucket stays the flat list it has always been.
+  const laneGroups: { ctx: CtxName; sections: typeof sections }[] | null = ctxEnabled ? (() => {
+    const byCtx = new Map<CtxName, typeof sections>();
+    for (const s of sections) {
+      const ctx = contextOfGroupName(s.name, ctxMap);
+      if (!byCtx.has(ctx)) byCtx.set(ctx, []);
+      byCtx.get(ctx)!.push(s);
+    }
+    // The core three always get a lane, empty or not: they're the standing
+    // vocabulary, and a lane that vanishes when you empty it leaves nowhere
+    // to drop the group back. Custom tags appear once they hold something.
+    const core = ["work", "volunteer", "personal"];
+    return allContextNames(ctxMap, ctxTags)
+      .filter((c) => core.includes(c) || byCtx.has(c) || (ctxMap[c] || []).length > 0)
+      .map((ctx) => ({ ctx, sections: byCtx.get(ctx) || [] }));
+  })() : null;
+
   /* ── GTD board: actions + duplicate sweep ─────────────── */
 
   const todayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
@@ -1122,6 +1163,73 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       idxs.forEach((i) => { if (i !== keep) drop.add(i); });
     });
     updateTasks(tasks.filter((_, i) => !drop.has(i)));
+  };
+
+  /* ── Group moves: reorder groups, or re-home one under another tag ── */
+
+  // Rebuild the flat task list from a group order, keeping each group's own
+  // task order — the same shape sortBucketGTD uses, so drag and sort agree.
+  const applyGroupOrder = (groupOrder: string[]) => {
+    const byGroup = new Map<string, BucketTask[]>();
+    tasks.forEach((t) => {
+      const { group } = parseGroup(t.text);
+      if (!byGroup.has(group)) byGroup.set(group, []);
+      byGroup.get(group)!.push(t);
+    });
+    const next: BucketTask[] = [];
+    for (const g of groupOrder) next.push(...(byGroup.get(g) || []));
+    // Anything the caller forgot still travels, so no task can be dropped
+    for (const [g, items] of byGroup) if (!groupOrder.includes(g)) next.push(...items);
+    updateTasks(next);
+  };
+
+  const currentGroupOrder = (): string[] => {
+    const order: string[] = [];
+    tasks.forEach((t) => {
+      const { group } = parseGroup(t.text);
+      if (!order.includes(group)) order.push(group);
+    });
+    return order;
+  };
+
+  const moveGroupTo = (moveGroup: string, targetGroup: string) => {
+    if (moveGroup === targetGroup) return;
+    const order = currentGroupOrder();
+    const from = order.indexOf(moveGroup);
+    if (from === -1) return;
+    order.splice(from, 1);
+    const to = order.indexOf(targetGroup);
+    if (to === -1) return;
+    order.splice(to, 0, moveGroup);
+    applyGroupOrder(order);
+  };
+
+  // Re-home a group under another tag. This is a settings write, not a task
+  // edit: the mapping is what every surface reads, so the Plan tab's Tag
+  // filter agrees the moment it reloads.
+  const setGroupContext = async (group: string, ctx: CtxName) => {
+    if (!group) return; // Un-grouped has no name to map
+    const next = withGroupInContext(ctxMap, group, ctx);
+    setCtxMap(next);
+    try { await api.saveContextSettings(next, ctxTags); }
+    catch { setCtxMap(ctxMap); setError("Could not save the tag mapping"); }
+  };
+
+  // Tag sort: order groups by their tag lane, keeping each lane's existing
+  // group order and each group's task order. The file then reads the way the
+  // lanes look, so a review sweep doesn't have to reorder anything by hand.
+  const sortBucketByTag = () => {
+    const ctxOrder = allContextNames(ctxMap, ctxTags);
+    const order = currentGroupOrder();
+    const rank = (g: string) => {
+      const i = ctxOrder.indexOf(contextOfGroupName(g, ctxMap));
+      return i === -1 ? ctxOrder.length : i;
+    };
+    const sorted = order
+      .map((g, i) => ({ g, i }))
+      .sort((a, b) => (rank(a.g) - rank(b.g)) || (a.i - b.i))
+      .map(({ g }) => g);
+    applyGroupOrder(sorted);
   };
 
   // GTD sort: within each project group, order by horizon (n → nw → m → none),
@@ -1216,6 +1324,13 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             title="Sort each group by horizon (n → nw → m → none), then priority (A–D, blank last)">
             Sort GTD
           </button>
+          {ctxEnabled && (
+            <button onClick={sortBucketByTag}
+              className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+              title="Order the groups by their tag, so the file reads the way the lanes look. Task order within a group is untouched.">
+              Sort by tag
+            </button>
+          )}
           <button onClick={() => setStatsOpen(true)}
             className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
             title="Funnel diagnostics — time in stage, Binding exits, slip rate. System metrics only.">
@@ -1538,7 +1653,48 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             ＋
           </button>
         </div>
-        {sections.map((section, si) => {
+        {(laneGroups ?? [{ ctx: "" as CtxName, sections }]).map(({ ctx, sections: laneSections }) => (
+          <div key={`lane-${ctx || "flat"}`}>
+          {laneGroups && (() => {
+            const laneNames = laneSections.map((s) => s.name);
+            const anyExpanded = laneNames.some((n) => !isGroupCollapsed(n));
+            const taskCount = laneSections.reduce((n, s) => n + s.items.length, 0);
+            return (
+              /* Tag lane bar — a hairline and a name, nothing louder. Click
+                 folds every group in the lane; a group dropped here is
+                 re-homed under this tag. */
+              <div
+                className={`mt-3 mb-1 flex items-center gap-2 cursor-pointer select-none transition-colors ${
+                  dropLaneTarget === ctx ? "bg-blue-100 rounded" : ""
+                }`}
+                onClick={() => setLaneExpanded(laneNames, !anyExpanded)}
+                onDragOver={(e) => { if (groupDragRef.current) { e.preventDefault(); setDropLaneTarget(ctx); } }}
+                onDragLeave={() => setDropLaneTarget(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDropLaneTarget(null);
+                  const moving = groupDragRef.current?.groupName;
+                  groupDragRef.current = null;
+                  if (moving) setGroupContext(moving, ctx);
+                }}
+                title={`${ctx} — click to fold this tag's groups${groupDragRef.current ? "" : "; drag a group's ≡ here to re-tag it"}`}
+              >
+                <span className="text-[10px] uppercase tracking-wide shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                  {anyExpanded ? "▾" : "▸"} {ctx}
+                </span>
+                <span className="text-[10px] shrink-0" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                  {laneSections.length} {laneSections.length === 1 ? "group" : "groups"} · {taskCount}
+                </span>
+                <span className="flex-1 h-px" style={{ backgroundColor: "var(--border)" }} />
+              </div>
+            );
+          })()}
+          {laneGroups && laneSections.length === 0 && (
+            <p className="text-[10px] px-1 pb-1" style={{ color: "var(--text-tertiary)" }}>
+              No groups under this tag — drag one here by its ≡
+            </p>
+          )}
+          {laneSections.map((section, si) => {
           const displayName = section.name || "Un-grouped";
           const hasMultipleSections = sections.length > 1;
           const showHeader = section.name || hasMultipleSections;
@@ -1553,6 +1709,27 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                 onDragLeave={() => setDropGroupTarget(null)}
                 onDrop={(e) => { e.preventDefault(); handleDropOnGroup(section.name); }}
                 style={{ color: section.name ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                {/* ≡ move handle — drag the whole group: onto another group to
+                    reorder, onto a tag bar to re-home it. Un-grouped has no
+                    name to move or map. */}
+                {section.name && (
+                  <span
+                    draggable
+                    onDragStart={(e) => {
+                      e.stopPropagation();
+                      groupDragRef.current = { groupName: section.name };
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", section.name);
+                    }}
+                    onDragEnd={() => { groupDragRef.current = null; setDropGroupTarget(null); setDropLaneTarget(null); }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="cursor-grab active:cursor-grabbing text-[11px] leading-none opacity-40 hover:opacity-100 transition-opacity"
+                    style={{ color: "var(--text-tertiary)" }}
+                    title={`Drag ${displayName} — reorder, or drop on a tag to re-tag it`}
+                  >
+                    ≡
+                  </span>
+                )}
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{isGroupCollapsed(section.name) ? "▸" : "▾"}</span> {displayName}
                 <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>({section.items.length})</span>
                 <button
@@ -1813,7 +1990,9 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             )}
           </div>
           );
-        })}
+          })}
+          </div>
+        ))}
 
         {/* Add task at bottom */}
         {!addingAt ? (
