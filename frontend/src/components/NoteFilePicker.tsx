@@ -29,6 +29,8 @@ interface NoteFilePickerProps {
   onAddLink?: (name: string, path: string) => void;
   /** Called when user wants to remove a wiki link from the task */
   onRemoveLink?: (name: string) => void;
+  /** Called when user re-points an existing link at another note */
+  onReplaceLink?: (oldName: string, newName: string, path: string) => void;
   /** Close the picker */
   onClose: () => void;
   /** Week offset for folder resolution */
@@ -42,6 +44,7 @@ export default function NoteFilePicker({
   onSelect,
   onAddLink,
   onRemoveLink,
+  onReplaceLink,
   onClose,
   weekOffset = 0,
 }: NoteFilePickerProps) {
@@ -55,6 +58,12 @@ export default function NoteFilePicker({
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  // Name of the link being re-pointed: the next note picked replaces it
+  // rather than being added alongside.
+  const [replacing, setReplacing] = useState<string | null>(null);
+  // Links whose note we looked for and could not find — flagged in place so
+  // a stale link is visibly fixable instead of silently creating a note.
+  const [notFound, setNotFound] = useState<Set<string>>(new Set());
   const popupRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -113,6 +122,20 @@ export default function NoteFilePicker({
     }, 250);
   };
 
+  // Picking a note while re-pointing swaps the old link for the new one and
+  // stays put — it's an edit of the task, not a request to read the note.
+  const attachOrReplace = (name: string, path: string): boolean => {
+    if (replacing) {
+      onReplaceLink?.(replacing, name, path);
+      setReplacing(null);
+      setSearchQuery("");
+      setSearchResults([]);
+      return true;
+    }
+    onAddLink?.(name, path);
+    return false;
+  };
+
   // Create new note
   const handleCreate = async () => {
     if (!newName.trim() || creating) return;
@@ -120,13 +143,17 @@ export default function NoteFilePicker({
     try {
       const folder = folderPath || DEFAULT_FOLDER;
       const res = await api.createNote(folder, newName.trim());
-      onAddLink?.(newName.trim(), res.path);
+      setShowCreate(false);
+      setNewName("");
+      if (attachOrReplace(newName.trim(), res.path)) return;
       onSelect(res.path, newName.trim());
     } catch (e) {
       // If conflict (already exists), try to open it
       const searchRes = await api.vaultSearch(newName.trim(), 1);
       if (searchRes.results.length > 0) {
-        onAddLink?.(searchRes.results[0].name, searchRes.results[0].path);
+        setShowCreate(false);
+        setNewName("");
+        if (attachOrReplace(searchRes.results[0].name, searchRes.results[0].path)) return;
         onSelect(searchRes.results[0].path, searchRes.results[0].name);
       }
     } finally {
@@ -145,8 +172,24 @@ export default function NoteFilePicker({
       }).catch(() => setFiles([])).finally(() => setLoading(false));
       return;
     }
-    onAddLink?.(file.name.replace(/\.md$/, ""), file.path);
-    onSelect(file.path, file.name.replace(/\.md$/, ""));
+    const name = file.name.replace(/\.md$/, "");
+    if (attachOrReplace(name, file.path)) return;
+    onSelect(file.path, name);
+  };
+
+  // Open a link's note. An unresolved link gets one resolve/search attempt;
+  // if the note really is gone it's flagged in the row (Change… / × are
+  // right there) rather than quietly creating a note nobody asked for.
+  const openLink = (link: TaskLink) => {
+    const label = link.display_text || link.name;
+    if (link.resolved_path) { onSelect(link.resolved_path, label); return; }
+    api.vaultResolve(link.name)
+      .then((r) => r.path ? { path: r.path, name: r.name } : api.vaultSearch(link.name, 1).then((res) => res.results[0]))
+      .then((hit) => {
+        if (hit) onSelect(hit.path, hit.name || label);
+        else setNotFound((prev) => new Set(prev).add(link.name));
+      })
+      .catch(() => setNotFound((prev) => new Set(prev).add(link.name)));
   };
 
   const displayFiles = searchQuery.length >= 2 ? searchResults : files;
@@ -193,42 +236,38 @@ export default function NoteFilePicker({
         <div className="mb-2 pb-2 border-b border-gray-100">
           <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Linked</div>
           {existingLinks.map((link, i) => (
-            <div key={i} className="flex items-center gap-1 px-2 py-1 text-xs rounded hover:bg-blue-50 group/link">
+            <div key={i} className={`flex items-center gap-1 px-2 py-1 text-xs rounded group/link ${
+              replacing === link.name ? "bg-amber-50" : "hover:bg-blue-50"
+            }`}>
               <button
-                onClick={() => {
-                  if (link.resolved_path) {
-                    onSelect(link.resolved_path, link.display_text || link.name);
-                  } else {
-                    // Try to resolve by searching, create if not found
-                    api.vaultSearch(link.name, 1).then((res) => {
-                      if (res.results.length > 0) {
-                        onSelect(res.results[0].path, link.display_text || link.name);
-                      } else {
-                        // Note doesn't exist in search — create or find via create API
-                        const folder = folderPath || DEFAULT_FOLDER;
-                        const noteName = link.display_text || link.name;
-                        api.createNote(folder, noteName).then((created) => {
-                          onSelect(created.path, noteName);
-                        }).catch(async (err) => {
-                          // 409 = file already exists, extract path from error
-                          const msg = err instanceof Error ? err.message : String(err);
-                          const pathMatch = msg.match(/File already exists: (.+\.md)/);
-                          if (pathMatch) {
-                            onSelect(pathMatch[1], noteName);
-                          } else {
-                            onSelect(link.name + ".md", noteName);
-                          }
-                        });
-                      }
-                    });
-                  }
-                }}
-                className="flex items-center gap-1.5 text-left flex-1 min-w-0 text-gray-700 hover:text-blue-700"
+                onClick={() => openLink(link)}
+                disabled={notFound.has(link.name)}
+                className="flex items-center gap-1.5 text-left flex-1 min-w-0 text-gray-700 hover:text-blue-700 disabled:text-gray-400"
               >
-                <span className="text-[10px] shrink-0">📄</span>
+                <span className="text-[10px] shrink-0">{notFound.has(link.name) ? "❓" : "📄"}</span>
                 <span className="truncate flex-1">{link.display_text || link.name}</span>
-                <span className="text-[10px] text-blue-500 shrink-0">Open</span>
+                {notFound.has(link.name) ? (
+                  <span className="text-[10px] text-amber-600 shrink-0" title="No note by this name in the vault">not found</span>
+                ) : (
+                  <span className="text-[10px] text-blue-500 shrink-0">Open</span>
+                )}
               </button>
+              {onReplaceLink && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setReplacing(replacing === link.name ? null : link.name);
+                    setShowBrowse(true);
+                    setTimeout(() => searchRef.current?.focus(), 0);
+                  }}
+                  className={`text-[10px] shrink-0 whitespace-nowrap ${
+                    replacing === link.name ? "text-amber-600 font-medium" : "text-gray-400 hover:text-gray-600"
+                  }`}
+                  title="Point this link at another note"
+                >
+                  {replacing === link.name ? "Cancel" : "Change…"}
+                </button>
+              )}
               {onRemoveLink && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemoveLink(link.name); }}
@@ -255,6 +294,14 @@ export default function NoteFilePicker({
 
       {showBrowse && (
         <>
+          {/* Say what the next pick will do, so "Change…" can't be mistaken
+              for "add another" once the list is scrolled */}
+          {replacing && (
+            <div className="mb-2 px-2 py-1 rounded text-[10px] bg-amber-50 text-amber-700 flex items-center gap-1">
+              <span className="truncate flex-1">Pick a note to replace <strong>{replacing}</strong></span>
+              <button onClick={() => setReplacing(null)} className="shrink-0 underline">Cancel</button>
+            </div>
+          )}
           {/* Search */}
           <input
             ref={searchRef}

@@ -9,6 +9,7 @@ import {
   FunnelStatsModal,
 } from "./Funnel";
 import HandoffSurface, { DispatchComposer } from "./Handoff";
+import { resolveLink, longPressProps } from "../links";
 
 // Same annotation as the Plan tab; "-" = unassigned
 const PRIORITIES = ["A", "B", "C", "D"] as const;
@@ -819,6 +820,40 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     setNotePicker((prev) => prev && prev.idx === idx ? { ...prev, links } : prev);
   };
 
+  const openNotePicker = (el: HTMLElement, idx: number, group: string, links: TaskLink[]) => {
+    const rect = el.getBoundingClientRect();
+    setNotePicker(notePicker?.idx === idx ? null : { idx, group, links, pos: { top: rect.bottom + 4, left: rect.left - 100 } });
+  };
+
+  // 🔗 does both jobs: a tap opens the single linked note, a hold (or
+  // right-click) opens the manager. Several links, none, or one that can't
+  // be found all go to the manager — there's nothing unambiguous to open.
+  const linkIconProps = (idx: number, group: string, links: TaskLink[]) => longPressProps({
+    onShort: (el) => {
+      if (links.length !== 1) { openNotePicker(el, idx, group, links); return; }
+      resolveLink(links[0]).then((hit) => {
+        if (hit) onOpenNote(hit.path, hit.name);
+        else openNotePicker(el, idx, group, links);
+      });
+    },
+    onLong: (el) => openNotePicker(el, idx, group, links),
+  });
+
+  // Re-point a link at another note. One text mutation, not remove+add:
+  // both of those read the same `tasks` snapshot, so back-to-back calls
+  // would drop the first. Rewriting in place also keeps the link where it
+  // sat in the text.
+  const replaceLinkOnTask = (idx: number, oldName: string, newName: string) => {
+    const next = [...tasks];
+    const task = { ...next[idx] };
+    const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    task.text = task.text.replace(new RegExp(`\\[\\[${escaped}(\\|[^\\]]*)?\\]\\]`, 'g'), `[[${newName}]]`);
+    next[idx] = task;
+    updateTasks(next);
+    const links = extractLinks(task.text);
+    setNotePicker((prev) => prev && prev.idx === idx ? { ...prev, links } : prev);
+  };
+
   const moveToPlan = async (taskIdx: number, dayIdx: number) => {
     try {
       // Flush pending edits first — the move endpoint indexes into the file
@@ -1328,16 +1363,12 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         <span onClick={() => setEditingTask(i)} className="flex-1 leading-snug cursor-text hover:text-blue-600" style={{ color: "var(--text)" }}>{displayLabel}</span>
                       )}
                       {links.length > 0 && (
-                        <button onClick={(e) => {
-                          e.stopPropagation();
-                          const rect = (e.target as HTMLElement).getBoundingClientRect();
-                          const { group } = parseGroup(t.text);
-                          setNotePicker(notePicker?.idx === i ? null : {
-                            idx: i, group, links,
-                            pos: { top: rect.bottom + 4, left: rect.left - 100 }
-                          });
-                        }}
-                          className="shrink-0 text-[10px] opacity-80 hover:opacity-100" title="Linked notes">
+                        <button {...linkIconProps(i, parseGroup(t.text).group, links)}
+                          style={{ touchAction: "manipulation" }}
+                          className="shrink-0 text-[10px] opacity-80 hover:opacity-100 select-none"
+                          title={links.length === 1
+                            ? `Open ${links[0].display_text || links[0].name} — hold to change or remove`
+                            : `${links.length} linked notes — hold to manage`}>
                           🔗{links.length > 1 && <sup className="text-[8px] font-bold">{links.length}</sup>}
                         </button>
                       )}
@@ -1453,17 +1484,13 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                   </p>
                 </div>
                 <div className="flex gap-1 shrink-0">
-                  <button onClick={(e) => {
-                    e.stopPropagation();
-                    const rect = (e.target as HTMLElement).getBoundingClientRect();
-                    const { group } = parseGroup(task.text);
-                    setNotePicker(notePicker?.idx === originalIdx ? null : {
-                      idx: originalIdx, group, links: stripLinks,
-                      pos: { top: rect.bottom + 4, left: rect.left - 100 },
-                    });
-                  }}
-                    className={`px-1 rounded text-[10px] transition-opacity ${stripLinks.length ? "opacity-80" : "opacity-0 group-hover/bind:opacity-100 max-sm:opacity-60"}`}
-                    title="Link a vault note to this question">
+                  <button {...linkIconProps(originalIdx, parseGroup(task.text).group, stripLinks)}
+                    style={{ touchAction: "manipulation" }}
+                    className={`px-1 rounded text-[10px] transition-opacity select-none ${stripLinks.length ? "opacity-80" : "opacity-0 group-hover/bind:opacity-100 max-sm:opacity-60"}`}
+                    title={stripLinks.length === 1
+                      ? `Open ${stripLinks[0].display_text || stripLinks[0].name} — hold to change or remove`
+                      : stripLinks.length ? `${stripLinks.length} linked notes — hold to manage`
+                      : "Link a vault note to this question"}>
                     🔗{stripLinks.length > 1 && <sup className="text-[8px] font-bold">{stripLinks.length}</sup>}
                   </button>
                   <span className="flex gap-1 opacity-0 group-hover/bind:opacity-100 transition-opacity max-sm:opacity-60">
@@ -1632,19 +1659,14 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         🐘{hasSubtasks && <sup className="text-[8px] font-bold">{task.subtasks.length}</sup>}
                       </button>
 
-                      {/* 🔗 Link vault note */}
-                      <button onClick={(e) => {
-                        e.stopPropagation();
-                        const rect = (e.target as HTMLElement).getBoundingClientRect();
-                        const { group } = parseGroup(task.text);
-                        setNotePicker(notePicker?.idx === originalIdx ? null : {
-                          idx: originalIdx, group,
-                          links: extractLinks(task.text),
-                          pos: { top: rect.bottom + 4, left: rect.left - 100 }
-                        });
-                      }}
-                        className={`text-xs transition-opacity ${hasLinks ? "opacity-80" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
-                        title="Link vault note">
+                      {/* 🔗 Tap opens the linked note, hold manages the links */}
+                      <button {...linkIconProps(originalIdx, parseGroup(task.text).group, taskLinks)}
+                        style={{ touchAction: "manipulation" }}
+                        className={`text-xs transition-opacity select-none ${hasLinks ? "opacity-80" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
+                        title={taskLinks.length === 1
+                          ? `Open ${taskLinks[0].display_text || taskLinks[0].name} — hold to change or remove`
+                          : hasLinks ? `${taskLinks.length} linked notes — hold to manage`
+                          : "Link vault note"}>
                         🔗{hasLinks && taskLinks.length > 1 && <sup className="text-[8px] font-bold">{taskLinks.length}</sup>}
                       </button>
 
@@ -1835,6 +1857,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           }}
           onAddLink={(name) => addLinkToTask(notePicker.idx, name)}
           onRemoveLink={(name) => removeLinkFromTask(notePicker.idx, name)}
+          onReplaceLink={(oldName, newName) => replaceLinkOnTask(notePicker.idx, oldName, newName)}
           onClose={() => setNotePicker(null)}
         />
       )}
