@@ -210,7 +210,7 @@ export default function App() {
 
   if (!backendUp) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center gap-3" style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
+      <div className="h-screen flex flex-col items-center justify-center gap-3" style={{ height: "100dvh", backgroundColor: "var(--bg)", color: "var(--text)" }}>
         <img src="/nowspace-compass-icon.svg" alt="Nowspace" className="w-12 h-12 animate-pulse" />
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Starting Nowspace…</p>
         {slowStart && (
@@ -224,7 +224,15 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col" style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
+    /* Height must be the DYNAMIC viewport, not 100vh. On phones 100vh is the
+       large viewport — it excludes the collapsible URL bar — so the shell
+       ends up taller than what's visible, the document itself gains that
+       much scroll, and everything inside <main> (the pinned Tag/View/Filter
+       toolbars) drifts up under the sticky nav. dvh tracks the visible box,
+       so the document never scrolls and pinned means pinned. The h-screen
+       class stays as the fallback: browsers without dvh drop the inline
+       declaration and land on 100vh. */
+    <div className="h-screen flex flex-col" style={{ height: "100dvh", backgroundColor: "var(--bg)", color: "var(--text)" }}>
       {/* Sticky top nav */}
       <div className="sticky top-0 z-40 px-2 sm:px-4 py-2" style={{ backgroundColor: "var(--bg)", borderBottom: "1px solid var(--border)" }}>
         <div className="mx-auto max-w-6xl flex items-center gap-2 sm:gap-4">

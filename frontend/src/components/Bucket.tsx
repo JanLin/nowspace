@@ -1123,7 +1123,12 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     <div className={`space-y-3 pb-12 ${vaultBrowserOpen ? "" : "max-w-3xl mx-auto"}`}>
       {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
-      <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { background: 'var(--bg)', borderColor: 'var(--border)' } : undefined}>
+      {/* Negative top: <main> carries py-2/sm:py-4, and a sticky child pins at
+          its CONTENT edge — that padding strip stays open and scrolling rows
+          show through it under the nav. Pulling top up by the same amount
+          parks the bar flush against the nav. Rest layout is untouched: a
+          sticky offset only applies once the box is stuck. */}
+      <div className={`relative ${pinFilters ? "sticky -top-2 sm:-top-4 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { background: 'var(--bg)', borderColor: 'var(--border)' } : undefined}>
       {/* Toolbar — three labeled clusters: Tag / View / Filter */}
       <div className="flex items-start flex-wrap gap-x-2 gap-y-1.5 text-xs pr-6" style={{ color: 'var(--text-secondary)' }}>
         <span className="whitespace-nowrap py-1.5">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""}</span>
