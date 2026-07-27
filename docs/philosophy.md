@@ -73,7 +73,7 @@ refuses to schedule anything that hasn't been bound, not to be strict, but
 because scheduling an unbounded thing is a promise neither you nor the
 software can keep.
 
-Binding is real work and gets real time. It is not administration.
+Shaping is real work and gets real time. It is not administration.
 
 ## The limit is the feature
 

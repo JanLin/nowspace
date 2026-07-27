@@ -171,7 +171,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   // "" = active pipeline (captured + ready); dormant/discarded only on request
   const [stageFilter, setStageFilter] = useState<"" | BucketStage>("");
   const [stageDialog, setStageDialog] = useState<{ idx: number; kind: "bind" | "ready" | "dormant" | "discard" } | null>(null);
-  const [evictionFor, setEvictionFor] = useState<number | null>(null); // idx of item waiting for a Binding slot
+  const [evictionFor, setEvictionFor] = useState<number | null>(null); // idx of item waiting for a Shaping slot
   const [reviewOpen, setReviewOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
@@ -398,7 +398,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
         setError(msg);
         // Funnel gate refusals (422) would otherwise loop the 2s auto-save
         // forever — revert the offending change and keep the message visible.
-        if (/Binding holds|needs|unknown stage|unknown mode/.test(msg) && undoStack.current.length > 0) {
+        if (/Shaping holds|needs|unknown stage|unknown mode/.test(msg) && undoStack.current.length > 0) {
           const entry = undoStack.current.pop()!;
           setData({ tasks: entry.tasks, pinned_groups: entry.pinned_groups });
           setUndoCount(undoStack.current.length);
@@ -439,7 +439,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       setHorizonFilter("");
       const st = d.stage || "captured";
       // dormant/discarded are silent by default — switch the lens to them;
-      // binding lives in the always-visible strip; the rest is the default view
+      // shaping lives in the always-visible strip; the rest is the default view
       setStageFilter(st === "dormant" || st === "discarded" ? st : "");
       if (boardView) toggleBoardView();
       if (d.group) expandGroup(d.group);
@@ -632,8 +632,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
         {stageOf(task) !== "binding" && stageOf(task) !== "ready" && (
           <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); requestBind(idx); }}
-            title="Promote to Binding — the small set you're carrying"
-            className="px-1 py-0 rounded text-[10px] font-medium text-purple-600 hover:bg-purple-100">bind</button>
+            title="Promote to Shaping — the small set you're carrying"
+            className="px-1 py-0 rounded text-[10px] font-medium text-purple-600 hover:bg-purple-100">shape</button>
         )}
         {stageOf(task) !== "ready" && (
           <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); setStageDialog({ idx, kind: "ready" }); }}
@@ -884,8 +884,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     setStageDialog(null);
   };
 
-  // Binding entry always goes through here: a free slot opens the bind
-  // dialog; a full Binding opens the eviction dialog instead. The dialog
+  // Shaping entry always goes through here: a free slot opens the bind
+  // dialog; a full Shaping opens the eviction dialog instead. The dialog
   // cannot be bypassed — the server refuses over-limit saves anyway.
   const requestBind = (idx: number) => {
     const count = tasks.filter((t) => stageOf(t) === "binding").length;
@@ -1078,7 +1078,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     let filtered = tasks.map((t, i) => ({ task: t, originalIdx: i }))
       .filter(({ task }) => taskVisibleInMode(task.text));
     // Stage lens: the default view is the active pipeline (captured + ready).
-    // Binding lives in its strip; dormant is silent until woken; discarded
+    // Shaping lives in its strip; dormant is silent until woken; discarded
     // only appears when explicitly asked for.
     filtered = filtered.filter(({ task }) => {
       const st = stageOf(task);
@@ -1280,7 +1280,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           style={reviewDue
             ? { background: "rgb(245 158 11 / 0.12)", color: "#b45309", border: "1px solid rgb(245 158 11 / 0.4)" }
             : { background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
-          title="The weekly review: reconcile slips, check Binding, refill slots, set the week's line. ~5 minutes.">
+          title="The weekly review: reconcile slips, check Shaping, refill slots, set the week's line. ~5 minutes.">
           🧭 Review{reviewDue ? " · due" : ""}
         </button>
         {ctxEnabled && (
@@ -1333,7 +1333,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           )}
           <button onClick={() => setStatsOpen(true)}
             className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
-            title="Funnel diagnostics — time in stage, Binding exits, slip rate. System metrics only.">
+            title="Funnel diagnostics — time in stage, Shaping exits, slip rate. System metrics only.">
             📊 Stats
           </button>
           <button onClick={() => setHandoffOpen(true)}
@@ -1368,11 +1368,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
         ))}
         <span className="w-px h-4 shrink-0" style={{ backgroundColor: "var(--border)" }} />
         {/* Stage lens — default shows the active pipeline (captured + ready);
-            the Binding chip surfaces binding items as full list rows (edit,
+            the Shaping chip surfaces shaping-stage items as full list rows (edit,
             🔗, 🐘) alongside the summary strip */}
-        {([["", "Active"], ["captured", "Captured"], ["binding", "Binding"], ["ready", "Ready"], ["dormant", "Dormant"], ["discarded", "Discarded"]] as const).map(([st, name]) => (
+        {([["", "Active"], ["captured", "Captured"], ["binding", "Shaping"], ["ready", "Ready"], ["dormant", "Dormant"], ["discarded", "Discarded"]] as const).map(([st, name]) => (
           <button key={st || "active"} onClick={() => setStageFilter(st as "" | BucketStage)}
-            title={st ? STAGE_META[st as BucketStage].hint : "Captured + Ready (Binding has its own strip; Dormant stays silent)"}
+            title={st ? STAGE_META[st as BucketStage].hint : "Captured + Ready (Shaping has its own strip; Dormant stays silent)"}
             className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${stageFilter === st ? "bg-blue-100 text-blue-700" : ""}`}
             style={stageFilter !== st ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
             {name}
@@ -1551,7 +1551,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </div>
           <p className="text-[10px] text-center" style={{ color: "var(--text-tertiary)" }}>
             Columns are virtual horizons (nA / nwA / mA prefixes in the file) — nothing leaves the bucket until you pick a weekday in a card's badge menu.
-            Only Ready items appear here; Captured and Binding live in the list view.
+            Only Ready items appear here; Captured and Shaping live in the list view.
           </p>
         </div>
       )}
@@ -1566,12 +1566,12 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </p>
         )}
 
-        {/* Binding strip — the small set of topics being carried (WIP-limited) */}
+        {/* Shaping strip — the small set of topics being carried (WIP-limited) */}
         {bindingItems.length > 0 && (
           <div className="rounded-xl p-2.5 space-y-1.5"
             style={{ background: "var(--bg-secondary)", border: "1px solid rgb(168 85 247 / 0.25)" }}>
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>🧠 Binding</span>
+              <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>🧠 Shaping</span>
               <span className={`text-[10px] font-mono px-1 rounded ${bindingItems.length >= bindingLimit ? "bg-purple-100 text-purple-700 font-bold" : ""}`}
                 style={bindingItems.length < bindingLimit ? { color: "var(--text-tertiary)" } : undefined}>
                 {bindingItems.length}/{bindingLimit}

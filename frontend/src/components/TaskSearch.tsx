@@ -144,7 +144,7 @@ export default function TaskSearch({ onPick, onClose }: {
                   title="In this week's plan">📅 {DAY_SHORT[h.dayIdx ?? 0]}</span>
               ) : (
                 <span className={`shrink-0 text-[10px] px-1 rounded font-medium ${STAGE_CHIP[h.stage || "captured"]}`}
-                  title={`In the bucket — ${h.stage}`}>🪣 {h.stage}</span>
+                  title={`In the bucket — ${h.stage}`}>🪣 {h.stage === "binding" ? "shaping" : h.stage}</span>
               )}
               {h.group && (
                 <span className="shrink-0 text-[10px] px-1 rounded"

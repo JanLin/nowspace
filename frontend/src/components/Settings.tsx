@@ -601,13 +601,13 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
           Funnel
         </h2>
         <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-          The Binding limit is what makes it a priority list rather than a pile — raise it
+          The Shaping limit is what makes it a priority list rather than a pile — raise it
           reluctantly. The evening cutoff hides open problems from the Slate before sleep.
           Stored in <span className="font-mono">Plan Week Configuration.md</span>, shared by every installation.
         </p>
         <div className="flex items-center gap-3 flex-wrap">
           <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
-            Binding limit
+            Shaping limit
             <input
               type="number" min={1} max={10} value={funnelLimit}
               onChange={(e) => { setFunnelLimit(Math.max(1, Math.min(10, parseInt(e.target.value || "4", 10)))); setFunnelSaved(false); }}

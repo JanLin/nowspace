@@ -1550,7 +1550,7 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
     twin (matched by normalized text) must satisfy the target stage's entry
     requirements. Items whose stage is unchanged pass through — that is what
     grandfathers pre-funnel items and hand-edited files instead of bricking
-    every save. The WIP limit refuses any save that *grows* Binding past the
+    every save. The WIP limit refuses any save that *grows* Shaping past the
     limit, so an over-limit state can always be reduced, never extended.
     Transition timestamps (stageEnteredAt, readySince) are stamped here.
     """
@@ -1588,7 +1588,7 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
             q = (t.question or "").strip()
             if len(q) < 2 or not q.endswith("?"):
                 errors.append(
-                    f"“{label}”: a Binding item needs its question — "
+                    f"“{label}”: a Shaping item needs its question — "
                     "phrase what you're carrying, ending in '?'"
                 )
         elif t.stage == "ready":
@@ -1616,7 +1616,7 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
     n_disk = sum(1 for t in on_disk if t.stage == "binding")
     if n_incoming > limit and n_incoming > n_disk:
         errors.append(
-            f"Binding holds at most {limit} items — resolve one first "
+            f"Shaping holds at most {limit} items — resolve one first "
             "(Ready, Dormant or Discarded)"
         )
 

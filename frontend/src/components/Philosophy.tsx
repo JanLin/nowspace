@@ -51,7 +51,7 @@ const SECTIONS: { title: string; body: string[] }[] = [
     title: "Bounded work, or no work",
     body: [
       "An unbounded task cannot be finished, so it cannot be closed, so it stays. It doesn't stay in the list — it stays in you, resurfacing on walks and at two in the morning, costing far more than the work would have. Nowspace refuses to schedule anything that hasn't been bound, not to be strict, but because scheduling an unbounded thing is a promise neither you nor the software can keep.",
-      "Binding is real work and gets real time. It is not administration.",
+      "Shaping is real work and gets real time. It is not administration.",
     ],
   },
   {
