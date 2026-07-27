@@ -108,6 +108,31 @@ export function resolveContext(text: string, ctxMap: CtxMap, tags: CtxTags = DEF
   return "personal";
 }
 
+/** The context a whole group belongs to, from the group mapping alone —
+    deliberately ignoring any per-task @tag override. The Bucket's tag lanes
+    need one stable home per group: a stray @w task shouldn't drag its group
+    into another lane, or split it across two while you're reviewing it. */
+export function contextOfGroupName(group: string, ctxMap: CtxMap): CtxName {
+  const g = group.trim().toLowerCase();
+  if (g) {
+    for (const [ctx, groups] of Object.entries(ctxMap)) {
+      if ((groups || []).some((x) => x.toLowerCase() === g)) return ctx || "personal";
+    }
+  }
+  return "personal";
+}
+
+/** Move a group to a context: it can only live in one, so drop it from the
+    others first. Returns a new map — callers persist it. */
+export function withGroupInContext(ctxMap: CtxMap, group: string, ctx: CtxName): CtxMap {
+  const next: CtxMap = {};
+  for (const [c, groups] of Object.entries(ctxMap)) {
+    next[c] = (groups || []).filter((g) => g.toLowerCase() !== group.toLowerCase());
+  }
+  next[ctx] = [...(next[ctx] || []), group];
+  return next;
+}
+
 /** Feature is on only when some context has group mappings */
 export function ctxFeatureEnabled(ctxMap: CtxMap): boolean {
   return Object.values(ctxMap).some((groups) => (groups || []).length > 0);

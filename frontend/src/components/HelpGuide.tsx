@@ -81,6 +81,8 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
       "The bucket holds anything you might do someday, organised into groups. Add quickly from the top bar (\"Group: task\" files it under the group), set priorities, and give tasks a horizon: n means this week, nw next week, m next month — written into the file as nA:, nwB:, mC: prefixes.",
       "The Board view lays the same tasks out as horizon columns — This week, Next week, Next month, Someday — so you can sweep through and park things where they belong. Tasks show how long they've been in the bucket; nothing leaves until you pick a weekday in a task's badge menu.",
       "Steps under a bucket task can be promoted to standalone tasks with the ↑ arrow, inheriting the parent's group, priority and horizon.",
+      "When you've set up tags (Work / Volunteer / Personal in Settings), the bucket splits into a lane per tag — a hairline, the tag's name, and how much sits under it — so you can review one area at a time. Clicking a lane's bar folds every group in it. Groups with no tag land under Personal.",
+      "Each group header carries a ≡ handle: drag it onto another group to reorder, or onto a tag's bar to move the whole group to that tag (which updates the group's tag in Settings, so the Plan tab agrees). \"Sort by tag\" then reorders the file so the groups sit in lane order — task order inside a group is left alone.",
     ],
   },
   {
