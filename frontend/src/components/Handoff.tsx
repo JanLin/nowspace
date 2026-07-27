@@ -255,7 +255,7 @@ export default function HandoffSurface({ onClose, onOpenNote }: {
             <div className="flex gap-1 flex-wrap">
               <button onClick={() => onOpenNote(r.path, r.name)} className={btn} style={ghostStyle}>Read</button>
               <button onClick={() => setCapturing(r)} className={`${btn} bg-emerald-100 text-emerald-700`}
-                title="Creates Captured items — never Ready, never Binding, never edits anything">Capture…</button>
+                title="Creates Captured items — never Ready, never Shaping, never edits anything">Capture…</button>
               <button onClick={() => resolveReturn(r, "discard")} className={btn} style={ghostStyle}>Discard</button>
             </div>
           </div>

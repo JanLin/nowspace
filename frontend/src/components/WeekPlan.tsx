@@ -4672,7 +4672,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
             const unboundNote = unboundCount > 0 ? (
               <p key="unbound-note" className="text-[10px] text-center py-1.5 px-2" style={{ color: "var(--text-tertiary)" }}>
-                +{unboundCount} unbound (captured / binding / dormant) — only
+                +{unboundCount} unbound (captured / shaping / dormant) — only
                 Ready items can be scheduled; bind them in the Bucket tab.
               </p>
             ) : null;

@@ -1,5 +1,5 @@
 /* ── Funnel: bucket stages UI ───────────────────────────────────
-   Captured → Binding (WIP-limited) → Ready → scheduled, with Dormant
+   Captured → Shaping (WIP-limited) → Ready → scheduled, with Dormant
    and Discarded as deliberate exits. The server enforces every gate;
    these dialogs exist so the user never hits a 422 blind.
    See docs/funnel-discovery.md and the implementation brief. */
@@ -11,7 +11,7 @@ import { stripBucketMeta, stripCtxTokens } from "../contexts";
 
 export const STAGE_META: Record<BucketStage, { label: string; chip: string; hint: string }> = {
   captured: { label: "Captured", chip: "bg-gray-100 text-gray-600", hint: "Inbox — unjudged, not schedulable" },
-  binding: { label: "Binding", chip: "bg-purple-100 text-purple-700", hint: "Being turned into something bounded" },
+  binding: { label: "Shaping", chip: "bg-purple-100 text-purple-700", hint: "Being shaped into something bounded" },
   ready: { label: "Ready", chip: "bg-emerald-100 text-emerald-700", hint: "Bounded — has a next action and a size" },
   dormant: { label: "Dormant", chip: "bg-sky-100 text-sky-700", hint: "Parked on purpose, silent until its wake date" },
   discarded: { label: "Discarded", chip: "bg-gray-100 text-gray-400", hint: "Dropped, with the reason recorded" },
@@ -228,7 +228,7 @@ export function DiscardDialog({ task, onResolve, onCancel }: {
   );
 }
 
-/* ── Bind dialog: the two promotion tests, then the question ── */
+/* ── Shape dialog: the two promotion tests, then the question ── */
 
 export function BindDialog({ task, onResolve, onCancel }: {
   task: BucketTask; onResolve: (r: StageResolution) => void; onCancel: () => void;
@@ -249,7 +249,7 @@ export function BindDialog({ task, onResolve, onCancel }: {
   return (
     <ModalShell onClose={onCancel}>
       <div>
-        <h3 className="text-sm font-semibold">Promote to Binding</h3>
+        <h3 className="text-sm font-semibold">Promote to Shaping</h3>
         <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>{labelOf(task)}</p>
       </div>
 
@@ -307,7 +307,7 @@ export function BindDialog({ task, onResolve, onCancel }: {
           </div>
           <div className="flex justify-end gap-2">
             <button onClick={onCancel} className={btnGhost} style={ghostStyle}>Cancel</button>
-            <button onClick={submitQuestion} className={btnPrimary} style={{ background: "#7c3aed" }}>Bind it</button>
+            <button onClick={submitQuestion} className={btnPrimary} style={{ background: "#7c3aed" }}>Shape it</button>
           </div>
         </div>
       )}
@@ -331,7 +331,7 @@ export function EvictionDialog({ bindingItems, limit, incoming, onEvict, onCance
     <>
       <ModalShell onClose={onCancel} wide>
         <div>
-          <h3 className="text-sm font-semibold">Binding is full — the limit is the feature</h3>
+          <h3 className="text-sm font-semibold">Shaping is full — the limit is the feature</h3>
           <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
             {incoming
               ? <>To carry <span className="font-medium">“{labelOf(incoming)}”</span>, one of these {limit} has to leave. This is the only moment genuine prioritisation happens.</>
@@ -421,7 +421,7 @@ export function FunnelStatsModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
           <div>
-            <p className="font-medium mb-1" style={{ color: "var(--text)" }}>How items leave Binding</p>
+            <p className="font-medium mb-1" style={{ color: "var(--text)" }}>How items leave Shaping</p>
             <p>
               → Ready {stats.binding_exits.ready} · → Dormant {stats.binding_exits.dormant} · → Discarded {stats.binding_exits.discarded}
             </p>
@@ -512,7 +512,7 @@ export function WeeklyReview({ tasks, limit, weekFocus, onApply, onFinish, onClo
     <div className="flex gap-1.5 flex-wrap">
       {opts?.allowBind && (
         <button onClick={() => setDialog({ idx, kind: "bind" })}
-          className="px-2 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">→ Binding</button>
+          className="px-2 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">→ Shaping</button>
       )}
       <button onClick={() => setDialog({ idx, kind: "ready" })}
         className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700">→ Ready</button>
@@ -575,7 +575,7 @@ export function WeeklyReview({ tasks, limit, weekFocus, onApply, onFinish, onClo
                       <div className="flex gap-1.5">
                         <button onClick={() => setDialog({ idx, kind: "bind" })}
                           className="px-2 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">
-                          Too big — re-scope it in Binding
+                          Too big — re-scope it in Shaping
                         </button>
                         <button onClick={() => setDialog({ idx, kind: "dormant" })}
                           className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-700">
@@ -625,7 +625,7 @@ export function WeeklyReview({ tasks, limit, weekFocus, onApply, onFinish, onClo
         {step.kind === "refill" && (
           <div className="space-y-2">
             <h3 className="text-sm font-semibold">
-              Binding slots: {bindingCount}/{limit}
+              Shaping slots: {bindingCount}/{limit}
             </h3>
             {bindingCount >= limit ? (
               <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Full — nothing to refill.</p>

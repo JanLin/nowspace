@@ -23,18 +23,18 @@ confirmation before implementing — do not quietly comply:
   logo's after-cutoff half-moon.)
 - **Capture is never gated.** No required fields, no classification, no
   prompts at capture, on any surface.
-- **Limits are hard.** The Binding WIP limit, the in-flight dispatch limit
+- **Limits are hard.** The Shaping WIP limit (stage value `binding` in files/code — the UI term is Shaping), the in-flight dispatch limit
   and the ready gate must refuse — never a warning, a confirmation dialog
   or an "I understand" checkbox. A check that can be clicked past will be.
 - **Only `ready`/`active` items are schedulable.** This is the entire
   contract between Bucket and Timing; enforce it on every route including
   direct API calls. Ready = **sized** (s/m/l): a GTD-style task is its own
   next action, so steps are optional (Jan's call, 2026-07-27) —
-  decomposition is required thinking only on Binding exits.
+  decomposition is required thinking only on Shaping exits.
 - **The conformance check cannot be overridden**, fails closed on anything
   unresolvable, and reports every failure, not the first.
 - **Nowspace hands agents paths, never content**, and agent output enters
-  the funnel only as `captured` — never ready, never binding, never
+  the funnel only as `captured` — never ready, never shaping, never
   editing an existing item. No agent suggestions of what to think about.
 - **Measure the system, never the user.** No scores for thinking; slips
   and age-in-ready stay separate figures.
@@ -44,7 +44,7 @@ confirmation before implementing — do not quietly comply:
 ## Data-format and compatibility rules
 
 - Funnel state lives in tilde tokens on bucket lines (`~s:` `~e:`/`~es`
-  `~sl:` `~rs:` `~se:` `~wake:` `~dr:` `~rh`); the binding question is a
+  `~sl:` `~rs:` `~se:` `~wake:` `~dr:` `~rh`); the shaping question (stage `binding`) is a
   `- ? …` subtask line; `~i<6 hex>` is the item's stable identity (the
   save gate matches items by it — text edits must never fake a stage
   transition). New metadata must round-trip as opaque text through OLD

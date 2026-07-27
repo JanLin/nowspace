@@ -89,7 +89,7 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     title: "Bucket stages — the funnel",
     body: [
       "Everything you capture lands in Captured. Nothing is judged there and nothing is required — capture stays fast on purpose, because an inbox you hesitate to use is an inbox you stop trusting.",
-      "Once a week you promote a few items into Binding. This is the small set of topics you're actively carrying — at most four, because the limit is what makes it a priority list rather than a pile. Each one holds a question rather than a title, since your mind works on questions and ignores nouns.",
+      "Once a week you promote a few items into Shaping. This is the small set of topics you're actively carrying — at most four, because the limit is what makes it a priority list rather than a pile. Each one holds a question rather than a title, since your mind works on questions and ignores nouns.",
       "Ready means bounded: the item has a size (s/m/l), and steps if it needed breaking down — a task that is itself the action just gets a size (on a captured item, tapping a size in the badge menu marks it Ready in one tap). Only Ready items can be scheduled in the Plan tab. This is deliberate: an unbounded topic can't be scheduled honestly, and pretending otherwise is how weeks quietly fail.",
       "Dormant is a decision, not a failure. A dormant item has a wake date and stays silent until then. Parking something on purpose feels completely different from carrying it undecided, and most of the weight you feel in a task list comes from items in the second category.",
       "Discarded items record why they were dropped — no agency, already decided, or not yours. The reason is what stops the same topic reappearing next month.",
@@ -98,7 +98,7 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
   {
     title: "Solve and rehearse — the Slate",
     body: [
-      "Binding items are marked solve or rehearse. Solve items are open problems: they generate loops, so the Slate shows them in the morning and hides them after your evening cutoff. Rehearse items are practice on things you already know — a question you got wrong, a form you keep misusing. They resolve nothing and start nothing, which makes them safe to look at before sleep.",
+      "Shaping items are marked solve or rehearse. Solve items are open problems: they generate loops, so the Slate shows them in the morning and hides them after your evening cutoff. Rehearse items are practice on things you already know — a question you got wrong, a form you keep misusing. They resolve nothing and start nothing, which makes them safe to look at before sleep.",
       "One rule worth keeping: don't take rehearse items to an AI chat. The value is in the effort of recalling; being handed the answer removes the part that makes it stick.",
       "The Slate opens from the Nowspace compass in the top-left corner — tap the logo, at any hour; tap it again to leave. It has no tab on purpose: it's a pause, not a destination. After your evening cutoff a small half-moon appears beside the logo — a quiet state signal, never a badge.",
       "The Slate also has a capture box, so the pre-sleep ritual becomes read-then-write: glance at what you're rehearsing, put down whatever surfaced, let it go. If you like a morning trigger, add an \"open the slate\" habit — opening it may be tracked; thinking may not.",
@@ -107,8 +107,8 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
   {
     title: "The weekly review",
     body: [
-      "Five minutes, once a week — the 🧭 Review button on the Bucket tab. You reconcile what slipped, check whether your Binding items produced anything new, refill empty slots, and set one line for the week.",
-      "If an item slips three weeks running, you'll be asked one question: was it too big, or was it not actually important? Too big sends it back to Binding to be re-scoped. Not important sends it to Dormant. Those are the only two honest answers, and the system would rather you gave one than carried it a fourth week.",
+      "Five minutes, once a week — the 🧭 Review button on the Bucket tab. You reconcile what slipped, check whether your Shaping items produced anything new, refill empty slots, and set one line for the week.",
+      "If an item slips three weeks running, you'll be asked one question: was it too big, or was it not actually important? Too big sends it back to Shaping to be re-scoped. Not important sends it to Dormant. Those are the only two honest answers, and the system would rather you gave one than carried it a fourth week.",
     ],
   },
   {
@@ -118,7 +118,7 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
       "If a note reaches outside the area, through a link or an embed, the handoff isn't available. That isn't strictness for its own sake: the whole point of separating areas is that one customer's material never reaches an agent working for another, and a check you can click past isn't a check.",
       "Captured items can't be handed off. Neither can rehearse items — the value of practice is the effort of recalling, and an answer removes it.",
       "What comes back arrives in the Returned lane and lands in your inbox as Captured, exactly like anything else you write down. It doesn't become a scheduled task, and nothing is promoted on your behalf. The agent can help you answer a question; deciding which questions you carry stays yours.",
-      "Why only three at once? The same reason there are only four Binding items. Agent work is fast, satisfying and visible, which makes it the easiest thing in your week to do instead of the work that was actually due. Three in flight, and a fourth asks you which one is finished.",
+      "Why only three at once? The same reason there are only four Shaping items. Agent work is fast, satisfying and visible, which makes it the easiest thing in your week to do instead of the work that was actually due. Three in flight, and a fourth asks you which one is finished.",
     ],
   },
   {
