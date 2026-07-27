@@ -9,6 +9,7 @@ import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
 import { markDone as markAPDone } from "../actionPoints";
+import { resolveLink, longPressProps } from "../links";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
   ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
@@ -715,12 +716,26 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   // Open the note picker for a task's links — every 🔗 in this component
-  // routes here, so opening, detaching and re-pointing live in one popup.
-  const openNotePicker = (dayIdx: number, taskIdx: number, group: string | null, links: TaskLink[], e: React.MouseEvent) => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  // routes here, so detaching and re-pointing live in one popup.
+  const openNotePicker = (el: HTMLElement, dayIdx: number, taskIdx: number, group: string | null, links: TaskLink[]) => {
+    const rect = el.getBoundingClientRect();
     const taskGroup = group || parseGroup(data?.days[dayIdx]?.tasks[taskIdx]?.text || "").group;
     setNotePicker({ dayIdx, taskIdx, group: taskGroup, links, pos: { top: rect.bottom + 4, left: rect.left - 100 } });
   };
+
+  // 🔗 does both jobs: a tap opens the single linked note, a hold (or
+  // right-click) opens the manager. Several links, none, or one that can't
+  // be found all go to the manager — there's nothing unambiguous to open.
+  const linkIconProps = (dayIdx: number, taskIdx: number, group: string | null, links: TaskLink[]) => longPressProps({
+    onShort: (el) => {
+      if (links.length !== 1) { openNotePicker(el, dayIdx, taskIdx, group, links); return; }
+      resolveLink(links[0]).then((hit) => {
+        if (hit) onOpenNote(hit.path, hit.name);
+        else openNotePicker(el, dayIdx, taskIdx, group, links);
+      });
+    },
+    onLong: (el) => openNotePicker(el, dayIdx, taskIdx, group, links),
+  });
 
   const addLinkToTask = (dayIdx: number, taskIdx: number, name: string) => {
     if (!data) return;
@@ -2775,13 +2790,15 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           🐘
         </button>
       ) : null}
-      {/* Link icon — same picker as the day view and the Bucket: open,
-          detach or re-point, one place for all of it */}
+      {/* Link icon — tap opens the note, hold manages the links */}
       {task.links?.length > 0 && (
         <button
-          onClick={(e) => { e.stopPropagation(); openNotePicker(dayIdx, taskIdx, group, task.links, e); }}
-          className="shrink-0 text-[10px] text-blue-400 hover:text-blue-600 transition-opacity opacity-70 hover:opacity-100"
-          title={`${task.links.length} linked note${task.links.length > 1 ? "s" : ""}`}
+          {...linkIconProps(dayIdx, taskIdx, group, task.links)}
+          style={{ touchAction: "manipulation" }}
+          className="shrink-0 text-[10px] text-blue-400 hover:text-blue-600 transition-opacity opacity-70 hover:opacity-100 select-none"
+          title={task.links.length === 1
+            ? `Open ${task.links[0].display_text || task.links[0].name} — hold to change or remove`
+            : `${task.links.length} linked notes — hold to manage`}
         >
           🔗{task.links.length > 1 && <sup className="text-[8px] font-bold">{task.links.length}</sup>}
         </button>
@@ -2951,25 +2968,23 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             🐘
           </button>
         ) : null}
-        {/* Link icon — opens file picker for linking vault notes */}
+        {/* Link icon — tap opens the linked note (or the picker when there's
+            nothing unambiguous to open), hold manages the links */}
         {!task.done && viewMode === "day" && (() => {
           const taskGroup = group || parseGroup(task.text).group;
-          const hasLinks = task.links && task.links.length > 0;
+          const links = task.links || [];
+          const hasLinks = links.length > 0;
           return (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const rect = (e.target as HTMLElement).getBoundingClientRect();
-                setNotePicker({
-                  dayIdx, taskIdx, group: taskGroup,
-                  links: task.links || [],
-                  pos: { top: rect.bottom + 4, left: rect.left - 100 },
-                });
-              }}
-              className={`shrink-0 text-sm transition-opacity ${
+              {...linkIconProps(dayIdx, taskIdx, taskGroup, links)}
+              style={{ touchAction: "manipulation" }}
+              className={`shrink-0 text-sm transition-opacity select-none ${
                 hasLinks ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"
               }`}
-              title={`${hasLinks ? "Open" : "Add"} notes${taskGroup ? ` for ${taskGroup}` : ""}`}
+              title={links.length === 1
+                ? `Open ${links[0].display_text || links[0].name} — hold to change or remove`
+                : hasLinks ? `${links.length} linked notes — hold to manage`
+                : `Add notes${taskGroup ? ` for ${taskGroup}` : ""}`}
             >
               🔗{hasLinks && task.links.length > 1 && <sup className="text-[8px] font-bold">{task.links.length}</sup>}
             </button>
