@@ -1592,11 +1592,9 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
                     "phrase what you're carrying, ending in '?'"
                 )
         elif t.stage == "ready":
-            if not any(not s.done for s in (t.subtasks or [])):
-                errors.append(
-                    f"“{label}”: Ready needs at least one concrete next action "
-                    "(add a step)"
-                )
+            # Ready = bounded = sized. A GTD-style task is its own next
+            # action, so steps are optional (they matter on Binding exits,
+            # where decomposition is the point) — Jan's call, 2026-07-27.
             if t.estimate not in ("s", "m", "l"):
                 errors.append(f"“{label}”: Ready needs a size estimate (s/m/l)")
             if not t.ready_since:
@@ -1696,8 +1694,8 @@ async def move_bucket_task(req: BucketMoveRequest):
         # on a schedulable item.
         week_text, funnel = _extract_funnel_meta(task.text)
         estimate = funnel.get("estimate", "")
-        has_next_action = any(not s.done for s in (task.subtasks or []))
-        is_bound = estimate in ("s", "m", "l") and has_next_action
+        # Bounded = sized (the task itself counts as its next action)
+        is_bound = estimate in ("s", "m", "l")
         stage = "ready" if is_bound else "captured"
         today_iso = date.today().isoformat()
         new_bucket_task = BucketTask(

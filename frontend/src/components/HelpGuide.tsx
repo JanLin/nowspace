@@ -88,7 +88,7 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     body: [
       "Everything you capture lands in Captured. Nothing is judged there and nothing is required — capture stays fast on purpose, because an inbox you hesitate to use is an inbox you stop trusting.",
       "Once a week you promote a few items into Binding. This is the small set of topics you're actively carrying — at most four, because the limit is what makes it a priority list rather than a pile. Each one holds a question rather than a title, since your mind works on questions and ignores nouns.",
-      "An item leaves Binding when it has one concrete next action and a size. That's what Ready means, and only Ready items can be scheduled in the Plan tab. This is deliberate: an unbounded topic can't be scheduled honestly, and pretending otherwise is how weeks quietly fail.",
+      "Ready means bounded: the item has a size (s/m/l), and steps if it needed breaking down — a task that is itself the action just gets a size (on a captured item, tapping a size in the badge menu marks it Ready in one tap). Only Ready items can be scheduled in the Plan tab. This is deliberate: an unbounded topic can't be scheduled honestly, and pretending otherwise is how weeks quietly fail.",
       "Dormant is a decision, not a failure. A dormant item has a wake date and stays silent until then. Parking something on purpose feels completely different from carrying it undecided, and most of the weight you feel in a task list comes from items in the second category.",
       "Discarded items record why they were dropped — no agency, already decided, or not yours. The reason is what stops the same topic reappearing next month.",
     ],

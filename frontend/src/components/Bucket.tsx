@@ -587,18 +587,31 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </button>
         ))}
       </div>
-      {/* Estimate — part of the definition of ready */}
-      {stageOf(task) === "ready" && (
+      {/* Estimate — the whole definition of ready (bounded = sized).
+          On a captured item, tapping a size IS the GTD fast path: the task
+          is its own next action, so size it and it's Ready in one tap. */}
+      {(stageOf(task) === "ready" || stageOf(task) === "captured") && (
         <div className="flex gap-0.5 items-center">
           {ESTIMATES.map(([e, name]) => (
-            <button key={e} onClick={(ev) => { ev.stopPropagation(); setEstimate(idx, task.estimate === e ? "" : e); }}
-              title={name}
+            <button key={e} onClick={(ev) => {
+              ev.stopPropagation();
+              if (stageOf(task) === "captured") {
+                updateTasks(tasks.map((t, i) => (i === idx
+                  ? { ...t, stage: "ready", estimate: e } : t)));
+                setPrioMenu(null);
+              } else {
+                setEstimate(idx, task.estimate === e ? "" : e);
+              }
+            }}
+              title={stageOf(task) === "captured" ? `${name} — sizes it and marks it Ready` : name}
               className={`px-1 py-0 rounded text-[10px] font-mono ${task.estimate === e ? "bg-emerald-100 text-emerald-700 font-bold" : "text-gray-500"}`}
               style={task.estimate !== e ? { border: "1px solid var(--border)" } : undefined}>
               {e}
             </button>
           ))}
-          <span className="text-[8px] pl-0.5" style={{ color: "var(--text-tertiary)" }}>size</span>
+          <span className="text-[8px] pl-0.5" style={{ color: "var(--text-tertiary)" }}>
+            {stageOf(task) === "captured" ? "size → ready" : "size"}
+          </span>
         </div>
       )}
       {/* Stage transitions — each opens its gate dialog */}

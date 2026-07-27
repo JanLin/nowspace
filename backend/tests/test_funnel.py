@@ -183,19 +183,20 @@ def _save(client, tasks):
     })
 
 
-def test_ready_transition_requires_next_action_and_estimate(client, vault):
+def test_ready_transition_requires_estimate_only(client, vault):
+    """Ready = bounded = sized. A GTD-style task is its own next action, so
+    steps are never required — decomposition belongs to Binding exits."""
     _write_bucket(vault, "# Planning Bucket\n\n- topic\n")
-    # no subtask, no estimate
+    # no estimate → refused
     r = _save(client, [BucketTask(text="topic", stage="ready")])
     assert r.status_code == 422
-    assert "next action" in r.json()["detail"]
     assert "estimate" in r.json()["detail"]
-    # subtask but no estimate
-    r = _save(client, [BucketTask(
-        text="topic", stage="ready", subtasks=[Subtask(text="step")],
-    )])
-    assert r.status_code == 422
-    # both → passes, readySince stamped
+    # estimate alone, no steps → Ready (the task IS the action)
+    r = _save(client, [BucketTask(text="topic", stage="ready", estimate="s")])
+    assert r.status_code == 200, r.text
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
+    assert tasks[0].stage == "ready" and tasks[0].subtasks == []
+    # steps still welcome when the item needs breaking down
     r = _save(client, [BucketTask(
         text="topic", stage="ready", estimate="l", subtasks=[Subtask(text="step")],
     )])
