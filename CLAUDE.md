@@ -28,7 +28,9 @@ confirmation before implementing — do not quietly comply:
   or an "I understand" checkbox. A check that can be clicked past will be.
 - **Only `ready`/`active` items are schedulable.** This is the entire
   contract between Bucket and Timing; enforce it on every route including
-  direct API calls.
+  direct API calls. Ready = **sized** (s/m/l): a GTD-style task is its own
+  next action, so steps are optional (Jan's call, 2026-07-27) —
+  decomposition is required thinking only on Binding exits.
 - **The conformance check cannot be overridden**, fails closed on anything
   unresolvable, and reports every failure, not the first.
 - **Nowspace hands agents paths, never content**, and agent output enters

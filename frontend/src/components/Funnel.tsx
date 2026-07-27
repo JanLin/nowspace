@@ -31,8 +31,8 @@ export const ESTIMATES: ["s" | "m" | "l", string][] = [
 
 export const stageOf = (t: BucketTask): BucketStage => (t.stage as BucketStage) || "captured";
 export const labelOf = (t: BucketTask) => stripBucketMeta(stripCtxTokens(t.text));
-export const isBound = (t: BucketTask) =>
-  ["s", "m", "l"].includes(t.estimate || "") && (t.subtasks || []).some((s) => !s.done);
+// Bounded = sized; a GTD-style task is its own next action, steps optional
+export const isBound = (t: BucketTask) => ["s", "m", "l"].includes(t.estimate || "");
 
 /** A resolution the dialogs hand back to the caller, who applies it. */
 export type StageResolution =
@@ -94,7 +94,6 @@ export function ReadyDialog({ task, onResolve, onCancel }: {
   const [steps, setSteps] = useState<string[]>([]);
   const stepRef = useRef<HTMLInputElement>(null);
   const existingOpen = (task.subtasks || []).filter((s) => !s.done);
-  const hasAction = existingOpen.length > 0 || steps.length > 0;
 
   const addStep = () => {
     const v = (stepRef.current?.value || "").trim();
@@ -109,7 +108,10 @@ export function ReadyDialog({ task, onResolve, onCancel }: {
       </div>
 
       <div className="space-y-1">
-        <p className="text-xs font-medium">1 · One concrete next action</p>
+        <p className="text-xs font-medium">
+          Steps <span className="font-normal" style={{ color: "var(--text-tertiary)" }}>
+            (optional — skip when the task itself is the action)</span>
+        </p>
         {existingOpen.map((s, i) => (
           <p key={`e${i}`} className="text-xs pl-2" style={{ color: "var(--text-secondary)" }}>· {s.text}</p>
         ))}
@@ -129,7 +131,7 @@ export function ReadyDialog({ task, onResolve, onCancel }: {
       </div>
 
       <div className="space-y-1">
-        <p className="text-xs font-medium">2 · How big is it?</p>
+        <p className="text-xs font-medium">How big is it?</p>
         <div className="flex gap-1">
           {ESTIMATES.map(([e, name]) => (
             <button key={e} onClick={() => setEstimate(e)} title={name}
@@ -144,17 +146,12 @@ export function ReadyDialog({ task, onResolve, onCancel }: {
       <div className="flex justify-end gap-2 pt-1">
         <button onClick={onCancel} className={btnGhost} style={ghostStyle}>Cancel</button>
         <button
-          disabled={!hasAction || !estimate}
+          disabled={!estimate}
           onClick={() => estimate && onResolve({ kind: "ready", estimate, steps })}
           className={`${btnPrimary} disabled:opacity-40`} style={{ background: "#059669" }}>
           Mark Ready
         </button>
       </div>
-      {!hasAction && (
-        <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-          Ready needs at least one open step — that's the whole point.
-        </p>
-      )}
     </ModalShell>
   );
 }
