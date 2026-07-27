@@ -819,6 +819,21 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     setNotePicker((prev) => prev && prev.idx === idx ? { ...prev, links } : prev);
   };
 
+  // Re-point a link at another note. One text mutation, not remove+add:
+  // both of those read the same `tasks` snapshot, so back-to-back calls
+  // would drop the first. Rewriting in place also keeps the link where it
+  // sat in the text.
+  const replaceLinkOnTask = (idx: number, oldName: string, newName: string) => {
+    const next = [...tasks];
+    const task = { ...next[idx] };
+    const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    task.text = task.text.replace(new RegExp(`\\[\\[${escaped}(\\|[^\\]]*)?\\]\\]`, 'g'), `[[${newName}]]`);
+    next[idx] = task;
+    updateTasks(next);
+    const links = extractLinks(task.text);
+    setNotePicker((prev) => prev && prev.idx === idx ? { ...prev, links } : prev);
+  };
+
   const moveToPlan = async (taskIdx: number, dayIdx: number) => {
     try {
       // Flush pending edits first — the move endpoint indexes into the file
@@ -1835,6 +1850,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           }}
           onAddLink={(name) => addLinkToTask(notePicker.idx, name)}
           onRemoveLink={(name) => removeLinkFromTask(notePicker.idx, name)}
+          onReplaceLink={(oldName, newName) => replaceLinkOnTask(notePicker.idx, oldName, newName)}
           onClose={() => setNotePicker(null)}
         />
       )}
