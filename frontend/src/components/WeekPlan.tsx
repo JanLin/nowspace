@@ -454,6 +454,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [bucketOpen, setBucketOpen] = useState(false);
   const [bucketTasks, setBucketTasks] = useState<import("../api").BucketTask[]>([]);
   const [bucketExpandedGroups, setBucketExpandedGroups] = useState<Set<string>>(new Set());
+  // Horizon lens for the bucket sheet. Opens on "n" — planning this week
+  // means this week's shelf; nw/m/– are one tap away, never hidden.
+  const [bucketHz, setBucketHz] = useState<"" | "n" | "nw" | "m" | "none">("n");
   const bucketQuickAddRef = useRef<HTMLInputElement>(null);
   const [bucketAddingGroup, setBucketAddingGroup] = useState<string | null>(null);
   const bucketDragRef = useRef<{ bucketIdx: number } | null>(null);
@@ -3028,6 +3031,19 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     ? data.days.slice(0, carryCutoffIdx).reduce((sum, d) => sum + d.tasks.filter((t) => !t.done && taskVisibleInMode(t.text)).length, 0)
     : 0;
 
+  // Ready items per horizon, for the bucket sheet's lens chips. Counted over
+  // the same set the sheet can list (Ready + visible in the active context),
+  // so a chip's number is exactly what tapping it shows — a zero is honest,
+  // not a hidden pile.
+  const bucketHzCounts = bucketTasks.reduce((acc, task) => {
+    if (!taskVisibleInMode(task.text)) return acc;
+    if ((task.stage || "captured") !== "ready") return acc;
+    const hz = (task.horizon || "none") as "n" | "nw" | "m" | "none";
+    acc[hz] = (acc[hz] || 0) + 1;
+    acc[""] = (acc[""] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
   // --- Day view renderer ---
   const renderDayView = () => {
     if (!data) return null;
@@ -4485,6 +4501,22 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             style={{ background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
           />
         </div>
+        {/* Horizon lens — same n/nw/m vocabulary as the Bucket tab, opening
+            on "n". Counts sit on the chips so what's parked further out
+            stays visible without switching. */}
+        <div className="px-2 pt-1.5 flex flex-wrap gap-1">
+          {([["n", "n", "this week"], ["nw", "nw", "next week"], ["m", "m", "next month"], ["none", "–", "no horizon set"], ["", "all", "every horizon"]] as const).map(([hz, lbl, tip]) => (
+            <button
+              key={hz || "all"}
+              onClick={() => setBucketHz(hz)}
+              title={tip}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${hz ? "font-mono" : ""} ${bucketHz === hz ? "bg-blue-100 text-blue-700" : ""}`}
+              style={bucketHz !== hz ? { background: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+            >
+              {lbl} <span className="opacity-60">{bucketHzCounts[hz] || 0}</span>
+            </button>
+          ))}
+        </div>
         <div className="p-2 space-y-0.5">
           {bucketTasks.length === 0 && (
             <p className="text-xs text-gray-400 text-center py-4">Empty — drag tasks here to defer</p>
@@ -4499,6 +4531,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             bucketTasks.forEach((task, idx) => {
               if (!taskVisibleInMode(task.text)) return;
               if ((task.stage || "captured") !== "ready") { unboundCount++; return; }
+              // Horizon lens — filters what's listed, never what's schedulable
+              if (bucketHz && (task.horizon || "none") !== bucketHz) return;
               const { group, label } = parseGroup(stripBucketMeta(stripCtxTokens(task.text)));
               let section = byGroup.get(group);
               if (!section) {
@@ -4605,6 +4639,17 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 Ready items can be scheduled; bind them in the Bucket tab.
               </p>
             ) : null;
+
+            // Nothing in this lens, but Ready work sits under another one —
+            // say so rather than looking like an empty bucket
+            if (sections.length === 0 && bucketHz && (bucketHzCounts[""] || 0) > 0) {
+              return [
+                <p key="empty-lens" className="text-xs text-center py-4" style={{ color: "var(--text-tertiary)" }}>
+                  Nothing in <span className="font-mono">{bucketHz === "none" ? "–" : bucketHz}</span> — {bucketHzCounts[""]} Ready {bucketHzCounts[""] === 1 ? "item" : "items"} under other horizons
+                </p>,
+                unboundNote,
+              ];
+            }
 
             return [...sections.map((section, si) => {
               // If only one section and ungrouped, show tasks directly (no header)
