@@ -3620,7 +3620,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       )}
 
       {data && (
-          <div className={`relative ${pinFilters ? "sticky top-0 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
+          /* -top-2/-top-4 cancels main's py-2/sm:py-4: a sticky child pins at
+             the content edge, leaving that padding strip open for scrolling
+             rows to show through under the nav. Rest layout is untouched — a
+             sticky offset only applies once the box is stuck. */
+          <div className={`relative ${pinFilters ? "sticky -top-2 sm:-top-4 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
           {isArchive && (
             <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium text-center">
               📁 Archive — read only
