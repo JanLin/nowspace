@@ -153,6 +153,16 @@ body {
   background: var(--bg-active-solid);
 }
 
+/* The day-notes panel's own scrollbox. dvh so an on-screen keyboard
+   shrinking the viewport shrinks the panel too — with vh the panel keeps
+   its full height behind the keyboard and the note gets scrolled out of
+   sight instead. The vh line stays as the fallback for browsers without
+   dvh; a later identical property simply wins where it is supported. */
+.notes-panel-box {
+  max-height: calc(100vh - 260px);
+  max-height: calc(100dvh - 260px);
+}
+
 /* Compact markdown rendering in scratchpad */
 .scratchpad-preview .wmde-markdown {
   font-size: 12px;

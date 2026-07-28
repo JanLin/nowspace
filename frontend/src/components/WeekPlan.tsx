@@ -3419,7 +3419,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       {/* Right column — Notes Panel. Sticky + viewport-fitted so its own
           scrollbar reaches the bottom without scrolling the page. */}
       {showNotesPanel && (
-        <div id="day-notes-panel" className="min-w-0 md:pl-2 max-h-[calc(100vh-260px)] overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)]"
+        <div id="day-notes-panel" className="notes-panel-box min-w-0 md:pl-2 overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)]"
           style={{ "--notes-w": `${notesPanelPct}%` } as React.CSSProperties}>
           {diaryOpen && diaryFolder ? (
             <DiaryPanel key={`diary-${weekOffset}-${selectedDayIdx}`} date={viewedDateISO(weekOffset, selectedDayIdx)} folder={diaryFolder} />
@@ -3657,7 +3657,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
              the content edge, leaving that padding strip open for scrolling
              rows to show through under the nav. Rest layout is untouched — a
              sticky offset only applies once the box is stuck. */
-          <div className={`relative ${pinFilters ? "sticky -top-2 sm:-top-4 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
+          <div data-plan-toolbar className={`relative ${pinFilters ? "sticky -top-2 sm:-top-4 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinFilters ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
           {isArchive && (
             <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium text-center">
               📁 Archive — read only
