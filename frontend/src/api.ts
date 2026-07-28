@@ -175,6 +175,18 @@ export interface FunnelSettings {
   week_focus: string;
 }
 
+/** One note held open in the Notes tab strip */
+export interface NoteTab {
+  path: string;
+  name: string;
+  pinned: boolean;
+}
+
+export interface NotesSettings {
+  max_open: number;  // tabs kept before the oldest unpinned one closes
+  tabs: NoteTab[];   // strip order
+}
+
 export interface BucketResponse {
   tasks: BucketTask[];
   pinned_groups: string[];
@@ -455,7 +467,14 @@ export const api = {
       coach_enabled?: boolean;
       diary_folder?: string;
       funnel?: FunnelSettings;
+      notes?: NotesSettings;
     }>("/api/settings"),
+
+  saveNotesSettings: (updates: { max_open?: number; tabs?: NoteTab[] }) =>
+    request<{ status: string; notes: NotesSettings }>("/api/settings/notes", {
+      method: "POST",
+      body: JSON.stringify(updates),
+    }),
 
   saveFunnelSettings: (updates: Partial<FunnelSettings> & { last_review_secs?: number }) =>
     request<{ status: string; funnel: FunnelSettings }>("/api/settings/funnel", {

@@ -46,6 +46,7 @@ class SettingsResponse(BaseModel):
     coach_enabled: bool = True
     diary_folder: str = ""
     funnel: Dict = {}
+    notes: Dict = {}
 
 
 class ContextSettingsUpdate(BaseModel):
@@ -60,6 +61,17 @@ class FunnelSettingsUpdate(BaseModel):
     last_review: Optional[str] = None       # ISO date
     last_review_secs: Optional[int] = None  # instrumented review duration
     week_focus: Optional[str] = None
+
+
+class NoteTabUpdate(BaseModel):
+    path: str
+    name: str = ""
+    pinned: bool = False
+
+
+class NotesSettingsUpdate(BaseModel):
+    max_open: Optional[int] = None
+    tabs: Optional[List[NoteTabUpdate]] = None
 
 
 class DiaryFolderUpdate(BaseModel):
@@ -221,6 +233,7 @@ async def get_settings():
         coach_enabled=config.coach_enabled,
         diary_folder=config.diary_folder,
         funnel=config.funnel,
+        notes=config.notes,
     )
 
 
@@ -236,6 +249,30 @@ async def save_funnel_settings(body: FunnelSettingsUpdate):
         raise HTTPException(status_code=400, detail="evening_cutoff must be HH:MM")
     config.save_funnel(updates)
     return {"status": "saved", "funnel": config.funnel}
+
+
+@router.post("/notes")
+async def save_notes_settings(body: NotesSettingsUpdate):
+    """Persist the Notes tab strip (vault settings file — shared everywhere).
+
+    The tab set is deliberately last-writer-wins: it's a workspace, not
+    records, and the client debounces so ordinary tab churn is one write.
+    """
+    updates: Dict = {}
+    if body.max_open is not None:
+        updates["max_open"] = max(1, min(20, int(body.max_open)))
+    if body.tabs is not None:
+        seen: set[str] = set()
+        tabs = []
+        for t in body.tabs:
+            path = t.path.strip()
+            if not path or path in seen:
+                continue  # a note is open once; a dupe would fight over pins
+            seen.add(path)
+            tabs.append({"path": path, "name": t.name.strip() or path.rsplit("/", 1)[-1], "pinned": t.pinned})
+        updates["tabs"] = tabs
+    config.save_notes(updates)
+    return {"status": "saved", "notes": config.notes}
 
 
 @router.post("/diary-folder")
