@@ -166,24 +166,71 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     };
   }, [focused]);
 
-  // Keep what's being typed visible: the textarea auto-grows with no inner
-  // scroll, so when writing near the end the caret can sink below the panel
-  // edge — or, on phones, below the on-screen keyboard. Nudge both scroll
-  // levels (the notes panel, then the window measured against the visual
-  // viewport, which excludes the keyboard).
+  // Where the caret sits inside the textarea, wrapping included: a mirror
+  // div with the same box and font, cut off at the caret. Measuring the box
+  // instead of the caret is what used to hide the first line — the textarea
+  // is min-h-45vh and never scrolls internally, so on a fresh note the caret
+  // is on line 1 while the box hangs far below the fold.
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => () => { mirrorRef.current?.remove(); mirrorRef.current = null; }, []);
+
+  const caretOffsetTop = (ta: HTMLTextAreaElement): number => {
+    const cs = getComputedStyle(ta);
+    let mirror = mirrorRef.current;
+    if (!mirror) {
+      mirror = document.createElement("div");
+      mirror.setAttribute("aria-hidden", "true");
+      document.body.appendChild(mirror);
+      mirrorRef.current = mirror;
+    }
+    Object.assign(mirror.style, {
+      position: "absolute", visibility: "hidden", left: "-9999px", top: "0",
+      whiteSpace: "pre-wrap", overflowWrap: "break-word", boxSizing: cs.boxSizing,
+      width: `${ta.clientWidth}px`,
+      font: `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily}`,
+      letterSpacing: cs.letterSpacing, padding: cs.padding, border: "0",
+    } as CSSStyleDeclaration);
+    mirror.textContent = ta.value.slice(0, ta.selectionStart);
+    const marker = document.createElement("span");
+    marker.textContent = "​";
+    mirror.appendChild(marker);
+    return marker.offsetTop;
+  };
+
+  // On phones, park the note under the pinned toolbar when editing starts, so
+  // the day's tasks aren't eating half the screen while writing.
+  const bringPanelUp = () => {
+    if (window.innerWidth >= 768) return;
+    const panel = document.getElementById("day-notes-panel");
+    const main = panel?.closest("main");
+    if (!panel || !main) return;
+    const toolbar = main.querySelector<HTMLElement>("[data-plan-toolbar]");
+    const anchorTop = toolbar ? toolbar.getBoundingClientRect().bottom : main.getBoundingClientRect().top;
+    const delta = panel.getBoundingClientRect().top - anchorTop;
+    if (delta > 1) main.scrollTop += delta;
+  };
+
+  // Keep the CARET visible — never the box. Scroll the panel (and, if the
+  // keyboard still covers it, the page) only when the caret is actually
+  // outside the visible band, and scroll back up when it's above it.
   const keepCaretVisible = () => {
     const ta = textareaRef.current;
     if (!ta) return;
-    if (ta.selectionStart < ta.value.length - 400) return; // only chase near the end
+    const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+    const caretTop = () => ta.getBoundingClientRect().top + caretOffsetTop(ta);
     const panel = document.getElementById("day-notes-panel");
     if (panel) {
-      const inner = ta.getBoundingClientRect().bottom + 8 - panel.getBoundingClientRect().bottom;
-      if (inner > 0) panel.scrollTop += inner;
+      const r = panel.getBoundingClientRect();
+      const top = caretTop();
+      if (top + lineHeight + 8 > r.bottom) panel.scrollTop += top + lineHeight + 8 - r.bottom;
+      else if (top - 8 < r.top) panel.scrollTop -= r.top - top + 8;
     }
+    // visualViewport excludes the on-screen keyboard; re-measure because the
+    // panel scroll above has already moved the box
     const vv = window.visualViewport;
     const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-    const outer = ta.getBoundingClientRect().bottom + 8 - visibleBottom;
-    if (outer > 0) window.scrollBy({ top: outer });
+    const below = caretTop() + lineHeight + 8 - visibleBottom;
+    if (below > 0) window.scrollBy({ top: below });
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -263,7 +310,13 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     ta?.focus({ preventScroll: true });
     if (ta && caret !== null) ta.setSelectionRange(caret, caret);
     if (panel) panel.scrollTop = scroll;
-    requestAnimationFrame(() => { if (panel) panel.scrollTop = scroll; });
+    requestAnimationFrame(() => {
+      if (panel) panel.scrollTop = scroll;
+      // Then make room on phones and put the caret in view — after the
+      // restore, or this would be the thing that gets undone
+      bringPanelUp();
+      keepCaretVisible();
+    });
   }, [focused]);
 
   if (loading) return <div className="text-[10px] text-gray-400 text-center py-4">Loading notes...</div>;
@@ -300,7 +353,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           autoCorrect="off"
           spellCheck={false}
           onChange={handleChange}
-          onFocus={() => { setFocused(true); keepCaretVisible(); }}
+          onFocus={() => { setFocused(true); bringPanelUp(); keepCaretVisible(); }}
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."
