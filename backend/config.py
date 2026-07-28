@@ -305,6 +305,46 @@ class Config:
                        if k in self._FUNNEL_DEFAULTS})
         self._save_vault_settings({"funnel": merged})
 
+    # ── Notes tabs (vault-shared: the open set follows you between
+    # installations, like every other setting here) ──────────────
+    _NOTES_DEFAULTS = {
+        "max_open": 5,   # tabs kept before the oldest unpinned one is closed
+        "tabs": [],      # [{path, name, pinned}] in strip order
+    }
+
+    @property
+    def notes(self) -> dict:
+        merged = dict(self._NOTES_DEFAULTS)
+        raw = self._vault_settings().get("notes")
+        if isinstance(raw, dict):
+            merged.update({k: raw[k] for k in self._NOTES_DEFAULTS if k in raw})
+        # Never hand back a malformed strip: one bad entry shouldn't cost the
+        # whole set, and a stale hand-edit of the settings file is fair game
+        tabs = []
+        for entry in merged.get("tabs") or []:
+            if not isinstance(entry, dict):
+                continue
+            path = str(entry.get("path") or "").strip()
+            if not path:
+                continue
+            tabs.append({
+                "path": path,
+                "name": str(entry.get("name") or "").strip() or path.rsplit("/", 1)[-1],
+                "pinned": bool(entry.get("pinned")),
+            })
+        merged["tabs"] = tabs
+        try:
+            merged["max_open"] = max(1, min(20, int(merged["max_open"])))
+        except (TypeError, ValueError):
+            merged["max_open"] = int(self._NOTES_DEFAULTS["max_open"])
+        return merged
+
+    def save_notes(self, updates: dict) -> None:
+        merged = dict(self.notes)
+        merged.update({k: v for k, v in (updates or {}).items()
+                       if k in self._NOTES_DEFAULTS})
+        self._save_vault_settings({"notes": merged})
+
     # ── Bucket format marker (travels WITH the vault via Syncthing) ──
     # The API-level schema guard can't reach an isolated matched pair like
     # the desktop app (its UI and bundled backend always agree with each

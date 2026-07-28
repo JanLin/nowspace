@@ -36,6 +36,8 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
   const [funnelLimit, setFunnelLimit] = useState(4);
   const [funnelCutoff, setFunnelCutoff] = useState("21:00");
   const [funnelSaved, setFunnelSaved] = useState(false);
+  const [notesMaxOpen, setNotesMaxOpen] = useState(5);
+  const [notesSaved, setNotesSaved] = useState(false);
   const [agentAreas, setAgentAreas] = useState<import("../api").HandoffArea[]>([]);
   const [areasSaved, setAreasSaved] = useState(false);
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
@@ -127,6 +129,9 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
       if (s.funnel) {
         setFunnelLimit(s.funnel.binding_limit ?? 4);
         setFunnelCutoff(s.funnel.evening_cutoff || "21:00");
+      }
+      if (s.notes?.max_open) {
+        setNotesMaxOpen(s.notes.max_open);
       }
       api.getHandoffAreas().then((r) => setAgentAreas(r.areas)).catch(() => {});
       setLoading(false);
@@ -631,6 +636,43 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
             style={{ backgroundColor: "var(--accent)" }}
           >
             {funnelSaved ? "Saved ✓" : "Save"}
+          </button>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* Notes                                                            */}
+      {/* ================================================================ */}
+      <section
+        className="rounded-xl p-5 sm:p-6"
+        style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+      >
+        <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
+          Notes
+        </h2>
+        <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+          How many notes the Notes tab keeps open before it closes the one you've left
+          unread longest. Pinned notes are never closed to make room, so pinning more than
+          this grows the strip. The open notes travel with the vault, so the same set is
+          open on every installation.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+            Notes kept open
+            <input
+              type="number" min={1} max={20} value={notesMaxOpen}
+              onChange={(e) => { setNotesMaxOpen(Math.max(1, Math.min(20, parseInt(e.target.value || "5", 10)))); setNotesSaved(false); }}
+              className="w-16 text-sm px-2 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-blue-400"
+              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+            />
+          </label>
+          <button
+            onClick={() => api.saveNotesSettings({ max_open: notesMaxOpen })
+              .then(() => setNotesSaved(true)).catch(() => flash("err", "Failed to save notes settings"))}
+            className="px-3 py-2 rounded-lg text-sm font-medium text-white shrink-0"
+            style={{ backgroundColor: "var(--accent)" }}
+          >
+            {notesSaved ? "Saved ✓" : "Save"}
           </button>
         </div>
       </section>

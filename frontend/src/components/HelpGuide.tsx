@@ -96,6 +96,14 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     ],
   },
   {
+    title: "Notes — several open at once",
+    body: [
+      "Opening a note from a task's 🔗, or from a [[link]], adds it to the Notes tab as a sub-tab. Tap a sub-tab to read that note; the tabs stay put while you work in Plan or Bucket, so you can carry a few notes through a session instead of losing one each time you open another.",
+      "Settings decides how many stay open — five by default. Past that, opening another closes the note you've left unread longest. 📌 pins a note so it's never the one closed, which means pinning more than the limit simply grows the strip. Drag a sub-tab to reorder, × closes one, and \"Clear all\" closes everything including the pinned ones.",
+      "The open set lives in the shared settings file, so the same notes are open on the Mac app, the mini and your phone.",
+    ],
+  },
+  {
     title: "Solve and rehearse — the Slate",
     body: [
       "Shaping items are marked solve or rehearse. Solve items are open problems: they generate loops, so the Slate shows them in the morning and hides them after your evening cutoff. Rehearse items are practice on things you already know — a question you got wrong, a form you keep misusing. They resolve nothing and start nothing, which makes them safe to look at before sleep.",

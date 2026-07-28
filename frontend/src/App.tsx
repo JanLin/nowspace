@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Nav from "./components/Nav";
 import WeekPlan from "./components/WeekPlan";
 import Bucket from "./components/Bucket";
@@ -8,23 +8,97 @@ import Habits from "./components/Habits";
 import TimeTab from "./components/TimeTab";
 import Goals from "./components/Goals";
 import NoteEditor from "./components/NoteEditor";
+import NoteTabsStrip from "./components/NoteTabsStrip";
 import Settings from "./components/Settings";
 import Tour from "./components/Tour";
 import HelpGuide from "./components/HelpGuide";
 import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
-import { api, CLIENT_SCHEMA_VERSION } from "./api";
+import { api, CLIENT_SCHEMA_VERSION, type NoteTab } from "./api";
 
 type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function App() {
   const [view, setView] = useState<View>("week");
-  // The note currently open in the Notes tab. Opening a note from a task or a
-  // [[link]] loads it here and switches to the tab, so notes and tasks live in
-  // separate tabs you can flip between (parallel work without an overlay —
-  // works at phone width too).
-  const [openNote, setOpenNote] = useState<{ path: string; name: string } | null>(null);
-  const showNote = (path: string, name: string) => { setOpenNote({ path, name }); setView("notes"); };
+  // Notes held open in the Notes tab, one sub-tab each. Opening a note from a
+  // task or a [[link]] adds it here and switches to the tab, so notes and
+  // tasks live in separate tabs you can flip between (parallel work without an
+  // overlay — works at phone width too). The strip is vault-shared, so the
+  // same notes are open on every installation.
+  const [noteTabs, setNoteTabs] = useState<NoteTab[]>([]);
+  const [activeNote, setActiveNote] = useState<string | null>(null);
+  const [maxOpenNotes, setMaxOpenNotes] = useState(5);
+  // Which tab was looked at when — decides who gets closed at the limit.
+  // Local: it's about this device's reading, not a shared fact.
+  const lastSeen = useRef<Map<string, number>>(new Map());
+  const seenTick = useRef(0);
+  const notesLoaded = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  // Debounced strip write. Tab churn is a workspace gesture, not a record —
+  // one write per settled state keeps the synced settings file quiet.
+  const persistTabs = (tabs: NoteTab[]) => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      api.saveNotesSettings({ tabs }).catch(() => { /* older backend: strip stays local */ });
+    }, 1200);
+  };
+
+  const commitTabs = (tabs: NoteTab[]) => { setNoteTabs(tabs); persistTabs(tabs); };
+
+  const showNote = (path: string, name: string) => {
+    setView("notes");
+    setActiveNote(path);
+    lastSeen.current.set(path, ++seenTick.current);
+    setNoteTabs((prev) => {
+      if (prev.some((t) => t.path === path)) return prev; // already open
+      let next = [...prev, { path, name, pinned: false }];
+      // At the limit, close the unpinned tab left longest unread. Pinned tabs
+      // are never evicted, so pinning past the limit is allowed to grow the
+      // strip — the number is where Nowspace starts tidying, not a wall.
+      while (next.length > maxOpenNotes) {
+        const victim = next
+          .filter((t) => !t.pinned && t.path !== path)
+          .sort((a, b) => (lastSeen.current.get(a.path) ?? 0) - (lastSeen.current.get(b.path) ?? 0))[0];
+        if (!victim) break;
+        next = next.filter((t) => t.path !== victim.path);
+      }
+      persistTabs(next);
+      return next;
+    });
+  };
+
+  const selectNote = (path: string) => {
+    setActiveNote(path);
+    lastSeen.current.set(path, ++seenTick.current);
+  };
+
+  const closeNote = (path: string) => {
+    setNoteTabs((prev) => {
+      const next = prev.filter((t) => t.path !== path);
+      persistTabs(next);
+      if (activeNote === path) {
+        const at = prev.findIndex((t) => t.path === path);
+        setActiveNote(next.length ? next[Math.min(at, next.length - 1)].path : null);
+      }
+      return next;
+    });
+  };
+
+  const togglePinNote = (path: string) =>
+    commitTabs(noteTabs.map((t) => (t.path === path ? { ...t, pinned: !t.pinned } : t)));
+
+  const reorderNotes = (fromPath: string, toPath: string) => {
+    const from = noteTabs.findIndex((t) => t.path === fromPath);
+    const to = noteTabs.findIndex((t) => t.path === toPath);
+    if (from === -1 || to === -1) return;
+    const next = [...noteTabs];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    commitTabs(next);
+  };
+
+  const clearAllNotes = () => { setActiveNote(null); commitTabs([]); };
   const [vaultReady, setVaultReady] = useState<boolean | null>(null); // null = checking
   const [backendUp, setBackendUp] = useState(false);
   const [coachEnabled, setCoachEnabled] = useState(true);
@@ -87,6 +161,18 @@ export default function App() {
       const coach = s.coach_enabled !== false;
       setCoachEnabled(coach);
       if (s.funnel?.evening_cutoff) setEveningCutoff(s.funnel.evening_cutoff);
+      // Restore the shared note strip once — a later load must not stamp on
+      // tabs opened since, and never triggers a write of what we just read
+      if (!notesLoaded.current && s.notes) {
+        notesLoaded.current = true;
+        if (s.notes.max_open) setMaxOpenNotes(s.notes.max_open);
+        const restored = s.notes.tabs || [];
+        if (restored.length > 0) {
+          setNoteTabs(restored);
+          setActiveNote(restored[0].path);
+          restored.forEach((t) => lastSeen.current.set(t.path, ++seenTick.current));
+        }
+      }
       // The API key only matters when the coach feature is on
       if (s.vault_status.exists && s.vault_status.has_para && (s.api_key_status.configured || !coach)) {
         setVaultReady(true);
@@ -392,12 +478,22 @@ export default function App() {
             <Slate active={view === "slate"} onOpenNote={showNote} />
           </div>
           <div className={view === "notes" ? "" : "hidden"}>
-            {openNote ? (
+            <NoteTabsStrip
+              tabs={noteTabs}
+              activePath={activeNote}
+              maxOpen={maxOpenNotes}
+              onSelect={selectNote}
+              onClose={closeNote}
+              onTogglePin={togglePinNote}
+              onReorder={reorderNotes}
+              onClearAll={clearAllNotes}
+            />
+            {activeNote ? (
               <NoteEditor
-                key={openNote.path}
+                key={activeNote}
                 embedded
-                initialPath={openNote.path}
-                initialName={openNote.name}
+                initialPath={activeNote}
+                initialName={noteTabs.find((t) => t.path === activeNote)?.name}
                 onClose={() => setView("week")}
               />
             ) : (
