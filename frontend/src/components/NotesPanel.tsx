@@ -172,6 +172,8 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
   // is min-h-45vh and never scrolls internally, so on a fresh note the caret
   // is on line 1 while the box hangs far below the fold.
   const mirrorRef = useRef<HTMLDivElement | null>(null);
+  // Latest chase, for listeners registered before it is defined
+  const keepCaretVisibleRef = useRef<(() => void) | null>(null);
   useEffect(() => () => { mirrorRef.current?.remove(); mirrorRef.current = null; }, []);
 
   const caretOffsetTop = (ta: HTMLTextAreaElement): number => {
@@ -196,6 +198,32 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     mirror.appendChild(marker);
     return marker.offsetTop;
   };
+
+  // Fit the panel between its own top and whatever the keyboard leaves
+  // visible. The CSS max-height can only guess with a fixed 260px of chrome;
+  // measuring is exact, which matters because the caret chase keeps the caret
+  // inside this box — a box overhanging the keyboard means a caret under it.
+  // Phones only, and only while editing; blur puts the CSS back in charge.
+  const fitPanelToKeyboard = () => {
+    const panel = document.getElementById("day-notes-panel");
+    if (!panel) return;
+    if (window.innerWidth >= 768) { panel.style.maxHeight = ""; return; }
+    const vv = window.visualViewport;
+    const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    const avail = visibleBottom - panel.getBoundingClientRect().top - 8;
+    panel.style.maxHeight = avail > 140 ? `${Math.round(avail)}px` : "";
+  };
+
+  // The keyboard opening or closing changes what's visible, so refit while the
+  // note has focus (this is also when Android reports the viewport change).
+  useEffect(() => {
+    if (!focused) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const refit = () => { fitPanelToKeyboard(); keepCaretVisibleRef.current?.(); };
+    vv.addEventListener("resize", refit);
+    return () => vv.removeEventListener("resize", refit);
+  }, [focused]);
 
   // On phones, park the note under the pinned toolbar when editing starts, so
   // the day's tasks aren't eating half the screen while writing.
@@ -229,9 +257,22 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     // panel scroll above has already moved the box
     const vv = window.visualViewport;
     const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-    const below = caretTop() + lineHeight + 8 - visibleBottom;
-    if (below > 0) window.scrollBy({ top: below });
+    let below = caretTop() + lineHeight + 8 - visibleBottom;
+    if (below <= 0) return;
+    // Still under the keyboard: scroll the PAGE container, which slides the
+    // whole panel up. The document itself can't scroll (the shell is exactly
+    // one dynamic viewport tall, which is what stops the toolbars drifting),
+    // so main is the only lever — and it works whether or not the browser
+    // shrinks the layout viewport for the keyboard.
+    const main = ta.closest("main");
+    if (main) {
+      const room = main.scrollHeight - main.clientHeight - main.scrollTop;
+      if (room > 0) main.scrollTop += Math.min(below, room);
+      below = caretTop() + lineHeight + 8 - visibleBottom;
+    }
+    if (below > 0) window.scrollBy({ top: below }); // last resort, if it can
   };
+  keepCaretVisibleRef.current = keepCaretVisible;
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -244,6 +285,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
   const handleBlur = () => {
     // Keep the panel where it was across the editor→preview swap
     const panel = document.getElementById("day-notes-panel");
+    if (panel) panel.style.maxHeight = ""; // measured fit was for editing only
     const scroll = panel?.scrollTop ?? 0;
     setFocused(false);
     clearTimeout(debounceRef.current);
@@ -315,6 +357,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
       // Then make room on phones and put the caret in view — after the
       // restore, or this would be the thing that gets undone
       bringPanelUp();
+      fitPanelToKeyboard();
       keepCaretVisible();
     });
   }, [focused]);
@@ -353,7 +396,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           autoCorrect="off"
           spellCheck={false}
           onChange={handleChange}
-          onFocus={() => { setFocused(true); bringPanelUp(); keepCaretVisible(); }}
+          onFocus={() => { setFocused(true); bringPanelUp(); fitPanelToKeyboard(); keepCaretVisible(); }}
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."
