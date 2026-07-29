@@ -41,7 +41,7 @@ export default function Settings({
   theme?: "light" | "dark" | "system";
   onThemeChange?: (t: "light" | "dark" | "system") => void;
   onOpenTour?: () => void;
-  onOpenGuide?: () => void;
+  onOpenGuide?: (section?: string) => void;
   onOpenPhilosophy?: () => void;
 }) {
   const [vaultPath, setVaultPath] = useState("");
@@ -53,6 +53,7 @@ export default function Settings({
   const [funnelCutoff, setFunnelCutoff] = useState("21:00");
   const [funnelSaved, setFunnelSaved] = useState(false);
   const [appMode, setAppMode] = useState<"basic" | "advanced">("advanced");
+  const [funnelOn, setFunnelOn] = useState(true);
   const [handoffOn, setHandoffOn] = useState(false);
   const [notesMaxOpen, setNotesMaxOpen] = useState(5);
   const [notesSaved, setNotesSaved] = useState(false);
@@ -146,6 +147,7 @@ export default function Settings({
       }
       if (s.app) {
         setAppMode(s.app.mode);
+        setFunnelOn(s.app.funnel);
         setHandoffOn(s.app.handoff);
       }
       if (s.notes?.max_open) {
@@ -394,9 +396,36 @@ export default function Settings({
             </button>
           ))}
         </div>
-        {/* Handoff is an Advanced option: someone on Basic shouldn't have to
-            decide about agent dispatch before they've met stages. */}
+        {/* Advanced doesn't turn anything on by itself — it reveals the two
+            switches. Each carries a ? into the guide, because neither is
+            guessable from its name. */}
         {appMode === "advanced" && (
+        <div className="space-y-2.5">
+        <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+          <input
+            type="checkbox"
+            checked={funnelOn}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setFunnelOn(on);
+              api.saveAppSettings({ funnel: on })
+                .then(() => window.dispatchEvent(new CustomEvent("app-mode-changed")))
+                .catch(() => flash("err", "Could not save the funnel setting"));
+            }}
+            className="mt-0.5"
+          />
+          <span>
+            <span style={{ color: "var(--text)" }}>Funnel</span> — stages, the shaping
+            question, sizes, the weekly review and the Slate. Nothing reaches a weekday
+            until it's Ready.{" "}
+            {onOpenGuide && (
+              <button type="button" onClick={(e) => { e.preventDefault(); onOpenGuide("funnel"); }}
+                className="underline" style={{ color: "var(--accent)" }}>
+                What is this? ?
+              </button>
+            )}
+          </span>
+        </label>
         <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: "var(--text-secondary)" }}>
           <input
             type="checkbox"
@@ -413,9 +442,16 @@ export default function Settings({
           <span>
             <span style={{ color: "var(--text)" }}>Agent handoff</span> — dispatch work to an
             agent and check what comes back. Off unless you turn it on, or you already have
-            agent areas configured.
+            agent areas configured.{" "}
+            {onOpenGuide && (
+              <button type="button" onClick={(e) => { e.preventDefault(); onOpenGuide("handoff"); }}
+                className="underline" style={{ color: "var(--accent)" }}>
+                What is this? ?
+              </button>
+            )}
           </span>
         </label>
+        </div>
         )}
       </section>
 

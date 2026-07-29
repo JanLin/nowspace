@@ -314,6 +314,7 @@ class Config:
     # it on upgrade.
     _APP_DEFAULTS = {
         "mode": "advanced",     # "basic" | "advanced"
+        "funnel": None,         # None = on, for anyone already using it
         "handoff": None,        # None = decide from whether areas are set up
     }
 
@@ -325,11 +326,23 @@ class Config:
 
     @property
     def funnel_enabled(self) -> bool:
-        """Stages, sizes, shaping, review, Slate — the whole funnel."""
-        return self.app_mode == "advanced"
+        """Stages, sizes, shaping, review, Slate — the whole funnel.
+
+        An option inside Advanced rather than what Advanced means: someone
+        can want the extra switches without wanting the funnel. Basic hides
+        it either way. Unset counts as on, so nobody already using the
+        funnel loses it on upgrade.
+        """
+        if self.app_mode != "advanced":
+            return False
+        raw = self._vault_settings().get("app")
+        val = (raw or {}).get("funnel") if isinstance(raw, dict) else None
+        return True if val is None else bool(val)
 
     @property
     def handoff_enabled(self) -> bool:
+        if self.app_mode != "advanced":
+            return False
         raw = self._vault_settings().get("app")
         val = (raw or {}).get("handoff") if isinstance(raw, dict) else None
         if val is None:

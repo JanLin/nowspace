@@ -1400,10 +1400,10 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           row isn't three vocabularies deep. Absent entirely in Basic. */}
       {funnelOn && (
         <Cluster kind="filter" label="Stage" open={openCluster === "stage"} onToggle={() => toggleCluster("stage")}
-          summary={stageFilter ? STAGE_META[stageFilter as BucketStage].label : "Active"}>
-          {([["", "Active"], ["captured", "Captured"], ["binding", "Shaping"], ["ready", "Ready"], ["dormant", "Dormant"], ["discarded", "Discarded"]] as const).map(([st, name]) => (
+          summary={stageFilter ? STAGE_META[stageFilter as BucketStage].label : "Open"}>
+          {([["", "Open"], ["captured", "Captured"], ["binding", "Shaping"], ["ready", "Ready"], ["dormant", "Dormant"], ["discarded", "Discarded"]] as const).map(([st, name]) => (
             <button key={st || "active"} onClick={() => setStageFilter(st as "" | BucketStage)}
-              title={st ? STAGE_META[st as BucketStage].hint : "Captured + Ready (Shaping has its own strip; Dormant stays silent)"}
+              title={st ? STAGE_META[st as BucketStage].hint : "Everything in play: Captured + Ready. Shaping has its own strip, Dormant sleeps until its wake date, Discarded is only a record."}
               className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${stageFilter === st ? "bg-blue-100 text-blue-700" : ""}`}
               style={stageFilter !== st ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
               {name}

@@ -107,6 +107,7 @@ export default function App() {
 
   // The Notes tab's own vault panel and status bar, mirroring how Plan and
   // Bucket carry a corner button and a bottom bar.
+  const [guideSection, setGuideSection] = useState<string | undefined>();
   const [vaultOpen, setVaultOpen] = useState(false);
   const notesVaultStateRef = useRef<VaultBrowserState | null>(null);
   const [noteStatus, setNoteStatus] = useState<{ saving: boolean; unsaved: boolean; path: string } | null>(null);
@@ -544,7 +545,7 @@ export default function App() {
               theme={theme}
               onThemeChange={setTheme}
               onOpenTour={() => setTourOpen(true)}
-              onOpenGuide={() => setGuideOpen(true)}
+              onOpenGuide={(section) => { setGuideSection(section); setGuideOpen(true); }}
               onOpenPhilosophy={() => setPhilosophyOpen(true)}
             />
           </div>
@@ -553,7 +554,7 @@ export default function App() {
 
       {searchOpen && <TaskSearch onPick={pickSearchHit} onClose={() => setSearchOpen(false)} />}
       {tourOpen && <Tour onClose={closeTour} onOpenGuide={() => { closeTour(); setGuideOpen(true); }} />}
-      {guideOpen && <HelpGuide onClose={() => setGuideOpen(false)} />}
+      {guideOpen && <HelpGuide initialSection={guideSection} onClose={() => { setGuideOpen(false); setGuideSection(undefined); }} />}
       {philosophyOpen && <Philosophy onClose={() => setPhilosophyOpen(false)} />}
     </div>
   );

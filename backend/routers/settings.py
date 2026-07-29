@@ -72,6 +72,7 @@ class NoteTabUpdate(BaseModel):
 
 class AppSettingsUpdate(BaseModel):
     mode: Optional[str] = None      # "basic" | "advanced"
+    funnel: Optional[bool] = None   # an option inside Advanced
     handoff: Optional[bool] = None
 
 
@@ -277,6 +278,8 @@ async def save_app_settings(body: AppSettingsUpdate):
         if mode not in ("basic", "advanced"):
             raise HTTPException(status_code=400, detail="mode must be basic or advanced")
         updates["mode"] = mode
+    if body.funnel is not None:
+        updates["funnel"] = bool(body.funnel)
     if body.handoff is not None:
         updates["handoff"] = bool(body.handoff)
     config.save_app_settings(updates)

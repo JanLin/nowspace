@@ -32,6 +32,29 @@ def test_mode_round_trips(client):
     assert client.get("/api/settings").json()["app"]["funnel"] is True
 
 
+def test_funnel_is_an_option_inside_advanced(client):
+    """Advanced reveals the switches; it doesn't turn them on for you."""
+    client.post("/api/settings/app", json={"mode": "advanced", "funnel": False})
+    app = client.get("/api/settings").json()["app"]
+    assert app["mode"] == "advanced" and app["funnel"] is False
+    # and Basic overrides it whatever the flag says
+    client.post("/api/settings/app", json={"mode": "basic", "funnel": True})
+    assert client.get("/api/settings").json()["app"]["funnel"] is False
+
+
+def test_ready_gate_follows_the_funnel_flag_not_the_mode(client, bucket):
+    """Advanced with the funnel off schedules like Basic — the gate exists to
+    serve the funnel, so it goes quiet with it."""
+    (bucket / "0-Inbox" / "Plan Week.md").write_text(
+        "Week 2026-wk30\n\n##### Monday 20.07\n\n#### Notes\n", encoding="utf-8")
+    client.post("/api/settings/app", json={"mode": "advanced", "funnel": False})
+    r = client.post("/plan/bucket/move", json={
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0,
+        "week_offset": 0, "schema_version": 2,
+    })
+    assert r.status_code == 200, r.text
+
+
 def test_rejects_an_unknown_mode(client):
     assert client.post("/api/settings/app", json={"mode": "expert"}).status_code == 400
 

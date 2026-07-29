@@ -174,22 +174,6 @@ export function stripBucketMeta(text: string): string {
   return text.replace(BUCKET_META_RE, "").trim();
 }
 
-/** The size a scheduled task carries. Written as ~es/~em/~el (colon-free,
-    per the token rules) when a sized bucket item moves into the week, so it
-    survives the round trip back. "" when unsized. */
-const SIZE_TOKEN_RE = /~e:?([sml])\b/i;
-
-export function sizeOfTask(text: string): "" | "s" | "m" | "l" {
-  const m = (text || "").match(SIZE_TOKEN_RE);
-  return m ? (m[1].toLowerCase() as "s" | "m" | "l") : "";
-}
-
-/** Set or clear the size on a task line, leaving every other token alone. */
-export function withTaskSize(text: string, size: "" | "s" | "m" | "l"): string {
-  const cleaned = (text || "").replace(/\s*~e:?[sml]\b/gi, "").trimEnd();
-  return size ? `${cleaned} ~e${size}` : cleaned;
-}
-
 /** Stable anchor for scroll-to-task reveals: the ~i identity when present,
     else the cleaned text. Must match on both the search side and the row
     (data-task-anchor) side. */
