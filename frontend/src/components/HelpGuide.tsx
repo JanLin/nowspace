@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 // The longer companion to the quick tour — one scrollable page describing
 // each tab and the small language Nowspace uses (priorities, horizons,
 // tokens), with annotated screenshots. Opened from the ? help menu or the
@@ -25,7 +27,7 @@ const CORNER_ICONS: Item[] = [
   { icon: "🪣", text: "Bucket panel — a slice of your bucket beside the plan (the badge is its size). Horizon chips filter it (n by default); tap a task to add it to the day, or drag it onto the plan." },
 ];
 
-const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: string; items?: Item[]; body: string[] }[] = [
+const SECTIONS: { id?: string; title: string; img?: string; imgAlt?: string; imgClass?: string; items?: Item[]; body: string[]; diagram?: "funnel" }[] = [
   {
     title: "Your vault — plain files you own",
     body: [
@@ -76,6 +78,14 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     ],
   },
   {
+    title: "Basic or Advanced",
+    body: [
+      "Settings › How you work decides how much of Nowspace is switched on. Basic is plain GTD: groups, priorities, horizons (n / nw / m) and weekdays — capture something, give it a priority, put it on a day.",
+      "Advanced doesn't switch anything on by itself — it reveals two options, each with a ? that opens the right part of this guide. The Funnel adds stages, the shaping question, t-shirt sizes, the weekly review and the Slate: a way of refusing to schedule work you haven't thought about yet, since nothing reaches a weekday until it's Ready. Agent handoff is the second, and stays off unless you ask for it.",
+      "With the Funnel off — whether you're on Basic, or on Advanced without it — none of its marks are written into your vault, and marks already there are never touched. Your stages, sizes and shaping questions stay in the files, ignored; switch the Funnel back on and they're as you left them.",
+    ],
+  },
+  {
     title: "Bucket — everything for later",
     body: [
       "The bucket holds anything you might do someday, organised into groups. Add quickly from the top bar (\"Group: task\" files it under the group), set priorities, and give tasks a horizon: n means this week, nw next week, m next month — written into the file as nA:, nwB:, mC: prefixes.",
@@ -86,13 +96,17 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     ],
   },
   {
+    id: "funnel",
     title: "Bucket stages — the funnel",
+    diagram: "funnel",
     body: [
+      "The funnel is optional: Settings › How you work › Advanced, then the Funnel switch. With it off, the Bucket is plain GTD and none of what follows appears — nor is any of it written into your vault.",
       "Everything you capture lands in Captured. Nothing is judged there and nothing is required — capture stays fast on purpose, because an inbox you hesitate to use is an inbox you stop trusting.",
       "Once a week you promote a few items into Shaping. This is the small set of topics you're actively carrying — at most four, because the limit is what makes it a priority list rather than a pile. Each one holds a question rather than a title, since your mind works on questions and ignores nouns.",
       "Ready means bounded: the item has a size (s/m/l), and steps if it needed breaking down — a task that is itself the action just gets a size (on a captured item, tapping a size in the badge menu marks it Ready in one tap). Only Ready items can be scheduled in the Plan tab. This is deliberate: an unbounded topic can't be scheduled honestly, and pretending otherwise is how weeks quietly fail.",
       "Dormant is a decision, not a failure. A dormant item has a wake date and stays silent until then. Parking something on purpose feels completely different from carrying it undecided, and most of the weight you feel in a task list comes from items in the second category.",
       "Discarded items record why they were dropped — no agency, already decided, or not yours. The reason is what stops the same topic reappearing next month.",
+      "The Stage chips filter the bucket by stage. \"Open\" is the one you'll sit in: Captured plus Ready — everything actually in play. It leaves out Shaping (which has its own strip above the list), Dormant (silent until its wake date) and Discarded (kept only as a record). The other chips are for when you want exactly one stage: what's waiting to be judged, what's parked, what you dropped and why.",
     ],
   },
   {
@@ -121,8 +135,10 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     ],
   },
   {
+    id: "handoff",
     title: "Handing work to an agent",
     body: [
+      "Optional, and off unless you ask for it: Settings › How you work › Advanced, then the Agent handoff switch.",
       "A Bucket item can be handed to an agent for the area it belongs to (the 🤝 Handoff button, or \"agent\" in an item's badge menu). You attach the notes the agent should read, name what you expect back — a diagnosis, a patch, some options, a critique — and Nowspace checks that everything you named stays inside that one area.",
       "If a note reaches outside the area, through a link or an embed, the handoff isn't available. That isn't strictness for its own sake: the whole point of separating areas is that one customer's material never reaches an agent working for another, and a check you can click past isn't a check.",
       "Captured items can't be handed off. Neither can rehearse items — the value of practice is the effort of recalling, and an answer removes it.",
@@ -152,7 +168,7 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
   {
     title: "Settings — your setup, everywhere",
     body: [
-      "Vault location, reference folders, contexts and the diary folder — plus the theme and this guide, under Appearance & help. Shared settings live inside the vault itself, so if you sync the vault between machines, every install sees the same configuration (the theme is per device).",
+      "Vault location, reference folders, contexts and the diary folder — plus the theme, the text size and this guide, under Appearance & help. Shared settings live inside the vault itself, so if you sync the vault between machines, every install sees the same configuration. Theme and text size are the exceptions: they stay on the device you set them on, so a phone reading the same Nowspace as your laptop can be larger without making the laptop larger too. In a browser, its own zoom (⌘/Ctrl + and −) does the same thing; the desktop app has no zoom of its own, so ⌘ + and ⌘ − drive this setting instead.",
       "Contexts (work / volunteer / personal) let you filter the whole app to one part of life. Tag a task with @w, @v or @p to override its group's context, and @pin surfaces a personal task even while Work is selected.",
     ],
   },
@@ -171,7 +187,67 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
   },
 ];
 
-export default function HelpGuide({ onClose }: { onClose: () => void }) {
+/** The funnel as a picture: where a captured thing can go, and what each
+    move costs you in thinking. Drawn with currentColor and CSS variables so
+    it reads in both themes, and scaled by viewBox so it survives a phone. */
+function FunnelDiagram() {
+  const box = { fill: "var(--bg-tertiary)", stroke: "var(--border-strong)" };
+  const label = { fill: "var(--text)", fontSize: 11, fontWeight: 600 };
+  const sub = { fill: "var(--text-tertiary)", fontSize: 8.5 };
+  return (
+    <svg viewBox="0 0 520 200" className="w-full my-2" role="img"
+      aria-label="Capture, shaping, ready, then a weekday — with dormant and discarded as exits">
+      <defs>
+        <marker id="fa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--text-tertiary)" />
+        </marker>
+      </defs>
+      {[["Captured", 8, "anything, unjudged"], ["Shaping", 138, "one question at a time"],
+        ["Ready", 268, "next action + size"], ["A weekday", 398, "it leaves the bucket"]].map(([name, x, hint], i) => (
+        <g key={name as string}>
+          <rect x={x as number} y={20} width={114} height={44} rx={8} {...box} strokeWidth={1} />
+          <text x={(x as number) + 57} y={40} textAnchor="middle" {...label}>{name}</text>
+          <text x={(x as number) + 57} y={54} textAnchor="middle" {...sub}>{hint}</text>
+          {i < 3 && <line x1={(x as number) + 116} y1={42} x2={(x as number) + 128} y2={42}
+            stroke="var(--text-tertiary)" strokeWidth={1.5} markerEnd="url(#fa)" />}
+        </g>
+      ))}
+      {/* the two exits, reachable from anywhere on the left of the line */}
+      {[["Dormant", 138, "wakes on a date"], ["Discarded", 268, "with a reason"]].map(([name, x, hint]) => (
+        <g key={name as string}>
+          <line x1={(x as number) + 57} y1={66} x2={(x as number) + 57} y2={116}
+            stroke="var(--text-tertiary)" strokeWidth={1.2} strokeDasharray="3 3" markerEnd="url(#fa)" />
+          <rect x={x as number} y={120} width={114} height={44} rx={8} {...box} strokeWidth={1} />
+          <text x={(x as number) + 57} y={140} textAnchor="middle" {...label}>{name}</text>
+          <text x={(x as number) + 57} y={154} textAnchor="middle" {...sub}>{hint}</text>
+        </g>
+      ))}
+      <text x={8} y={188} {...sub}>Only Ready reaches a weekday. Dormant and Discarded are exits, not failures.</text>
+    </svg>
+  );
+}
+
+export default function HelpGuide({ onClose, initialSection }: { onClose: () => void; initialSection?: string }) {
+  // Land on the section the ? came from. The guide's screenshots load late
+  // and move everything below them, so a single scroll on mount aims at a
+  // layout that no longer exists a moment later — keep nudging until the
+  // heading is actually at the top, then stop.
+  useEffect(() => {
+    if (!initialSection) return;
+    let tries = 0;
+    const id = setInterval(() => {
+      const el = document.getElementById(`guide-${initialSection}`);
+      const scroller = el?.closest<HTMLElement>(".overflow-y-auto");
+      if (el && scroller) {
+        const delta = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+        if (Math.abs(delta) < 4) { clearInterval(id); return; }
+        scroller.scrollTop += delta;
+      }
+      if (++tries > 12) clearInterval(id);   // ~1s, then leave it alone
+    }, 80);
+    return () => clearInterval(id);
+  }, [initialSection]);
+
   return (
     <div className="fixed inset-0 z-[110] flex items-start justify-center p-4 sm:p-8 overflow-y-auto"
       style={{ backgroundColor: "rgb(0 0 0 / 0.55)" }} onClick={onClose}>
@@ -184,11 +260,12 @@ export default function HelpGuide({ onClose }: { onClose: () => void }) {
         </div>
         <div className="space-y-6">
           {SECTIONS.map((sec) => (
-            <section key={sec.title}>
+            <section key={sec.title} id={sec.id ? `guide-${sec.id}` : undefined} style={{ scrollMarginTop: 8 }}>
               <h3 className="text-sm font-semibold mb-1.5" style={{ color: "var(--text)" }}>{sec.title}</h3>
               {sec.body.map((p, i) => (
                 <p key={i} className="text-xs leading-relaxed mb-1.5" style={{ color: "var(--text-secondary)" }}>{p}</p>
               ))}
+              {sec.diagram === "funnel" && <FunnelDiagram />}
               {sec.img && (
                 <img src={sec.img} alt={sec.imgAlt || sec.title}
                   className={`w-full ${sec.imgClass || ""} rounded-lg my-2`}

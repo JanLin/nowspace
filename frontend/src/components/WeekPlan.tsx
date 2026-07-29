@@ -10,6 +10,7 @@ import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
 import { markDone as markAPDone } from "../actionPoints";
 import { resolveLink, longPressProps } from "../links";
+import { useAppMode } from "../appMode";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
   ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
@@ -295,6 +296,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [weekOffset, setWeekOffset] = useState(0);
+  const { funnel: funnelOn } = useAppMode();
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [selectedDayIdx, setSelectedDayIdx] = useState<number>(() => {
     const jsDay = new Date().getDay();
@@ -4567,7 +4569,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             let unboundCount = 0;
             bucketTasks.forEach((task, idx) => {
               if (!taskVisibleInMode(task.text)) return;
-              if ((task.stage || "captured") !== "ready") { unboundCount++; return; }
+              // The Bucket–Timing contract only exists while the funnel is
+              // on; in Basic every bucket item is schedulable, so the sheet
+              // would otherwise be permanently empty.
+              if (funnelOn && (task.stage || "captured") !== "ready") { unboundCount++; return; }
               // Horizon lens — filters what's listed, never what's schedulable
               if (bucketHz && (task.horizon || "none") !== bucketHz) return;
               const { group, label } = parseGroup(stripBucketMeta(stripCtxTokens(task.text)));

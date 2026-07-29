@@ -10,6 +10,7 @@ import {
 } from "./Funnel";
 import HandoffSurface, { DispatchComposer } from "./Handoff";
 import { resolveLink, longPressProps } from "../links";
+import { useAppMode } from "../appMode";
 
 // Same annotation as the Plan tab; "-" = unassigned
 const PRIORITIES = ["A", "B", "C", "D"] as const;
@@ -162,8 +163,10 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
-  const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | null>(null);
-  const toggleCluster = (k: "tag" | "view" | "filter") => setOpenCluster((prev) => (prev === k ? null : k));
+  const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | "stage" | null>(null);
+  const toggleCluster = (k: "tag" | "view" | "filter" | "stage") => setOpenCluster((prev) => (prev === k ? null : k));
+  // Basic is plain GTD; Advanced is the funnel. Handoff has its own switch.
+  const { funnel: funnelOn, handoff: handoffOn } = useAppMode();
 
   // ── Funnel state ──────────────────────────────────────────
   const [funnel, setFunnel] = useState<FunnelSettings | null>(null);
@@ -604,7 +607,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       {/* Estimate — the whole definition of ready (bounded = sized).
           On a captured item, tapping a size IS the GTD fast path: the task
           is its own next action, so size it and it's Ready in one tap. */}
-      {(stageOf(task) === "ready" || stageOf(task) === "captured") && (
+      {funnelOn && (stageOf(task) === "ready" || stageOf(task) === "captured") && (
         <div className="flex gap-0.5 items-center">
           {ESTIMATES.map(([e, name]) => (
             <button key={e} onClick={(ev) => {
@@ -628,7 +631,9 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </span>
         </div>
       )}
-      {/* Stage transitions — each opens its gate dialog */}
+      {/* Stage transitions — each opens its gate dialog. Basic has no stages,
+          so the menu is priority, horizon and a weekday: plain GTD. */}
+      {funnelOn && (
       <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
         {stageOf(task) !== "binding" && stageOf(task) !== "ready" && (
           <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); requestBind(idx); }}
@@ -658,13 +663,17 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
         <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); setStageDialog({ idx, kind: "discard" }); }}
           title="Discard with a reason"
           className="px-1 py-0 rounded text-[10px] font-medium text-gray-500 hover:bg-gray-100">drop</button>
-        {(stageOf(task) === "ready" || stageOf(task) === "binding") && task.mode !== "rehearse" && (
+        {handoffOn && (stageOf(task) === "ready" || stageOf(task) === "binding") && task.mode !== "rehearse" && (
           <button onClick={(e) => { e.stopPropagation(); setPrioMenu(null); requestHandoff(idx); }}
             title="Hand off to the area's agent — Nowspace checks everything named stays inside the area"
             className="px-1 py-0 rounded text-[10px] font-medium text-teal-600 hover:bg-teal-100">agent</button>
         )}
       </div>
-      {withPlan && stageOf(task) === "ready" && (
+      )}
+      {/* Weekdays: in Basic nothing carries a stage, so gating the row on
+          "ready" would leave no way to schedule at all — the same reasoning
+          as the server-side gate, which is likewise off while Basic is on. */}
+      {withPlan && (!funnelOn || stageOf(task) === "ready") && (
         <div className="flex gap-0.5 pt-0.5" style={{ borderTop: "1px solid var(--border)" }}>
           {dayNames.map((d, di) => (
             <button key={d} onClick={(e) => { e.stopPropagation(); setPrioMenu(null); moveToPlan(idx, di); }}
@@ -1081,6 +1090,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     // Shaping lives in its strip; dormant is silent until woken; discarded
     // only appears when explicitly asked for.
     filtered = filtered.filter(({ task }) => {
+      // Basic has no stages, so it can't hide behind one: a task another
+      // instance left Shaping or Dormant must still be here, or it would
+      // look deleted. Ignoring stage data means not reading it, not
+      // filtering by it.
+      if (!funnelOn) return true;
       const st = stageOf(task);
       if (stageFilter) return st === stageFilter;
       return st === "captured" || st === "ready";
@@ -1275,14 +1289,14 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       {/* Toolbar — three labeled clusters: Tag / View / Filter */}
       <div className="flex items-start flex-wrap gap-x-2 gap-y-1.5 text-xs pr-6" style={{ color: 'var(--text-secondary)' }}>
         <span className="whitespace-nowrap py-1.5">{visibleTaskCount} task{visibleTaskCount !== 1 ? "s" : ""}</span>
-        <button onClick={() => setReviewOpen(true)}
+        {funnelOn && <button onClick={() => setReviewOpen(true)}
           className="whitespace-nowrap px-2 py-1 mt-0.5 rounded text-[10px] font-medium transition-colors"
           style={reviewDue
             ? { background: "rgb(245 158 11 / 0.12)", color: "#b45309", border: "1px solid rgb(245 158 11 / 0.4)" }
             : { background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
           title="The weekly review: reconcile slips, check Shaping, refill slots, set the week's line. ~5 minutes.">
           🧭 Review{reviewDue ? " · due" : ""}
-        </button>
+        </button>}
         {ctxEnabled && (
           <Cluster kind="tag" label="Tag" open={openCluster === "tag"} onToggle={() => toggleCluster("tag")}
             summary={ctxSel.length ? ctxSel.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join("+") : "All"}>
@@ -1331,16 +1345,20 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
               Sort by tag
             </button>
           )}
-          <button onClick={() => setStatsOpen(true)}
-            className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
-            title="Funnel diagnostics — time in stage, Shaping exits, slip rate. System metrics only.">
-            📊 Stats
-          </button>
-          <button onClick={() => setHandoffOpen(true)}
-            className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
-            title="Agent handoff — drafting / in flight / returned. Opens, empties, closes.">
-            🤝 Handoff
-          </button>
+          {funnelOn && (
+            <button onClick={() => setStatsOpen(true)}
+              className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+              title="Funnel diagnostics — time in stage, Shaping exits, slip rate. System metrics only.">
+              📊 Stats
+            </button>
+          )}
+          {handoffOn && (
+            <button onClick={() => setHandoffOpen(true)}
+              className="text-[10px] px-1.5 py-0.5 rounded transition-colors" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+              title="Agent handoff — drafting / in flight / returned. Opens, empties, closes.">
+              🤝 Handoff
+            </button>
+          )}
         </Cluster>
       </div>
 
@@ -1348,6 +1366,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       <div className="flex gap-1 items-center flex-wrap mt-1.5">
       <Cluster kind="filter" label="Filter" open={openCluster === "filter"} onToggle={() => toggleCluster("filter")}
         summary={filterGroup || "All"}>
+        <span className="text-[9px] uppercase tracking-wide self-center pr-0.5" style={{ color: "var(--text-tertiary)" }}>Group</span>
         <button onClick={() => setFilterGroup(null)}
           className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
             !filterGroup ? "bg-blue-100 text-blue-700" : ""
@@ -1367,18 +1386,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </div>
         ))}
         <span className="w-px h-4 shrink-0" style={{ backgroundColor: "var(--border)" }} />
-        {/* Stage lens — default shows the active pipeline (captured + ready);
-            the Shaping chip surfaces shaping-stage items as full list rows (edit,
-            🔗, 🐘) alongside the summary strip */}
-        {([["", "Active"], ["captured", "Captured"], ["binding", "Shaping"], ["ready", "Ready"], ["dormant", "Dormant"], ["discarded", "Discarded"]] as const).map(([st, name]) => (
-          <button key={st || "active"} onClick={() => setStageFilter(st as "" | BucketStage)}
-            title={st ? STAGE_META[st as BucketStage].hint : "Captured + Ready (Shaping has its own strip; Dormant stays silent)"}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${stageFilter === st ? "bg-blue-100 text-blue-700" : ""}`}
-            style={stageFilter !== st ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
-            {name}
-          </button>
-        ))}
-        <span className="w-px h-4 shrink-0" style={{ backgroundColor: "var(--border)" }} />
+        <span className="text-[9px] uppercase tracking-wide self-center pr-0.5" style={{ color: "var(--text-tertiary)" }}>Horizon</span>
         {([["", "Any time"], ["n", "n"], ["nw", "nw"], ["m", "m"], ["none", "unplanned"]] as const).map(([h, name]) => (
           <button key={h || "any"} onClick={() => setHorizonFilter(h)}
             title={h === "n" ? "this week" : h === "nw" ? "next week" : h === "m" ? "next month" : h === "none" ? "no horizon set" : "all horizons"}
@@ -1388,6 +1396,21 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </button>
         ))}
       </Cluster>
+      {/* Stage — the funnel's own lens, kept apart from the GTD filters so one
+          row isn't three vocabularies deep. Absent entirely in Basic. */}
+      {funnelOn && (
+        <Cluster kind="filter" label="Stage" open={openCluster === "stage"} onToggle={() => toggleCluster("stage")}
+          summary={stageFilter ? STAGE_META[stageFilter as BucketStage].label : "Open"}>
+          {([["", "Open"], ["captured", "Captured"], ["binding", "Shaping"], ["ready", "Ready"], ["dormant", "Dormant"], ["discarded", "Discarded"]] as const).map(([st, name]) => (
+            <button key={st || "active"} onClick={() => setStageFilter(st as "" | BucketStage)}
+              title={st ? STAGE_META[st as BucketStage].hint : "Everything in play: Captured + Ready. Shaping has its own strip, Dormant sleeps until its wake date, Discarded is only a record."}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${stageFilter === st ? "bg-blue-100 text-blue-700" : ""}`}
+              style={stageFilter !== st ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
+              {name}
+            </button>
+          ))}
+        </Cluster>
+      )}
       </div>
       <button
         onClick={() => setPinFilters(!pinFilters)}
@@ -1567,7 +1590,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
         )}
 
         {/* Shaping strip — the small set of topics being carried (WIP-limited) */}
-        {bindingItems.length > 0 && (
+        {funnelOn && bindingItems.length > 0 && (
           <div className="rounded-xl p-2.5 space-y-1.5"
             style={{ background: "var(--bg-secondary)", border: "1px solid rgb(168 85 247 / 0.25)" }}>
             <div className="flex items-center gap-1.5">
@@ -1797,7 +1820,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       </span>
 
                       {/* Stage pill — captured stays unmarked (the default is not a judgment) */}
-                      {stageOf(task) !== "captured" && (
+                      {funnelOn && stageOf(task) !== "captured" && (
                         <span className={`shrink-0 text-[8px] px-1 rounded font-medium ${STAGE_META[stageOf(task)].chip}`}
                           title={stageOf(task) === "dormant" && task.wake_date
                             ? `Dormant — wakes ${task.wake_date}`

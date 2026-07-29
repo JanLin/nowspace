@@ -16,11 +16,17 @@ import HelpGuide from "./components/HelpGuide";
 import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
 import { api, CLIENT_SCHEMA_VERSION, type NoteTab } from "./api";
+import { useAppMode } from "./appMode";
+import { useUiScaleShortcuts } from "./uiScale";
 
 type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function App() {
   const [view, setView] = useState<View>("week");
+  // The Slate is the funnel's ambient surface — binding questions and
+  // rehearsal. With Basic there is nothing for it to show.
+  const { funnel: funnelOn } = useAppMode();
+  useUiScaleShortcuts();   // desktop app only — a browser already has ⌘ +/-
   // Notes held open in the Notes tab, one sub-tab each. Opening a note from a
   // task or a [[link]] adds it here and switches to the tab, so notes and
   // tasks live in separate tabs you can flip between (parallel work without an
@@ -103,6 +109,7 @@ export default function App() {
 
   // The Notes tab's own vault panel and status bar, mirroring how Plan and
   // Bucket carry a corner button and a bottom bar.
+  const [guideSection, setGuideSection] = useState<string | undefined>();
   const [vaultOpen, setVaultOpen] = useState(false);
   const notesVaultStateRef = useRef<VaultBrowserState | null>(null);
   const [noteStatus, setNoteStatus] = useState<{ saving: boolean; unsaved: boolean; path: string } | null>(null);
@@ -334,22 +341,23 @@ export default function App() {
        so the document never scrolls and pinned means pinned. The h-screen
        class stays as the fallback: browsers without dvh drop the inline
        declaration and land on 100vh. */
-    <div className="h-screen flex flex-col" style={{ height: "100dvh", backgroundColor: "var(--bg)", color: "var(--text)" }}>
+    <div className="app-shell flex flex-col" style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
       {/* Sticky top nav */}
       <div className="sticky top-0 z-40 px-2 sm:px-4 py-2" style={{ backgroundColor: "var(--bg)", borderBottom: "1px solid var(--border)" }}>
         <div className="mx-auto max-w-6xl flex items-center gap-2 sm:gap-4">
           <header className="shrink-0">
             <button
-              onClick={() => setView(view === "slate" ? "week" : "slate")}
+              onClick={() => { if (funnelOn) setView(view === "slate" ? "week" : "slate"); else setView("week"); }}
               className="flex items-center gap-2 rounded-md px-0.5 transition-opacity hover:opacity-80"
-              title={isEvening
+              title={!funnelOn ? "Nowspace — back to the plan"
+                : isEvening
                 ? "The evening slate — what you're rehearsing (tap again to leave)"
                 : "The slate — the questions you're carrying (tap again to leave)"}
               aria-label="Open the slate"
             >
               <img src="/nowspace-compass-icon.svg" alt="" className="w-6 h-6 sm:w-7 sm:h-7" />
               <h1 className="text-base sm:text-lg font-bold hidden sm:block" style={{ color: "var(--text)" }}>Nowspace</h1>
-              {isEvening && <span className="text-xs -ml-1" aria-hidden="true">🌒</span>}
+              {funnelOn && isEvening && <span className="text-xs -ml-1" aria-hidden="true">🌒</span>}
             </button>
           </header>
           <Nav current={view} onChange={setView} hideCoach={!coachEnabled} onSearch={() => setSearchOpen(true)} />
@@ -539,7 +547,7 @@ export default function App() {
               theme={theme}
               onThemeChange={setTheme}
               onOpenTour={() => setTourOpen(true)}
-              onOpenGuide={() => setGuideOpen(true)}
+              onOpenGuide={(section) => { setGuideSection(section); setGuideOpen(true); }}
               onOpenPhilosophy={() => setPhilosophyOpen(true)}
             />
           </div>
@@ -548,7 +556,7 @@ export default function App() {
 
       {searchOpen && <TaskSearch onPick={pickSearchHit} onClose={() => setSearchOpen(false)} />}
       {tourOpen && <Tour onClose={closeTour} onOpenGuide={() => { closeTour(); setGuideOpen(true); }} />}
-      {guideOpen && <HelpGuide onClose={() => setGuideOpen(false)} />}
+      {guideOpen && <HelpGuide initialSection={guideSection} onClose={() => { setGuideOpen(false); setGuideSection(undefined); }} />}
       {philosophyOpen && <Philosophy onClose={() => setPhilosophyOpen(false)} />}
     </div>
   );

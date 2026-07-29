@@ -43,7 +43,7 @@ export default function Nav({
           >
             <span className="flex flex-col items-center gap-0.5">
               <span className="text-base leading-none">🔍</span>
-              <span className="text-[9px] leading-none sm:hidden" style={{ color: "var(--text-secondary)" }}>Search</span>
+              <span className="nav-label text-[9px] leading-none sm:hidden" style={{ color: "var(--text-secondary)" }}>Search</span>
             </span>
           </button>
         )}
@@ -64,7 +64,7 @@ export default function Nav({
         >
           <span className="flex flex-col items-center gap-0.5">
             <span className="text-base leading-none">{tab.icon}</span>
-            <span className="text-[9px] leading-none sm:hidden" style={{ color: "var(--text-secondary)" }}>{tab.name}</span>
+            <span className="nav-label text-[9px] leading-none sm:hidden" style={{ color: "var(--text-secondary)" }}>{tab.name}</span>
           </span>
         </button>
         </React.Fragment>

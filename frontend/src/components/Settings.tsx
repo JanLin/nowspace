@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../api";
 import type { VaultStatus } from "../api";
+import { useUiScale, isDesktopApp } from "../uiScale";
 
 interface FolderEntry {
   name: string;
@@ -41,7 +42,7 @@ export default function Settings({
   theme?: "light" | "dark" | "system";
   onThemeChange?: (t: "light" | "dark" | "system") => void;
   onOpenTour?: () => void;
-  onOpenGuide?: () => void;
+  onOpenGuide?: (section?: string) => void;
   onOpenPhilosophy?: () => void;
 }) {
   const [vaultPath, setVaultPath] = useState("");
@@ -52,6 +53,10 @@ export default function Settings({
   const [funnelLimit, setFunnelLimit] = useState(4);
   const [funnelCutoff, setFunnelCutoff] = useState("21:00");
   const [funnelSaved, setFunnelSaved] = useState(false);
+  const [appMode, setAppMode] = useState<"basic" | "advanced">("advanced");
+  const [funnelOn, setFunnelOn] = useState(true);
+  const [handoffOn, setHandoffOn] = useState(false);
+  const { scale: uiScale, setScale: setUiScale, min: scaleMin, max: scaleMax, step: scaleStep } = useUiScale();
   const [notesMaxOpen, setNotesMaxOpen] = useState(5);
   const [notesSaved, setNotesSaved] = useState(false);
   const [agentAreas, setAgentAreas] = useState<import("../api").HandoffArea[]>([]);
@@ -141,6 +146,11 @@ export default function Settings({
       if (s.funnel) {
         setFunnelLimit(s.funnel.binding_limit ?? 4);
         setFunnelCutoff(s.funnel.evening_cutoff || "21:00");
+      }
+      if (s.app) {
+        setAppMode(s.app.mode);
+        setFunnelOn(s.app.funnel);
+        setHandoffOn(s.app.handoff);
       }
       if (s.notes?.max_open) {
         setNotesMaxOpen(s.notes.max_open);
@@ -352,6 +362,102 @@ export default function Settings({
       )}
 
       {/* ================================================================ */}
+      {/* How you work — the switch that decides how much of Nowspace shows */}
+      {/* ================================================================ */}
+      <section
+        className="rounded-xl p-5 sm:p-6"
+        style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+      >
+        <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
+          How you work
+        </h2>
+        <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+          Basic is plain GTD: groups, priorities, horizons, weekdays. Advanced adds the
+          funnel — stages, the shaping question, sizes, the weekly review and the Slate.
+          Basic writes none of that to your vault, and leaves anything already there
+          untouched, so you can switch back and find it as you left it.
+        </p>
+        <div className="flex items-center gap-2 flex-wrap mb-4">
+          {([["basic", "Basic", "Groups, priorities, horizons"],
+             ["advanced", "Advanced", "Adds the funnel and the Slate"]] as const).map(([id, label, hint]) => (
+            <button
+              key={id}
+              onClick={() => {
+                setAppMode(id);
+                api.saveAppSettings({ mode: id })
+                  .then(() => window.dispatchEvent(new CustomEvent("app-mode-changed")))
+                  .catch(() => flash("err", "Could not save the mode"));
+              }}
+              title={hint}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                appMode === id ? "bg-blue-100 text-blue-700" : ""
+              }`}
+              style={appMode !== id ? { background: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {/* Advanced doesn't turn anything on by itself — it reveals the two
+            switches. Each carries a ? into the guide, because neither is
+            guessable from its name. */}
+        {appMode === "advanced" && (
+        <div className="space-y-2.5">
+        <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+          <input
+            type="checkbox"
+            checked={funnelOn}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setFunnelOn(on);
+              api.saveAppSettings({ funnel: on })
+                .then(() => window.dispatchEvent(new CustomEvent("app-mode-changed")))
+                .catch(() => flash("err", "Could not save the funnel setting"));
+            }}
+            className="mt-0.5"
+          />
+          <span>
+            <span style={{ color: "var(--text)" }}>Funnel</span> — stages, the shaping
+            question, sizes, the weekly review and the Slate. Nothing reaches a weekday
+            until it's Ready.{" "}
+            {onOpenGuide && (
+              <button type="button" onClick={(e) => { e.preventDefault(); onOpenGuide("funnel"); }}
+                className="underline" style={{ color: "var(--accent)" }}>
+                What is this? ?
+              </button>
+            )}
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+          <input
+            type="checkbox"
+            checked={handoffOn}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setHandoffOn(on);
+              api.saveAppSettings({ handoff: on })
+                .then(() => window.dispatchEvent(new CustomEvent("app-mode-changed")))
+                .catch(() => flash("err", "Could not save the handoff setting"));
+            }}
+            className="mt-0.5"
+          />
+          <span>
+            <span style={{ color: "var(--text)" }}>Agent handoff</span> — dispatch work to an
+            agent and check what comes back. Off unless you turn it on, or you already have
+            agent areas configured.{" "}
+            {onOpenGuide && (
+              <button type="button" onClick={(e) => { e.preventDefault(); onOpenGuide("handoff"); }}
+                className="underline" style={{ color: "var(--accent)" }}>
+                What is this? ?
+              </button>
+            )}
+          </span>
+        </label>
+        </div>
+        )}
+      </section>
+
+      {/* ================================================================ */}
       {/* Appearance + help — both moved off the top bar, which had run out  */}
       {/* of room on a 360px phone                                          */}
       {/* ================================================================ */}
@@ -364,7 +470,9 @@ export default function Settings({
             Appearance &amp; help
           </h2>
           <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-            System follows whatever your device is set to, switching with it through the day.
+            Theme and text size are kept on this device only — several devices can share one
+          Nowspace and still each look the way you want them to. System follows whatever your
+          device is set to, switching with it through the day.
           </p>
           {onThemeChange && (
             <div className="flex items-center gap-2 flex-wrap mb-4">
@@ -383,6 +491,32 @@ export default function Settings({
               ))}
             </div>
           )}
+          {/* Text size — kept on this device only, like the theme. Several
+              devices can share one Nowspace and still each have their own. */}
+          <div className="flex items-center gap-2 flex-wrap mb-4">
+            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Text size</span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setUiScale(uiScale - scaleStep)} disabled={uiScale <= scaleMin}
+                className="w-7 h-7 rounded-lg text-sm font-medium disabled:opacity-40"
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                title="Smaller" aria-label="Smaller text">−</button>
+              <span className="text-xs font-mono w-12 text-center" style={{ color: "var(--text)" }}>{uiScale}%</span>
+              <button onClick={() => setUiScale(uiScale + scaleStep)} disabled={uiScale >= scaleMax}
+                className="w-7 h-7 rounded-lg text-sm font-medium disabled:opacity-40"
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                title="Bigger" aria-label="Bigger text">+</button>
+              {uiScale !== 100 && (
+                <button onClick={() => setUiScale(100)}
+                  className="px-2 py-1 rounded-lg text-[10px]"
+                  style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>Reset</button>
+              )}
+            </div>
+            <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              {isDesktopApp()
+                ? "⌘ + and ⌘ − adjust this too. This device only."
+                : "Your browser's own zoom (⌘/Ctrl + and −) does the same and is remembered per site. This device only."}
+            </span>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Help</span>
             {onOpenGuide && (
