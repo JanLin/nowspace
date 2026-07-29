@@ -464,16 +464,24 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
               Nothing by that name. Search matches note names, not what's written inside them.
             </p>
           )}
-          {hits.map((h) => (
+          {hits.map((h) => {
+            const folder = h.path.split("/").slice(0, -1).join("/");
+            return (
             <div key={h.path} className="group/hit flex items-center gap-1">
-              <button onClick={() => openNote(h.path, h.name)}
-                className="flex-1 min-w-0 text-left text-[11px] py-1 px-1 rounded hover:bg-blue-50 transition-colors"
-                style={{ color: "var(--text)" }} title={h.path}>
-                <span className="truncate block">{h.name}</span>
-                <span className="text-[9px] truncate block" style={{ color: "var(--text-tertiary)" }}>
-                  {h.path.split("/").slice(0, -1).join("/")}
-                </span>
-              </button>
+              <div className="flex-1 min-w-0">
+                <button onClick={() => openNote(h.path, h.name)}
+                  className="w-full text-left text-[11px] pt-1 px-1 rounded hover:bg-blue-50 transition-colors truncate"
+                  style={{ color: "var(--text)" }} title={`Open ${h.name}`}>
+                  {h.name}
+                </button>
+                {/* The folder line is its own target: sometimes the point of
+                    the search is to get to where the note lives, not to read it */}
+                <button onClick={() => { runSearch(""); setCurrentFolder(folder); }}
+                  className="w-full text-left text-[9px] pb-1 px-1 rounded hover:bg-blue-50 hover:underline transition-colors truncate"
+                  style={{ color: "var(--text-tertiary)" }} title={`Open folder ${folder || "vault root"}`}>
+                  {folder || "vault root"}
+                </button>
+              </div>
               {onInsertLink && (
                 <button onClick={() => onInsertLink(h.name)} title="Insert a [[link]] into the note you're writing"
                   className="text-[10px] px-1 opacity-0 group-hover/hit:opacity-100 shrink-0" style={{ color: "var(--text-secondary)" }}>
@@ -481,10 +489,35 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                 </button>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
       <div className="flex-1 overflow-y-auto" ref={scrollRef}>
+        {/* Reference groups — the starred folders. They used to be their own
+            browser in the notes panel; here they're jumps into this one, so
+            the folders you live in stay one tap away without a second tree. */}
+        {Object.keys(referenceLinks).length > 0 && (
+          <div className="px-3 pt-2 pb-1">
+            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{"★"} Reference groups</h4>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(referenceLinks).map(([name, path]) => (
+                <button
+                  key={name}
+                  onClick={() => { runSearch(""); setCurrentFolder(path); }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    currentFolder === path ? "bg-blue-100 text-blue-700" : ""
+                  }`}
+                  style={currentFolder !== path ? { background: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+                  title={path}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Pinned notes */}
         {pinnedNotes.length > 0 && (
           <div className="px-3 pt-2 pb-1">
