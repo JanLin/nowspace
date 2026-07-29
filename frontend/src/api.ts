@@ -386,6 +386,12 @@ export const api = {
       body: JSON.stringify({ source, destination }),
     }),
 
+  vaultCreateFolder: (path: string) =>
+    request<{ success: boolean; created: boolean; path: string }>("/api/vault/folder", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
+
   vaultDelete: (path: string) =>
     request<{ success: boolean; path: string }>(
       `/api/vault/file?path=${encodeURIComponent(path)}`,

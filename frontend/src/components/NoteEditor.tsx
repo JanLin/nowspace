@@ -101,9 +101,13 @@ export interface NoteEditorProps {
   onClose: () => void;
   /** Render inline (e.g. in the Notes tab) instead of as a full-screen modal. */
   embedded?: boolean;
+  /** Report save state so a host can show it in its own status bar */
+  onStatus?: (s: { saving: boolean; unsaved: boolean; path: string }) => void;
+  /** Show this note's folder in the host's vault panel (breadcrumb click) */
+  onOpenFolder?: (folder: string) => void;
 }
 
-export default function NoteEditor({ initialPath, initialName, onClose, embedded = false }: NoteEditorProps) {
+export default function NoteEditor({ initialPath, initialName, onClose, embedded = false, onStatus, onOpenFolder }: NoteEditorProps) {
   // Small screens can't afford the split live view — each half ends up too
   // narrow to read. Below the breakpoint the editor is single-pane: write
   // in "edit", flip to "preview" when done (toggle in the header).
@@ -126,6 +130,12 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
   const conflictRef = useRef<typeof conflict>(null);
   conflictRef.current = conflict;
   const [currentPath, setCurrentPath] = useState(initialPath);
+
+  // Mirror save state up to the host (the Notes tab's status bar), so the
+  // reading matches what the editor's own header shows.
+  useEffect(() => {
+    onStatus?.({ saving, unsaved: hasUnsaved, path: currentPath });
+  }, [saving, hasUnsaved, currentPath, onStatus]);
   const [currentName, setCurrentName] = useState(initialName || pathToName(initialPath));
 
   // Navigation history
@@ -566,14 +576,25 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
 
           {/* Breadcrumbs */}
           <div className="flex items-center gap-1 text-xs text-gray-400 flex-1 min-w-0 overflow-hidden">
-            {pathParts.map((part, i) => (
-              <React.Fragment key={i}>
-                {i > 0 && <span className="text-gray-300">/</span>}
-                <span className={i === pathParts.length - 1 ? "text-gray-700 font-medium truncate" : "truncate"}>
-                  {part}
-                </span>
-              </React.Fragment>
-            ))}
+            {pathParts.map((part, i) => {
+              const isLast = i === pathParts.length - 1;
+              // Folder segments open that folder in the host's vault panel —
+              // the note's own name isn't a place, so it stays plain text
+              const folder = pathParts.slice(0, i + 1).join("/");
+              return (
+                <React.Fragment key={i}>
+                  {i > 0 && <span className="text-gray-300">/</span>}
+                  {isLast || !onOpenFolder ? (
+                    <span className={isLast ? "text-gray-700 font-medium truncate" : "truncate"}>{part}</span>
+                  ) : (
+                    <button onClick={() => onOpenFolder(folder)} title={`Show ${folder} in the vault panel`}
+                      className="truncate hover:text-blue-600 hover:underline transition-colors">
+                      {part}
+                    </button>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </div>
 
           {/* Status */}

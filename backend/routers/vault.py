@@ -17,6 +17,7 @@ class MoveRequest(BaseModel):
 
 class PinnedNotesRequest(BaseModel):
     pinned: List[str]
+
 from backend.vault_index import (
     refresh_index,
     get_index,
@@ -26,6 +27,11 @@ from backend.vault_index import (
     resolve_name,
     read_vault_reference_links,
 )
+
+
+class CreateFolderRequest(BaseModel):
+    path: str
+
 
 router = APIRouter(prefix="/api/vault", tags=["vault"])
 
@@ -149,6 +155,29 @@ def _safe_vault_path(rel_path: str) -> Path:
     return resolved
 
 
+@router.post("/folder")
+async def create_vault_folder(body: CreateFolderRequest):
+    """Create a folder in the vault, parents included.
+
+    Notes could already land in a missing folder (create_note mkdirs its
+    parents), but there was no way to make the structure first — so a folder
+    you wanted to file into had to be conjured by writing a note into it.
+    """
+    rel = (body.path or "").strip().strip("/")
+    if not rel:
+        raise HTTPException(status_code=400, detail="path is required")
+    target = _safe_vault_path(rel)
+    if target.is_dir():
+        return {"success": True, "created": False, "path": rel}
+    if target.exists():
+        raise HTTPException(status_code=409, detail=f"A file already exists at {rel}")
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Error creating folder: {e}")
+    return {"success": True, "created": True, "path": rel}
+
+
 @router.post("/move")
 async def vault_move(body: MoveRequest):
     """Move a file or folder within the vault."""
@@ -165,6 +194,7 @@ async def vault_move(body: MoveRequest):
         raise HTTPException(status_code=409, detail=f"Already exists: {new_path.name}")
 
     shutil.move(str(src), str(new_path))
+    refresh_index()  # the old path would otherwise linger in search
     return {"success": True, "new_path": str(new_path.relative_to(config.vault_root))}
 
 
@@ -184,6 +214,9 @@ async def vault_delete(path: str):
     except ImportError:
         target.unlink()
 
+    # Search now surfaces the index directly, so a stale entry is a hit that
+    # opens nothing. Keep it honest on the way out, as create already does.
+    refresh_index()
     return {"success": True, "path": path}
 
 

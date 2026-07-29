@@ -20,7 +20,7 @@ const TASK_ICONS: Item[] = [
 ];
 
 const CORNER_ICONS: Item[] = [
-  { icon: "📁", text: "Vault browser — a side panel with your vault's folders and notes; open any note in the built-in editor, or drag one onto a task to link it." },
+  { icon: "📁", text: "Vault browser — a side panel with your vault's folders and notes. Search by name, open any note in the built-in editor, drag one onto a task to link it, and make a new note, call note or folder in whichever folder you have open — anywhere in the vault, not just your starred ones. It sits in the Plan, Bucket and Notes tabs." },
   { icon: "⏩", text: "Carry forward — the badge counts open tasks from earlier days. Open it to pull them into the day you're planning, mark them done after the fact, or send them to the bucket. A second ⏩ appears when last week left tasks behind." },
   { icon: "🪣", text: "Bucket panel — a slice of your bucket beside the plan (the badge is its size). Horizon chips filter it (n by default); tap a task to add it to the day, or drag it onto the plan." },
 ];
@@ -101,6 +101,7 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
       "Opening a note from a task's 🔗, or from a [[link]], adds it to the Notes tab as a sub-tab. Tap a sub-tab to read that note; the tabs stay put while you work in Plan or Bucket, so you can carry a few notes through a session instead of losing one each time you open another.",
       "Settings decides how many stay open — five by default. Past that, opening another closes the note you've left unread longest. 📌 pins a note so it's never the one closed, which means pinning more than the limit simply grows the strip. Drag a sub-tab to reorder, × closes one, and \"Clear all\" closes everything including the pinned ones.",
       "The open set lives in the shared settings file, so the same notes are open on the Mac app, the mini and your phone.",
+      "The 📁 button opens the vault beside what you're reading: browse or search, and anything you open joins the strip as another sub-tab. New notes and folders can be made in whatever folder you're looking at, which is how a call note gets filed somewhere you hadn't set up in advance.",
     ],
   },
   {
