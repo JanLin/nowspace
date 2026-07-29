@@ -184,6 +184,15 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
   const CALL_TEMPLATE = (name: string) =>
     `# ${name}\n\n**When:** \n**With:** \n\n## Notes\n\n\n## Action points\n\n- [ ] \n`;
 
+  // A call note is nearly always "today's call with someone", so the name
+  // starts as the date and waits for the who. Local date on purpose — the
+  // UTC helpers elsewhere would file an evening call under yesterday.
+  const callNoteName = () => {
+    const d = new Date();
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return `${iso} call`;
+  };
+
   const invalidateFolder = (path: string) => {
     setFolderCache((prev) => { const next = new Map(prev); next.delete(path); return next; });
   };
@@ -415,6 +424,8 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
               <input
                 autoFocus
                 value={newName}
+                /* caret after the prefilled date, ready for "with Bob" */
+                onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") submitCreate();
@@ -439,7 +450,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
         ) : (
           <div className="flex gap-1 flex-wrap">
             {([["note", "+ Note"], ["call", "+ Call note"], ["folder", "+ Folder"]] as const).map(([mode, label]) => (
-              <button key={mode} onClick={() => { setCreating(mode); setCreateError(""); }}
+              <button key={mode} onClick={() => { setCreating(mode); setNewName(mode === "call" ? callNoteName() : ""); setCreateError(""); }}
                 className="text-[10px] px-1.5 py-0.5 rounded transition-colors"
                 style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
                 title={`Create in ${currentFolder || "the vault root"}`}>
