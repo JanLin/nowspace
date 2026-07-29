@@ -1366,6 +1366,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       <div className="flex gap-1 items-center flex-wrap mt-1.5">
       <Cluster kind="filter" label="Filter" open={openCluster === "filter"} onToggle={() => toggleCluster("filter")}
         summary={filterGroup || "All"}>
+        <span className="text-[9px] uppercase tracking-wide self-center pr-0.5" style={{ color: "var(--text-tertiary)" }}>Group</span>
         <button onClick={() => setFilterGroup(null)}
           className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
             !filterGroup ? "bg-blue-100 text-blue-700" : ""
@@ -1385,6 +1386,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           </div>
         ))}
         <span className="w-px h-4 shrink-0" style={{ backgroundColor: "var(--border)" }} />
+        <span className="text-[9px] uppercase tracking-wide self-center pr-0.5" style={{ color: "var(--text-tertiary)" }}>Horizon</span>
         {([["", "Any time"], ["n", "n"], ["nw", "nw"], ["m", "m"], ["none", "unplanned"]] as const).map(([h, name]) => (
           <button key={h || "any"} onClick={() => setHorizonFilter(h)}
             title={h === "n" ? "this week" : h === "nw" ? "next week" : h === "m" ? "next month" : h === "none" ? "no horizon set" : "all horizons"}

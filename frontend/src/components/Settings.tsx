@@ -394,6 +394,9 @@ export default function Settings({
             </button>
           ))}
         </div>
+        {/* Handoff is an Advanced option: someone on Basic shouldn't have to
+            decide about agent dispatch before they've met stages. */}
+        {appMode === "advanced" && (
         <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: "var(--text-secondary)" }}>
           <input
             type="checkbox"
@@ -409,10 +412,11 @@ export default function Settings({
           />
           <span>
             <span style={{ color: "var(--text)" }}>Agent handoff</span> — dispatch work to an
-            agent and check what comes back. Its own switch, since it has its own rules; on
-            by default only if you already have agent areas configured.
+            agent and check what comes back. Off unless you turn it on, or you already have
+            agent areas configured.
           </span>
         </label>
+        )}
       </section>
 
       {/* ================================================================ */}
