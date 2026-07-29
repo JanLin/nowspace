@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../api";
 import type { VaultStatus } from "../api";
+import { useUiScale, isDesktopApp } from "../uiScale";
 
 interface FolderEntry {
   name: string;
@@ -55,6 +56,7 @@ export default function Settings({
   const [appMode, setAppMode] = useState<"basic" | "advanced">("advanced");
   const [funnelOn, setFunnelOn] = useState(true);
   const [handoffOn, setHandoffOn] = useState(false);
+  const { scale: uiScale, setScale: setUiScale, min: scaleMin, max: scaleMax, step: scaleStep } = useUiScale();
   const [notesMaxOpen, setNotesMaxOpen] = useState(5);
   const [notesSaved, setNotesSaved] = useState(false);
   const [agentAreas, setAgentAreas] = useState<import("../api").HandoffArea[]>([]);
@@ -468,7 +470,9 @@ export default function Settings({
             Appearance &amp; help
           </h2>
           <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-            System follows whatever your device is set to, switching with it through the day.
+            Theme and text size are kept on this device only — several devices can share one
+          Nowspace and still each look the way you want them to. System follows whatever your
+          device is set to, switching with it through the day.
           </p>
           {onThemeChange && (
             <div className="flex items-center gap-2 flex-wrap mb-4">
@@ -487,6 +491,32 @@ export default function Settings({
               ))}
             </div>
           )}
+          {/* Text size — kept on this device only, like the theme. Several
+              devices can share one Nowspace and still each have their own. */}
+          <div className="flex items-center gap-2 flex-wrap mb-4">
+            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Text size</span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setUiScale(uiScale - scaleStep)} disabled={uiScale <= scaleMin}
+                className="w-7 h-7 rounded-lg text-sm font-medium disabled:opacity-40"
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                title="Smaller" aria-label="Smaller text">−</button>
+              <span className="text-xs font-mono w-12 text-center" style={{ color: "var(--text)" }}>{uiScale}%</span>
+              <button onClick={() => setUiScale(uiScale + scaleStep)} disabled={uiScale >= scaleMax}
+                className="w-7 h-7 rounded-lg text-sm font-medium disabled:opacity-40"
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                title="Bigger" aria-label="Bigger text">+</button>
+              {uiScale !== 100 && (
+                <button onClick={() => setUiScale(100)}
+                  className="px-2 py-1 rounded-lg text-[10px]"
+                  style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>Reset</button>
+              )}
+            </div>
+            <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              {isDesktopApp()
+                ? "⌘ + and ⌘ − adjust this too. This device only."
+                : "Your browser's own zoom (⌘/Ctrl + and −) does the same and is remembered per site. This device only."}
+            </span>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Help</span>
             {onOpenGuide && (

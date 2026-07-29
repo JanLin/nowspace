@@ -168,7 +168,7 @@ const SECTIONS: { id?: string; title: string; img?: string; imgAlt?: string; img
   {
     title: "Settings — your setup, everywhere",
     body: [
-      "Vault location, reference folders, contexts and the diary folder — plus the theme and this guide, under Appearance & help. Shared settings live inside the vault itself, so if you sync the vault between machines, every install sees the same configuration (the theme is per device).",
+      "Vault location, reference folders, contexts and the diary folder — plus the theme, the text size and this guide, under Appearance & help. Shared settings live inside the vault itself, so if you sync the vault between machines, every install sees the same configuration. Theme and text size are the exceptions: they stay on the device you set them on, so a phone reading the same Nowspace as your laptop can be larger without making the laptop larger too. In a browser, its own zoom (⌘/Ctrl + and −) does the same thing; the desktop app has no zoom of its own, so ⌘ + and ⌘ − drive this setting instead.",
       "Contexts (work / volunteer / personal) let you filter the whole app to one part of life. Tag a task with @w, @v or @p to override its group's context, and @pin surfaces a personal task even while Work is selected.",
     ],
   },

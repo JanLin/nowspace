@@ -17,6 +17,7 @@ import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
 import { api, CLIENT_SCHEMA_VERSION, type NoteTab } from "./api";
 import { useAppMode } from "./appMode";
+import { useUiScaleShortcuts } from "./uiScale";
 
 type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
@@ -25,6 +26,7 @@ export default function App() {
   // The Slate is the funnel's ambient surface — binding questions and
   // rehearsal. With Basic there is nothing for it to show.
   const { funnel: funnelOn } = useAppMode();
+  useUiScaleShortcuts();   // desktop app only — a browser already has ⌘ +/-
   // Notes held open in the Notes tab, one sub-tab each. Opening a note from a
   // task or a [[link]] adds it here and switches to the tab, so notes and
   // tasks live in separate tabs you can flip between (parallel work without an
@@ -339,7 +341,7 @@ export default function App() {
        so the document never scrolls and pinned means pinned. The h-screen
        class stays as the fallback: browsers without dvh drop the inline
        declaration and land on 100vh. */
-    <div className="h-screen flex flex-col" style={{ height: "100dvh", backgroundColor: "var(--bg)", color: "var(--text)" }}>
+    <div className="app-shell flex flex-col" style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
       {/* Sticky top nav */}
       <div className="sticky top-0 z-40 px-2 sm:px-4 py-2" style={{ backgroundColor: "var(--bg)", borderBottom: "1px solid var(--border)" }}>
         <div className="mx-auto max-w-6xl flex items-center gap-2 sm:gap-4">

@@ -158,6 +158,15 @@ body {
    its full height behind the keyboard and the note gets scrolled out of
    sight instead. The vh line stays as the fallback for browsers without
    dvh; a later identical property simply wins where it is supported. */
+/* Zoomed past ~110%: the tab labels are what push the header past the edge
+   of a phone, and the icons carry the meaning anyway. */
+.ui-scaled-up .nav-label { display: none; }
+
+.app-shell {
+  height: 100vh;
+  height: calc(100dvh / var(--ui-zoom, 1));
+}
+
 .notes-panel-box {
   max-height: calc(100vh - 260px);
   max-height: calc(100dvh - 260px);
