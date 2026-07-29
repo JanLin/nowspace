@@ -28,6 +28,10 @@ interface Props {
   onClose: () => void;
   stateRef: React.MutableRefObject<VaultBrowserState | null>;
   onOpenNote: (path: string, name: string) => void;
+  /** Insert a [[link]] to a note into whatever is being written (day view) */
+  onInsertLink?: (name: string) => void;
+  /** Harvest action points out of a note — day view only, it owns the strip */
+  onScanAPs?: (path: string, name: string) => void;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -66,7 +70,7 @@ function addToRecents(path: string, name: string) {
 
 // ─── Main Component ─────────────────────────────────────────────────
 
-export default function VaultBrowser({ onClose, stateRef, onOpenNote }: Props) {
+export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLink, onScanAPs }: Props) {
   // Restore state from ref or use defaults
   const saved = stateRef.current;
 
@@ -143,6 +147,79 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote }: Props) {
   const crumbs = currentFolder
     ? currentFolder.split("/").map((seg, i, arr) => ({ name: seg, path: arr.slice(0, i + 1).join("/") }))
     : [];
+
+  // ─── Search ─────────────────────────────────────────────────────
+  // Filename search, straight off the index the [[link]] autocomplete uses.
+  // It does not read file contents — a phrase inside a note won't match.
+
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<VaultFile[]>([]);
+  const [searching, setSearching] = useState(false);
+  const searchDebounce = useRef<ReturnType<typeof setTimeout>>();
+
+  const runSearch = (q: string) => {
+    setQuery(q);
+    clearTimeout(searchDebounce.current);
+    if (q.trim().length < 2) { setHits([]); setSearching(false); return; }
+    setSearching(true);
+    searchDebounce.current = setTimeout(async () => {
+      try {
+        const res = await api.vaultSearch(q.trim(), 25);
+        setHits(res.results.map((r) => ({ name: r.name, path: r.path, type: "file" as const, modified: "" })));
+      } catch { setHits([]); }
+      finally { setSearching(false); }
+    }, 220);
+  };
+
+  // ─── Creating ───────────────────────────────────────────────────
+  // Both land in whatever folder is open, so anywhere in the vault is
+  // reachable — the old reference-folder scoping is what made a call note
+  // impossible to file outside a configured folder.
+
+  const [creating, setCreating] = useState<null | "note" | "call" | "folder">(null);
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  const CALL_TEMPLATE = (name: string) =>
+    `# ${name}\n\n**When:** \n**With:** \n\n## Notes\n\n\n## Action points\n\n- [ ] \n`;
+
+  const invalidateFolder = (path: string) => {
+    setFolderCache((prev) => { const next = new Map(prev); next.delete(path); return next; });
+  };
+
+  const submitCreate = async () => {
+    const name = newName.trim();
+    if (!name || busy || !creating) return;
+    setBusy(true);
+    setCreateError("");
+    try {
+      if (creating === "folder") {
+        const target = currentFolder ? `${currentFolder}/${name}` : name;
+        await api.vaultCreateFolder(target);
+        invalidateFolder(currentFolder);
+        await loadFolderFresh(currentFolder);
+      } else {
+        const res = await api.createNote(currentFolder, name, creating === "call" ? CALL_TEMPLATE(name) : "");
+        invalidateFolder(currentFolder);
+        await loadFolderFresh(currentFolder);
+        openNote(res.path, name);
+      }
+      setCreating(null);
+      setNewName("");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setCreateError(/already exists/i.test(msg) ? "That name is taken in this folder" : "Could not create that");
+    } finally { setBusy(false); }
+  };
+
+  const loadFolderFresh = async (path: string) => {
+    try {
+      const res = await api.vaultFolder(path || "");
+      setFiles(res.files);
+      setFolderCache((prev) => new Map(prev).set(path, res.files));
+    } catch { /* leave the stale list rather than blanking it */ }
+  };
 
   // ─── Preview ────────────────────────────────────────────────────
 
@@ -316,6 +393,97 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote }: Props) {
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
       </div>
 
+      {/* Search + create. Both act on the folder that's open, so a note or a
+          missing folder can be made anywhere — not only inside a reference. */}
+      <div className="px-3 pt-2 pb-1.5 border-b space-y-1.5" style={{ borderColor: "var(--border)" }}>
+        <input
+          value={query}
+          onChange={(e) => runSearch(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Escape") runSearch(""); }}
+          placeholder="Search notes by name…"
+          autoComplete="off"
+          className="w-full text-xs px-2 py-1 rounded outline-none focus:ring-1 focus:ring-blue-400"
+          style={{ background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+        />
+        {creating ? (
+          <div className="space-y-1">
+            <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              New {creating === "folder" ? "folder" : creating === "call" ? "call note" : "note"} in{" "}
+              <span className="font-mono">{currentFolder || "vault root"}</span>
+            </div>
+            <div className="flex gap-1">
+              <input
+                autoFocus
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitCreate();
+                  if (e.key === "Escape") { setCreating(null); setNewName(""); setCreateError(""); }
+                }}
+                placeholder={creating === "folder" ? "Folder name…" : "Note name…"}
+                className="flex-1 min-w-0 text-xs px-2 py-1 rounded outline-none focus:ring-1 focus:ring-blue-400"
+                style={{ background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+              />
+              <button onClick={submitCreate} disabled={!newName.trim() || busy}
+                className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-50 shrink-0"
+                style={{ backgroundColor: "var(--accent)" }}>
+                {busy ? "…" : "Create"}
+              </button>
+              <button onClick={() => { setCreating(null); setNewName(""); setCreateError(""); }}
+                className="px-1 text-xs shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                ✕
+              </button>
+            </div>
+            {createError && <div className="text-[10px] text-red-500">{createError}</div>}
+          </div>
+        ) : (
+          <div className="flex gap-1 flex-wrap">
+            {([["note", "+ Note"], ["call", "+ Call note"], ["folder", "+ Folder"]] as const).map(([mode, label]) => (
+              <button key={mode} onClick={() => { setCreating(mode); setCreateError(""); }}
+                className="text-[10px] px-1.5 py-0.5 rounded transition-colors"
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                title={`Create in ${currentFolder || "the vault root"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {query.trim().length >= 2 ? (
+        /* Search results replace the tree until the box is cleared */
+        <div className="flex-1 overflow-y-auto px-3 py-2">
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+              {searching ? "Searching…" : `${hits.length} match${hits.length === 1 ? "" : "es"}`}
+            </h4>
+            <button onClick={() => runSearch("")} className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>Clear</button>
+          </div>
+          {!searching && hits.length === 0 && (
+            <p className="text-[10px] py-2" style={{ color: "var(--text-tertiary)" }}>
+              Nothing by that name. Search matches note names, not what's written inside them.
+            </p>
+          )}
+          {hits.map((h) => (
+            <div key={h.path} className="group/hit flex items-center gap-1">
+              <button onClick={() => openNote(h.path, h.name)}
+                className="flex-1 min-w-0 text-left text-[11px] py-1 px-1 rounded hover:bg-blue-50 transition-colors"
+                style={{ color: "var(--text)" }} title={h.path}>
+                <span className="truncate block">{h.name}</span>
+                <span className="text-[9px] truncate block" style={{ color: "var(--text-tertiary)" }}>
+                  {h.path.split("/").slice(0, -1).join("/")}
+                </span>
+              </button>
+              {onInsertLink && (
+                <button onClick={() => onInsertLink(h.name)} title="Insert a [[link]] into the note you're writing"
+                  className="text-[10px] px-1 opacity-0 group-hover/hit:opacity-100 shrink-0" style={{ color: "var(--text-secondary)" }}>
+                  🔗
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="flex-1 overflow-y-auto" ref={scrollRef}>
         {/* Pinned notes */}
         {pinnedNotes.length > 0 && (
@@ -447,12 +615,15 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote }: Props) {
                   onDelete={() => setConfirmDelete(f.path)}
                   onTogglePin={() => togglePin(f.path)}
                   isDragging={dragPath === f.path}
+                  onInsertLink={onInsertLink && (() => onInsertLink(f.name))}
+                  onScanAPs={onScanAPs && (() => onScanAPs(f.path, f.name))}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+      )}
 
       {/* Delete confirmation dialog */}
       {confirmDelete && (
@@ -682,9 +853,13 @@ interface FileRowProps {
   onDelete: () => void;
   onTogglePin: () => void;
   isDragging: boolean;
+  /** Day view only: drop a [[link]] into the note being written */
+  onInsertLink?: false | (() => void);
+  /** Day view only: harvest this note's action points into the bucket */
+  onScanAPs?: false | (() => void);
 }
 
-function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, isDragging }: FileRowProps) {
+function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, isDragging, onInsertLink, onScanAPs }: FileRowProps) {
   return (
     <div
       className={`group/file flex items-center gap-1 py-1 px-1 rounded text-[11px] transition-colors ${
@@ -701,6 +876,18 @@ function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, i
         {file.name}
       </button>
       <span className="text-[9px] text-gray-400 shrink-0">{relativeTime(file.modified)}</span>
+      {onInsertLink && (
+        <button onClick={onInsertLink} title="Insert a [[link]] into the note you're writing"
+          className="text-[10px] shrink-0 opacity-0 group-hover/file:opacity-100 transition-opacity text-gray-400 hover:text-blue-500">
+          🔗
+        </button>
+      )}
+      {onScanAPs && (
+        <button onClick={onScanAPs} title="Scan this note for action points"
+          className="text-[10px] shrink-0 opacity-0 group-hover/file:opacity-100 transition-opacity text-gray-400 hover:text-amber-500">
+          🔍
+        </button>
+      )}
       <button
         onClick={onTogglePin}
         className={`text-[10px] shrink-0 opacity-0 group-hover/file:opacity-100 transition-opacity ${

@@ -9,6 +9,7 @@ import TimeTab from "./components/TimeTab";
 import Goals from "./components/Goals";
 import NoteEditor from "./components/NoteEditor";
 import NoteTabsStrip from "./components/NoteTabsStrip";
+import VaultBrowser, { type VaultBrowserState } from "./components/VaultBrowser";
 import Settings from "./components/Settings";
 import Tour from "./components/Tour";
 import HelpGuide from "./components/HelpGuide";
@@ -99,6 +100,12 @@ export default function App() {
   };
 
   const clearAllNotes = () => { setActiveNote(null); commitTabs([]); };
+
+  // The Notes tab's own vault panel and status bar, mirroring how Plan and
+  // Bucket carry a corner button and a bottom bar.
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const notesVaultStateRef = useRef<VaultBrowserState | null>(null);
+  const [noteStatus, setNoteStatus] = useState<{ saving: boolean; unsaved: boolean; path: string } | null>(null);
   const [vaultReady, setVaultReady] = useState<boolean | null>(null); // null = checking
   const [backendUp, setBackendUp] = useState(false);
   const [coachEnabled, setCoachEnabled] = useState(true);
@@ -434,6 +441,43 @@ export default function App() {
         </div>
       )}
 
+      {/* Notes tab: vault button and status bar — the same corner-button and
+          bottom-bar pattern the Plan and Bucket tabs use. */}
+      {view === "notes" && (
+        <>
+          <div className={`fixed bottom-8 z-40 flex items-end gap-2 ${vaultOpen ? "right-6 md:right-[max(21.5rem,calc(50vw-14.5rem))]" : "right-6"}`}>
+            <div
+              className="relative cursor-pointer transition-all duration-200 hover:scale-105"
+              title="Vault — browse, search, add a note or folder anywhere"
+              onClick={() => setVaultOpen((v) => !v)}
+            >
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg shadow-md border-2 transition-colors ${
+                vaultOpen ? "bg-blue-200 border-blue-500" : "bg-white border-gray-200 hover:border-blue-300"
+              }`}>📁</div>
+            </div>
+          </div>
+          <div className="fixed bottom-0 left-0 right-0 z-30 backdrop-blur border-t px-4 py-1"
+            style={{ backgroundColor: "color-mix(in srgb, var(--bg) 95%, transparent)", borderColor: "var(--border)" }}>
+            <div className="max-w-6xl mx-auto flex items-center gap-2 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              {noteStatus && activeNote ? (
+                <span className={`px-2 py-0.5 rounded font-medium ${
+                  noteStatus.saving ? "bg-blue-100 text-blue-700"
+                    : noteStatus.unsaved ? "bg-amber-100 text-amber-700"
+                    : "bg-green-100 text-green-700"
+                }`}>
+                  {noteStatus.saving ? "Saving…" : noteStatus.unsaved ? "Unsaved" : "✓ Saved"}
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded" style={{ backgroundColor: "var(--bg-secondary)" }}>No note open</span>
+              )}
+              {activeNote && <span className="truncate">{activeNote}</span>}
+              <span className="flex-1" />
+              <span className="whitespace-nowrap">{noteTabs.length}/{maxOpenNotes} open</span>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* New-version pill */}
       {updateVersion && (
         <div className="fixed bottom-20 inset-x-0 z-50 flex justify-center pointer-events-none">
@@ -488,21 +532,38 @@ export default function App() {
               onReorder={reorderNotes}
               onClearAll={clearAllNotes}
             />
-            {activeNote ? (
-              <NoteEditor
-                key={activeNote}
-                embedded
-                initialPath={activeNote}
-                initialName={noteTabs.find((t) => t.path === activeNote)?.name}
-                onClose={() => setView("week")}
-              />
-            ) : (
-              <div className="max-w-lg mx-auto text-center py-16 px-4" style={{ color: "var(--text-secondary)" }}>
-                <div className="text-3xl mb-2">📝</div>
-                <p className="text-sm">No note open yet.</p>
-                <p className="text-xs mt-1">Tap a <span className="font-mono">[[link]]</span> in your notes, or a linked note on a task, and it opens here — flip back to Plan any time without losing your place.</p>
+            <div className="flex gap-0 items-start">
+              <div className={`min-w-0 ${vaultOpen ? "flex-1" : "w-full"}`}>
+                {activeNote ? (
+                  <NoteEditor
+                    key={activeNote}
+                    embedded
+                    initialPath={activeNote}
+                    initialName={noteTabs.find((t) => t.path === activeNote)?.name}
+                    onClose={() => setView("week")}
+                    onStatus={setNoteStatus}
+                  />
+                ) : (
+                  <div className="max-w-lg mx-auto text-center py-16 px-4" style={{ color: "var(--text-secondary)" }}>
+                    <div className="text-3xl mb-2">📝</div>
+                    <p className="text-sm">No note open yet.</p>
+                    <p className="text-xs mt-1">Tap a <span className="font-mono">[[link]]</span> in your notes, or a linked note on a task, and it opens here — flip back to Plan any time without losing your place. The 📁 button opens the vault: browse, search, and make a note or folder anywhere.</p>
+                  </div>
+                )}
               </div>
-            )}
+              {/* Vault panel — opening a note from here adds it as a sub-tab,
+                  so browsing and reading happen in the same place */}
+              {vaultOpen && (
+                <div className="w-full md:w-80 shrink-0 border-l md:pl-0 max-h-[calc(100dvh-160px)] overflow-hidden sticky top-[72px] self-start rounded-lg"
+                  style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
+                  <VaultBrowser
+                    onClose={() => setVaultOpen(false)}
+                    stateRef={notesVaultStateRef}
+                    onOpenNote={showNote}
+                  />
+                </div>
+              )}
+            </div>
           </div>
           <div className={view === "habits" ? "max-w-3xl mx-auto" : "hidden"}>
             <Habits />

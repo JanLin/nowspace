@@ -5092,6 +5092,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           onClose={() => setVaultBrowserOpen(false)}
           stateRef={vaultBrowserStateRef}
           onOpenNote={onOpenNote}
+          /* Only the day's notes panel can act on these, so ask it by event
+             rather than threading callbacks through the week layout */
+          onInsertLink={(name) => window.dispatchEvent(new CustomEvent("vault-insert-link", { detail: { name } }))}
+          onScanAPs={(path, name) => window.dispatchEvent(new CustomEvent("vault-scan-aps", { detail: { path, name } }))}
         />
       </div>
     )}

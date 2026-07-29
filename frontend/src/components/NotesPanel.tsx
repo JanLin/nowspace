@@ -489,286 +489,6 @@ interface VaultFile {
   modified: string;
 }
 
-interface ReferenceFolderProps {
-  label: string;
-  folderPath: string;
-  onInsertLink: (name: string) => void;
-  onOpenNote?: (path: string, name: string) => void;
-  onScanAPs?: (path: string, name: string) => void;
-}
-
-function ReferenceFolder({ label, folderPath, onInsertLink, onOpenNote, onScanAPs }: ReferenceFolderProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [files, setFiles] = useState<VaultFile[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-  const [breadcrumbs, setBreadcrumbs] = useState<{ name: string; path: string }[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
-  const [createMode, setCreateMode] = useState<"note" | "call">("note");
-  const [newName, setNewName] = useState("");
-  const [creating, setCreating] = useState(false);
-
-  const currentPath = breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length - 1].path : folderPath;
-
-  const loadFolder = useCallback(async (path: string) => {
-    setLoading(true);
-    try {
-      const res = await api.vaultFolder(path);
-      setFiles(res.files);
-    } catch { setFiles([]); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => {
-    if (expanded) loadFolder(currentPath);
-  }, [expanded, currentPath, loadFolder]);
-
-  const handleExpand = () => {
-    setExpanded(!expanded);
-    setShowAll(false);
-    setBreadcrumbs([]);
-  };
-
-  const navigateInto = (folder: VaultFile) => {
-    setBreadcrumbs([...breadcrumbs, { name: folder.name, path: folder.path }]);
-    setShowAll(false);
-  };
-
-  const navigateBack = (index: number) => {
-    if (index < 0) {
-      setBreadcrumbs([]);
-    } else {
-      setBreadcrumbs(breadcrumbs.slice(0, index + 1));
-    }
-    setShowAll(false);
-  };
-
-  const handleCreate = async () => {
-    if (!newName.trim() || creating) return;
-    setCreating(true);
-    try {
-      const res = await api.createNote(currentPath, newName.trim());
-      onInsertLink(newName.trim());
-      setShowCreate(false);
-      setNewName("");
-      loadFolder(currentPath);
-      // Jump straight into the editor to type the minutes
-      if (createMode === "call" && onOpenNote) onOpenNote(res.path, newName.trim());
-    } catch { /* silent */ }
-    finally { setCreating(false); }
-  };
-
-  const handleFileClick = (file: VaultFile) => {
-    if (file.type === "folder") {
-      navigateInto(file);
-    } else {
-      onInsertLink(file.name);
-    }
-  };
-
-  // Sort files: folders first, then files by modified desc
-  const sortedFiles = [...files].sort((a, b) => {
-    if (a.type === "folder" && b.type !== "folder") return -1;
-    if (a.type !== "folder" && b.type === "folder") return 1;
-    if (a.type !== "folder" && b.type !== "folder" && a.modified && b.modified) {
-      return new Date(b.modified).getTime() - new Date(a.modified).getTime();
-    }
-    return a.name.localeCompare(b.name);
-  });
-
-  const folders = sortedFiles.filter(f => f.type === "folder");
-  const fileItems = sortedFiles.filter(f => f.type !== "folder");
-  const recentFiles = showAll ? fileItems : fileItems.slice(0, 5);
-
-  return (
-    <div className="border-b border-gray-100 last:border-b-0">
-      <button onClick={handleExpand}
-        className="w-full flex items-center gap-1.5 px-1 py-1.5 text-xs text-gray-700 hover:bg-gray-50 rounded transition-colors">
-        <span className="text-[10px] text-gray-400">{expanded ? "v" : ">"}</span>
-        <span className="text-[10px]">{expanded ? "📂" : "📁"}</span>
-        <span className="font-medium capitalize flex-1 text-left">{label}</span>
-        {!expanded && files.length > 0 && <span className="text-[10px] text-gray-400">{files.length}</span>}
-      </button>
-
-      {expanded && (
-        <div className="pl-3 pb-2">
-          {/* Breadcrumbs */}
-          {breadcrumbs.length > 0 && (
-            <div className="flex items-center gap-1 text-[10px] text-gray-400 mb-1 flex-wrap">
-              <button onClick={() => navigateBack(-1)} className="hover:text-blue-500">{label}</button>
-              {breadcrumbs.map((bc, i) => (
-                <React.Fragment key={i}>
-                  <span>/</span>
-                  <button onClick={() => navigateBack(i)} className="hover:text-blue-500 truncate max-w-[80px]">{bc.name}</button>
-                </React.Fragment>
-              ))}
-            </div>
-          )}
-
-          {loading && <div className="text-[10px] text-gray-400 py-1">Loading...</div>}
-
-          {!loading && (
-            <>
-              {/* Create new note */}
-              {!showCreate ? (
-                <div className="flex items-center gap-2 mb-1">
-                  <button onClick={() => {
-                      setCreateMode("note");
-                      setShowCreate(true);
-                      if (!newName) setNewName(`${new Date().toISOString().slice(0, 10)} `);
-                    }}
-                    className="text-[10px] text-blue-500 hover:text-blue-700"
-                    title="Create a note here and link it into today's notes">
-                    + New note
-                  </button>
-                  <button onClick={() => {
-                      setCreateMode("call");
-                      setShowCreate(true);
-                      if (!newName) setNewName(`${new Date().toISOString().slice(0, 10)} call `);
-                    }}
-                    className="text-[10px] text-green-600 hover:text-green-800"
-                    title="Create call minutes in this group's coms folder, link into today's notes, and open the editor">
-                    📞 Call note
-                  </button>
-                </div>
-              ) : (
-                <div className="flex gap-1 mb-1">
-                  <input
-                    type="text"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") { setShowCreate(false); setNewName(""); } }}
-                    placeholder="Note name..."
-                    autoFocus
-                    className="flex-1 text-[11px] px-1.5 py-0.5 border border-gray-200 rounded outline-none focus:ring-1 focus:ring-blue-400"
-                  />
-                  <button onClick={handleCreate} disabled={!newName.trim() || creating}
-                    className="text-[10px] px-1.5 py-0.5 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50">
-                    {creating ? "..." : "Create"}
-                  </button>
-                </div>
-              )}
-
-              {/* Subfolders */}
-              {folders.map((f) => (
-                <button key={f.path} onClick={() => navigateInto(f)}
-                  className="w-full text-left flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded hover:bg-blue-50 hover:text-blue-700 text-gray-600 truncate">
-                  <span className="text-[10px]">📂</span>
-                  <span className="truncate flex-1">{f.name}</span>
-                </button>
-              ))}
-
-              {/* Files */}
-              {recentFiles.map((f) => {
-                const touchedToday = f.modified && new Date(f.modified).toDateString() === new Date().toDateString();
-                return (
-                <div
-                  key={f.path}
-                  className="flex items-center gap-1 group/file cursor-grab active:cursor-grabbing"
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("vault-note-name", f.name);
-                    e.dataTransfer.effectAllowed = "copy";
-                  }}
-                >
-                  <button onClick={() => handleFileClick(f)}
-                    className={`flex-1 text-left flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded hover:bg-blue-50 hover:text-blue-700 truncate min-w-0 ${touchedToday ? "text-blue-700 bg-blue-50/60" : "text-gray-600"}`}
-                    title={`Click (or drag onto the notes) to link [[${f.name}]] in today's notes${touchedToday ? " — touched today" : ""}`}>
-                    <span className="text-[10px]">📄</span>
-                    <span className="truncate flex-1">{f.name}</span>
-                    {touchedToday && <span className="text-[8px] font-semibold text-blue-500 shrink-0">today</span>}
-                    <span className="text-[9px] text-gray-400 shrink-0">{relativeTime(f.modified)}</span>
-                  </button>
-                  {onScanAPs && (
-                    <button onClick={() => onScanAPs(f.path, f.name)}
-                      className="text-[9px] text-gray-300 hover:text-amber-600 shrink-0 opacity-0 group-hover/file:opacity-100"
-                      title="Scan this file for AP action points">
-                      ⚡
-                    </button>
-                  )}
-                  {onOpenNote && (
-                    <button onClick={() => onOpenNote(f.path, f.name)}
-                      className="text-[9px] text-gray-300 hover:text-blue-500 shrink-0 opacity-0 group-hover/file:opacity-100"
-                      title="Open in editor">
-                      Open
-                    </button>
-                  )}
-                </div>
-                );
-              })}
-
-              {/* Show all toggle */}
-              {!showAll && fileItems.length > 5 && (
-                <button onClick={() => setShowAll(true)}
-                  className="text-[10px] text-blue-500 hover:text-blue-700 mt-0.5">
-                  Show all ({fileItems.length} files)...
-                </button>
-              )}
-              {showAll && fileItems.length > 5 && (
-                <button onClick={() => setShowAll(false)}
-                  className="text-[10px] text-gray-400 hover:text-gray-600 mt-0.5">
-                  Show less
-                </button>
-              )}
-
-              {!loading && files.length === 0 && (
-                <div className="text-[10px] text-gray-400 py-1">Empty folder</div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Reference Browser ────────────────────────────────────── */
-
-interface ReferenceBrowserProps {
-  onInsertLink: (name: string) => void;
-  onOpenNote?: (path: string, name: string) => void;
-  onScanAPs?: (path: string, name: string) => void;
-}
-
-function ReferenceBrowser({ onInsertLink, onOpenNote, onScanAPs }: ReferenceBrowserProps) {
-  const [links, setLinks] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(true);
-
-  useEffect(() => {
-    api.referenceLinks().then((res) => setLinks(res.links))
-      .catch(() => setLinks({}))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const entries = Object.entries(links);
-
-  if (loading) return null;
-  if (entries.length === 0) return null;
-
-  return (
-    <div className="mt-3 border-t border-gray-200 pt-2">
-      <button onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700 mb-1">
-        {expanded ? "v" : ">"} Reference Files
-      </button>
-      {expanded && (
-        <div>
-          {entries.map(([name, path]) => (
-            <ReferenceFolder
-              key={name}
-              label={name}
-              folderPath={path}
-              onInsertLink={onInsertLink}
-              onOpenNote={onOpenNote}
-              onScanAPs={onScanAPs}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 /* ── Action-point harvest (quiet hint) ────────────────────── */
 
@@ -976,6 +696,26 @@ export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote 
     insertRef.current?.(`[[${name}]]`);
   };
 
+  // The Vault Browser owns browsing now, but only this panel can harvest
+  // action points into the day or drop a link into the scratchpad — so it
+  // asks by event rather than by prop-drilling through the week layout.
+  useEffect(() => {
+    const onScan = (e: Event) => {
+      const d = (e as CustomEvent).detail as { path: string; name: string };
+      if (d?.path) setManualScan({ path: d.path, name: d.name, ts: Date.now() });
+    };
+    const onInsert = (e: Event) => {
+      const d = (e as CustomEvent).detail as { name: string };
+      if (d?.name) handleInsertLink(d.name);
+    };
+    window.addEventListener("vault-scan-aps", onScan);
+    window.addEventListener("vault-insert-link", onInsert);
+    return () => {
+      window.removeEventListener("vault-scan-aps", onScan);
+      window.removeEventListener("vault-insert-link", onInsert);
+    };
+  }, []);
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -994,15 +734,6 @@ export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote 
 
       {/* Action points found in today's linked call notes (or a ⚡-scanned file) */}
       {!isArchive && <APHarvest dayName={dayName} weekOffset={weekOffset} manualFile={manualScan} />}
-
-      {/* Reference File Browser */}
-      {!isArchive && (
-        <ReferenceBrowser
-          onInsertLink={handleInsertLink}
-          onOpenNote={onOpenNote}
-          onScanAPs={(path, name) => setManualScan({ path, name, ts: Date.now() })}
-        />
-      )}
     </div>
   );
 }

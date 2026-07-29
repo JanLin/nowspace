@@ -101,9 +101,11 @@ export interface NoteEditorProps {
   onClose: () => void;
   /** Render inline (e.g. in the Notes tab) instead of as a full-screen modal. */
   embedded?: boolean;
+  /** Report save state so a host can show it in its own status bar */
+  onStatus?: (s: { saving: boolean; unsaved: boolean; path: string }) => void;
 }
 
-export default function NoteEditor({ initialPath, initialName, onClose, embedded = false }: NoteEditorProps) {
+export default function NoteEditor({ initialPath, initialName, onClose, embedded = false, onStatus }: NoteEditorProps) {
   // Small screens can't afford the split live view — each half ends up too
   // narrow to read. Below the breakpoint the editor is single-pane: write
   // in "edit", flip to "preview" when done (toggle in the header).
@@ -126,6 +128,12 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
   const conflictRef = useRef<typeof conflict>(null);
   conflictRef.current = conflict;
   const [currentPath, setCurrentPath] = useState(initialPath);
+
+  // Mirror save state up to the host (the Notes tab's status bar), so the
+  // reading matches what the editor's own header shows.
+  useEffect(() => {
+    onStatus?.({ saving, unsaved: hasUnsaved, path: currentPath });
+  }, [saving, hasUnsaved, currentPath, onStatus]);
   const [currentName, setCurrentName] = useState(initialName || pathToName(initialPath));
 
   // Navigation history
