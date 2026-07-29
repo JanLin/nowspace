@@ -152,7 +152,7 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
   {
     title: "Settings — your setup, everywhere",
     body: [
-      "Vault location, reference folders, contexts and the diary folder. Shared settings live inside the vault itself, so if you sync the vault between machines, every install sees the same configuration.",
+      "Vault location, reference folders, contexts and the diary folder — plus the theme and this guide, under Appearance & help. Shared settings live inside the vault itself, so if you sync the vault between machines, every install sees the same configuration (the theme is per device).",
       "Contexts (work / volunteer / personal) let you filter the whole app to one part of life. Tag a task with @w, @v or @p to override its group's context, and @pin surfaces a personal task even while Work is selected.",
     ],
   },

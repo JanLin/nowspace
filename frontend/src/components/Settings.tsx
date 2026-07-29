@@ -27,7 +27,23 @@ function buildCtxRows(contexts: Record<string, string[]>, tags: Record<string, s
   }));
 }
 
-export default function Settings({ onVaultReady }: { onVaultReady?: () => void }) {
+export default function Settings({
+  onVaultReady,
+  theme,
+  onThemeChange,
+  onOpenTour,
+  onOpenGuide,
+  onOpenPhilosophy,
+}: {
+  onVaultReady?: () => void;
+  /** Appearance and help moved here off the header, which had run out of
+      room on a 360px phone — the theme control was hanging off the edge. */
+  theme?: "light" | "dark" | "system";
+  onThemeChange?: (t: "light" | "dark" | "system") => void;
+  onOpenTour?: () => void;
+  onOpenGuide?: () => void;
+  onOpenPhilosophy?: () => void;
+}) {
   const [vaultPath, setVaultPath] = useState("");
   const [vaultRoot, setVaultRoot] = useState("");
   const [referenceLinks, setReferenceLinks] = useState<Record<string, string>>({});
@@ -337,6 +353,65 @@ export default function Settings({ onVaultReady }: { onVaultReady?: () => void }
           <span>{message.type === "ok" ? "✓" : "✗"}</span>
           {message.text}
         </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* Appearance + help — both moved off the top bar, which had run out  */}
+      {/* of room on a 360px phone                                          */}
+      {/* ================================================================ */}
+      {(onThemeChange || onOpenGuide) && (
+        <section
+          className="rounded-xl p-5 sm:p-6"
+          style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+        >
+          <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
+            Appearance &amp; help
+          </h2>
+          <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+            System follows whatever your device is set to, switching with it through the day.
+          </p>
+          {onThemeChange && (
+            <div className="flex items-center gap-2 flex-wrap mb-4">
+              <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Theme</span>
+              {([["light", "☀️ Light"], ["dark", "🌙 Dark"], ["system", "💻 System"]] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => onThemeChange(id)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    theme === id ? "bg-blue-100 text-blue-700" : ""
+                  }`}
+                  style={theme !== id ? { background: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Help</span>
+            {onOpenGuide && (
+              <button onClick={onOpenGuide}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                📖 The guide
+              </button>
+            )}
+            {onOpenTour && (
+              <button onClick={onOpenTour}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                🧭 Take the tour
+              </button>
+            )}
+            {onOpenPhilosophy && (
+              <button onClick={onOpenPhilosophy}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                🧘 The philosophy
+              </button>
+            )}
+          </div>
+        </section>
       )}
 
       {/* ================================================================ */}

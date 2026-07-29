@@ -42,9 +42,9 @@ const STEPS: Step[] = [
     body: "Vault location, contexts, reference folders and the diary folder. Settings live in the vault itself, so every device sees the same configuration.",
   },
   {
-    target: "help",
+    target: "settings",
     title: "That's the tour!",
-    body: "Take it again anytime from this help button — or open the full guide for a longer read on priorities, horizons, epics and more.",
+    body: "Take it again anytime from Settings, under Appearance & help — that's also where the full guide lives, for a longer read on priorities, horizons, epics and more.",
   },
 ];
 
