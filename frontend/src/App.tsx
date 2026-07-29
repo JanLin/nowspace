@@ -16,11 +16,15 @@ import HelpGuide from "./components/HelpGuide";
 import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
 import { api, CLIENT_SCHEMA_VERSION, type NoteTab } from "./api";
+import { useAppMode } from "./appMode";
 
 type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function App() {
   const [view, setView] = useState<View>("week");
+  // The Slate is the funnel's ambient surface — binding questions and
+  // rehearsal. With Basic there is nothing for it to show.
+  const { funnel: funnelOn } = useAppMode();
   // Notes held open in the Notes tab, one sub-tab each. Opening a note from a
   // task or a [[link]] adds it here and switches to the tab, so notes and
   // tasks live in separate tabs you can flip between (parallel work without an
@@ -340,16 +344,17 @@ export default function App() {
         <div className="mx-auto max-w-6xl flex items-center gap-2 sm:gap-4">
           <header className="shrink-0">
             <button
-              onClick={() => setView(view === "slate" ? "week" : "slate")}
+              onClick={() => { if (funnelOn) setView(view === "slate" ? "week" : "slate"); else setView("week"); }}
               className="flex items-center gap-2 rounded-md px-0.5 transition-opacity hover:opacity-80"
-              title={isEvening
+              title={!funnelOn ? "Nowspace — back to the plan"
+                : isEvening
                 ? "The evening slate — what you're rehearsing (tap again to leave)"
                 : "The slate — the questions you're carrying (tap again to leave)"}
               aria-label="Open the slate"
             >
               <img src="/nowspace-compass-icon.svg" alt="" className="w-6 h-6 sm:w-7 sm:h-7" />
               <h1 className="text-base sm:text-lg font-bold hidden sm:block" style={{ color: "var(--text)" }}>Nowspace</h1>
-              {isEvening && <span className="text-xs -ml-1" aria-hidden="true">🌒</span>}
+              {funnelOn && isEvening && <span className="text-xs -ml-1" aria-hidden="true">🌒</span>}
             </button>
           </header>
           <Nav current={view} onChange={setView} hideCoach={!coachEnabled} onSearch={() => setSearchOpen(true)} />

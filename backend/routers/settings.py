@@ -47,6 +47,7 @@ class SettingsResponse(BaseModel):
     diary_folder: str = ""
     funnel: Dict = {}
     notes: Dict = {}
+    app: Dict = {}
 
 
 class ContextSettingsUpdate(BaseModel):
@@ -67,6 +68,11 @@ class NoteTabUpdate(BaseModel):
     path: str
     name: str = ""
     pinned: bool = False
+
+
+class AppSettingsUpdate(BaseModel):
+    mode: Optional[str] = None      # "basic" | "advanced"
+    handoff: Optional[bool] = None
 
 
 class NotesSettingsUpdate(BaseModel):
@@ -234,6 +240,11 @@ async def get_settings():
         diary_folder=config.diary_folder,
         funnel=config.funnel,
         notes=config.notes,
+        app={
+            "mode": config.app_mode,
+            "funnel": config.funnel_enabled,
+            "handoff": config.handoff_enabled,
+        },
     )
 
 
@@ -249,6 +260,34 @@ async def save_funnel_settings(body: FunnelSettingsUpdate):
         raise HTTPException(status_code=400, detail="evening_cutoff must be HH:MM")
     config.save_funnel(updates)
     return {"status": "saved", "funnel": config.funnel}
+
+
+@router.post("/app")
+async def save_app_settings(body: AppSettingsUpdate):
+    """Basic vs Advanced, and whether agent handoff is on.
+
+    Advanced is the funnel: stages, shaping, sizes, the review, the Slate.
+    Basic writes no funnel tokens to the vault at all — anything already
+    there is left untouched so switching back restores it, and so an
+    Advanced instance sharing the vault keeps working.
+    """
+    updates: Dict = {}
+    if body.mode is not None:
+        mode = body.mode.strip().lower()
+        if mode not in ("basic", "advanced"):
+            raise HTTPException(status_code=400, detail="mode must be basic or advanced")
+        updates["mode"] = mode
+    if body.handoff is not None:
+        updates["handoff"] = bool(body.handoff)
+    config.save_app_settings(updates)
+    return {
+        "status": "saved",
+        "app": {
+            "mode": config.app_mode,
+            "funnel": config.funnel_enabled,
+            "handoff": config.handoff_enabled,
+        },
+    }
 
 
 @router.post("/notes")

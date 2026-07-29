@@ -52,6 +52,8 @@ export default function Settings({
   const [funnelLimit, setFunnelLimit] = useState(4);
   const [funnelCutoff, setFunnelCutoff] = useState("21:00");
   const [funnelSaved, setFunnelSaved] = useState(false);
+  const [appMode, setAppMode] = useState<"basic" | "advanced">("advanced");
+  const [handoffOn, setHandoffOn] = useState(false);
   const [notesMaxOpen, setNotesMaxOpen] = useState(5);
   const [notesSaved, setNotesSaved] = useState(false);
   const [agentAreas, setAgentAreas] = useState<import("../api").HandoffArea[]>([]);
@@ -141,6 +143,10 @@ export default function Settings({
       if (s.funnel) {
         setFunnelLimit(s.funnel.binding_limit ?? 4);
         setFunnelCutoff(s.funnel.evening_cutoff || "21:00");
+      }
+      if (s.app) {
+        setAppMode(s.app.mode);
+        setHandoffOn(s.app.handoff);
       }
       if (s.notes?.max_open) {
         setNotesMaxOpen(s.notes.max_open);
@@ -350,6 +356,64 @@ export default function Settings({
           {message.text}
         </div>
       )}
+
+      {/* ================================================================ */}
+      {/* How you work — the switch that decides how much of Nowspace shows */}
+      {/* ================================================================ */}
+      <section
+        className="rounded-xl p-5 sm:p-6"
+        style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+      >
+        <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
+          How you work
+        </h2>
+        <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+          Basic is plain GTD: groups, priorities, horizons, weekdays. Advanced adds the
+          funnel — stages, the shaping question, sizes, the weekly review and the Slate.
+          Basic writes none of that to your vault, and leaves anything already there
+          untouched, so you can switch back and find it as you left it.
+        </p>
+        <div className="flex items-center gap-2 flex-wrap mb-4">
+          {([["basic", "Basic", "Groups, priorities, horizons"],
+             ["advanced", "Advanced", "Adds the funnel and the Slate"]] as const).map(([id, label, hint]) => (
+            <button
+              key={id}
+              onClick={() => {
+                setAppMode(id);
+                api.saveAppSettings({ mode: id })
+                  .then(() => window.dispatchEvent(new CustomEvent("app-mode-changed")))
+                  .catch(() => flash("err", "Could not save the mode"));
+              }}
+              title={hint}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                appMode === id ? "bg-blue-100 text-blue-700" : ""
+              }`}
+              style={appMode !== id ? { background: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+          <input
+            type="checkbox"
+            checked={handoffOn}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setHandoffOn(on);
+              api.saveAppSettings({ handoff: on })
+                .then(() => window.dispatchEvent(new CustomEvent("app-mode-changed")))
+                .catch(() => flash("err", "Could not save the handoff setting"));
+            }}
+            className="mt-0.5"
+          />
+          <span>
+            <span style={{ color: "var(--text)" }}>Agent handoff</span> — dispatch work to an
+            agent and check what comes back. Its own switch, since it has its own rules; on
+            by default only if you already have agent areas configured.
+          </span>
+        </label>
+      </section>
 
       {/* ================================================================ */}
       {/* Appearance + help — both moved off the top bar, which had run out  */}

@@ -1731,8 +1731,12 @@ async def move_bucket_task(req: BucketMoveRequest):
 
         btask = bucket_tasks[req.task_index]
         # The ready gate. This is the entire contract between Bucket and
-        # Timing: only ready items are schedulable, by any route.
-        if btask.stage != "ready":
+        # Timing: only ready items are schedulable, by any route — while the
+        # funnel is on. In Basic mode there are no stages at all (nothing is
+        # written to the vault, nothing is shown), so a gate on a stage
+        # nobody can set would just make the bucket unusable. The gate is
+        # not softened when the funnel IS on: it still refuses, never warns.
+        if config.funnel_enabled and btask.stage != "ready":
             raise HTTPException(
                 status_code=400,
                 detail="Only Ready items can be scheduled — give it a next "

@@ -76,6 +76,14 @@ const SECTIONS: { title: string; img?: string; imgAlt?: string; imgClass?: strin
     ],
   },
   {
+    title: "Basic or Advanced",
+    body: [
+      "Settings › How you work decides how much of Nowspace is switched on. Basic is plain GTD: groups, priorities, horizons (n / nw / m) and weekdays — capture something, give it a priority, put it on a day.",
+      "Advanced adds the funnel: stages, the shaping question, t-shirt sizes, the weekly review and the Slate. It is a way of refusing to schedule work you haven't thought about yet — nothing reaches a weekday until it's Ready, which means sized.",
+      "Basic writes none of the funnel's marks into your vault, and never touches marks that are already there. Switch to Basic and your stages, sizes and shaping questions stay in the files, ignored; switch back and they're as you left them. Agent handoff is its own switch in the same place.",
+    ],
+  },
+  {
     title: "Bucket — everything for later",
     body: [
       "The bucket holds anything you might do someday, organised into groups. Add quickly from the top bar (\"Group: task\" files it under the group), set priorities, and give tasks a horizon: n means this week, nw next week, m next month — written into the file as nA:, nwB:, mC: prefixes.",

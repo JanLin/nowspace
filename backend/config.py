@@ -305,6 +305,48 @@ class Config:
                        if k in self._FUNNEL_DEFAULTS})
         self._save_vault_settings({"funnel": merged})
 
+    # ── How much of Nowspace is switched on ──────────────────────
+    # Basic is plain GTD: groups, priorities, horizons, weekdays. Advanced
+    # adds the funnel — stages, shaping, sizes, the review and the Slate.
+    # Vault-shared on purpose: it describes how you work, not which screen
+    # you are on, and the backend needs it to know whether the ready gate
+    # applies. Default advanced, so nobody already using the funnel loses
+    # it on upgrade.
+    _APP_DEFAULTS = {
+        "mode": "advanced",     # "basic" | "advanced"
+        "handoff": None,        # None = decide from whether areas are set up
+    }
+
+    @property
+    def app_mode(self) -> str:
+        raw = self._vault_settings().get("app")
+        mode = (raw or {}).get("mode") if isinstance(raw, dict) else None
+        return "basic" if str(mode).lower() == "basic" else "advanced"
+
+    @property
+    def funnel_enabled(self) -> bool:
+        """Stages, sizes, shaping, review, Slate — the whole funnel."""
+        return self.app_mode == "advanced"
+
+    @property
+    def handoff_enabled(self) -> bool:
+        raw = self._vault_settings().get("app")
+        val = (raw or {}).get("handoff") if isinstance(raw, dict) else None
+        if val is None:
+            # Never chosen: on only if agent areas already exist, so an
+            # existing setup keeps working and a new one stays quiet
+            areas = self._vault_settings().get("areas")
+            return bool(areas) if isinstance(areas, list) else False
+        return bool(val)
+
+    def save_app_settings(self, updates: dict) -> None:
+        raw = self._vault_settings().get("app")
+        merged = dict(raw) if isinstance(raw, dict) else {}
+        for k, v in (updates or {}).items():
+            if k in self._APP_DEFAULTS:
+                merged[k] = v
+        self._save_vault_settings({"app": merged})
+
     # ── Notes tabs (vault-shared: the open set follows you between
     # installations, like every other setting here) ──────────────
     _NOTES_DEFAULTS = {

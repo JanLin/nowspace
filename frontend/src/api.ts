@@ -182,6 +182,14 @@ export interface NoteTab {
   pinned: boolean;
 }
 
+/** How much of Nowspace is switched on. Vault-shared: it describes how you
+    work, and the backend needs it to know whether the ready gate applies. */
+export interface AppSettings {
+  mode: "basic" | "advanced";
+  funnel: boolean;   // advanced === the funnel: stages, shaping, sizes, Slate
+  handoff: boolean;  // agent dispatch, independent of the mode
+}
+
 export interface NotesSettings {
   max_open: number;  // tabs kept before the oldest unpinned one closes
   tabs: NoteTab[];   // strip order
@@ -473,7 +481,14 @@ export const api = {
       diary_folder?: string;
       funnel?: FunnelSettings;
       notes?: NotesSettings;
+      app?: AppSettings;
     }>("/api/settings"),
+
+  saveAppSettings: (updates: { mode?: "basic" | "advanced"; handoff?: boolean }) =>
+    request<{ status: string; app: AppSettings }>("/api/settings/app", {
+      method: "POST",
+      body: JSON.stringify(updates),
+    }),
 
   saveNotesSettings: (updates: { max_open?: number; tabs?: NoteTab[] }) =>
     request<{ status: string; notes: NotesSettings }>("/api/settings/notes", {
