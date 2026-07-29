@@ -1,13 +1,19 @@
+import React from "react";
+
 type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
 
 export default function Nav({
   current,
   onChange,
   hideCoach = false,
+  onSearch,
 }: {
   current: View;
   onChange: (v: View) => void;
   hideCoach?: boolean;
+  /** Search sits inside the bar, just before Settings — the header's right
+      edge had run out of room on a 360px phone. */
+  onSearch?: () => void;
 }) {
   const tabs: { id: View; icon: string; name: string }[] = [
     { id: "week", icon: "📅", name: "Plan" },
@@ -27,8 +33,21 @@ export default function Nav({
   return (
     <nav className="flex flex-1 gap-1 p-1 rounded-lg" style={{ backgroundColor: "var(--bg-secondary)" }}>
       {tabs.filter((tab) => !(hideCoach && (tab.id === "coaching" || tab.id === "dashboard"))).map((tab) => (
+        <React.Fragment key={`slot-${tab.id}`}>
+        {tab.id === "settings" && onSearch && (
+          <button
+            onClick={onSearch}
+            title="Search tasks — Plan week + Bucket (⌘K)"
+            aria-label="Search tasks"
+            className="flex-1 py-1 sm:py-2 px-1 sm:px-2 rounded-md leading-none transition-all opacity-60 hover:opacity-100"
+          >
+            <span className="flex flex-col items-center gap-0.5">
+              <span className="text-base leading-none">🔍</span>
+              <span className="text-[9px] leading-none sm:hidden" style={{ color: "var(--text-secondary)" }}>Search</span>
+            </span>
+          </button>
+        )}
         <button
-          key={tab.id}
           data-tour={tab.id}
           onClick={() => onChange(tab.id)}
           title={tab.name}
@@ -48,6 +67,7 @@ export default function Nav({
             <span className="text-[9px] leading-none sm:hidden" style={{ color: "var(--text-secondary)" }}>{tab.name}</span>
           </span>
         </button>
+        </React.Fragment>
       ))}
     </nav>
   );

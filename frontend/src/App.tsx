@@ -261,7 +261,6 @@ export default function App() {
   const [tourOpen, setTourOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [philosophyOpen, setPhilosophyOpen] = useState(false);
-  const [helpMenuOpen, setHelpMenuOpen] = useState(false);
   useEffect(() => {
     if (vaultReady && !localStorage.getItem("nowspace-tour-seen")) setTourOpen(true);
   }, [vaultReady]);
@@ -351,67 +350,7 @@ export default function App() {
               {isEvening && <span className="text-xs -ml-1" aria-hidden="true">🌒</span>}
             </button>
           </header>
-          <Nav current={view} onChange={setView} hideCoach={!coachEnabled} />
-          {/* Task search */}
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-sm transition-colors"
-            style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
-            title="Search tasks — Plan week + Bucket (⌘K)"
-            aria-label="Search tasks"
-          >
-            🔍
-          </button>
-          {/* Help: replay the tour or open the guide */}
-          <div className="relative shrink-0">
-            <button
-              data-tour="help"
-              onClick={() => setHelpMenuOpen(!helpMenuOpen)}
-              className="w-7 h-7 rounded-md flex items-center justify-center text-sm font-semibold transition-colors"
-              style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
-              title="Help"
-            >
-              ?
-            </button>
-            {helpMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setHelpMenuOpen(false)} />
-                <div className="absolute right-0 top-9 z-50 rounded-lg shadow-xl p-1 w-40"
-                  style={{ backgroundColor: "var(--card)", border: "1px solid var(--card-border)" }}>
-                  <button
-                    onClick={() => { setHelpMenuOpen(false); setTourOpen(true); }}
-                    className="w-full text-left px-2 py-1.5 rounded text-xs hover:opacity-80"
-                    style={{ color: "var(--text)" }}
-                  >
-                    🧭 Take the tour
-                  </button>
-                  <button
-                    onClick={() => { setHelpMenuOpen(false); setGuideOpen(true); }}
-                    className="w-full text-left px-2 py-1.5 rounded text-xs hover:opacity-80"
-                    style={{ color: "var(--text)" }}
-                  >
-                    📖 Open the guide
-                  </button>
-                  <button
-                    onClick={() => { setHelpMenuOpen(false); setPhilosophyOpen(true); }}
-                    className="w-full text-left px-2 py-1.5 rounded text-xs hover:opacity-80"
-                    style={{ color: "var(--text)" }}
-                  >
-                    🧘 The philosophy
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-          {/* Theme toggle */}
-          <button
-            onClick={() => setTheme(theme === "light" ? "dark" : theme === "dark" ? "system" : "light")}
-            className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-sm transition-colors"
-            style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
-            title={`Theme: ${theme}`}
-          >
-            {theme === "light" ? "☀️" : theme === "dark" ? "🌙" : "💻"}
-          </button>
+          <Nav current={view} onChange={setView} hideCoach={!coachEnabled} onSearch={() => setSearchOpen(true)} />
         </div>
       </div>
 
@@ -588,12 +527,19 @@ export default function App() {
           </div>
           {/* Coach + Dashboard are parked — see the note in Nav.tsx */}
           <div className={view === "settings" ? "max-w-3xl mx-auto" : "hidden"}>
-            <Settings onVaultReady={() => {
-              if (!vaultReady) {
-                setVaultReady(true);
-                setView("week");
-              }
-            }} />
+            <Settings
+              onVaultReady={() => {
+                if (!vaultReady) {
+                  setVaultReady(true);
+                  setView("week");
+                }
+              }}
+              theme={theme}
+              onThemeChange={setTheme}
+              onOpenTour={() => setTourOpen(true)}
+              onOpenGuide={() => setGuideOpen(true)}
+              onOpenPhilosophy={() => setPhilosophyOpen(true)}
+            />
           </div>
         </div>
       </main>
