@@ -106,6 +106,14 @@ export default function App() {
   const [vaultOpen, setVaultOpen] = useState(false);
   const notesVaultStateRef = useRef<VaultBrowserState | null>(null);
   const [noteStatus, setNoteStatus] = useState<{ saving: boolean; unsaved: boolean; path: string } | null>(null);
+  // Breadcrumb click in the editor: show that folder in the vault panel,
+  // opening it if it was closed. The nonce lets the same folder be asked for
+  // twice — you may have browsed elsewhere in between.
+  const [vaultFocus, setVaultFocus] = useState<{ path: string; nonce: number } | undefined>();
+  const showVaultFolder = (folder: string) => {
+    setVaultOpen(true);
+    setVaultFocus((prev) => ({ path: folder, nonce: (prev?.nonce ?? 0) + 1 }));
+  };
   const [vaultReady, setVaultReady] = useState<boolean | null>(null); // null = checking
   const [backendUp, setBackendUp] = useState(false);
   const [coachEnabled, setCoachEnabled] = useState(true);
@@ -540,8 +548,11 @@ export default function App() {
                     embedded
                     initialPath={activeNote}
                     initialName={noteTabs.find((t) => t.path === activeNote)?.name}
-                    onClose={() => setView("week")}
+                    /* Closing a note closes the tab — the Notes tab is where
+                       you are, so it shouldn't throw you back to Plan */
+                    onClose={() => closeNote(activeNote)}
                     onStatus={setNoteStatus}
+                    onOpenFolder={showVaultFolder}
                   />
                 ) : (
                   <div className="max-w-lg mx-auto text-center py-16 px-4" style={{ color: "var(--text-secondary)" }}>
@@ -560,6 +571,7 @@ export default function App() {
                     onClose={() => setVaultOpen(false)}
                     stateRef={notesVaultStateRef}
                     onOpenNote={showNote}
+                    focusFolder={vaultFocus}
                   />
                 </div>
               )}

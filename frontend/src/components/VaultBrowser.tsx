@@ -32,6 +32,9 @@ interface Props {
   onInsertLink?: (name: string) => void;
   /** Harvest action points out of a note — day view only, it owns the strip */
   onScanAPs?: (path: string, name: string) => void;
+  /** Jump to a folder from outside. The nonce is what makes a repeat jump to
+      the same folder work after you've browsed away from it. */
+  focusFolder?: { path: string; nonce: number };
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -70,7 +73,7 @@ function addToRecents(path: string, name: string) {
 
 // ─── Main Component ─────────────────────────────────────────────────
 
-export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLink, onScanAPs }: Props) {
+export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLink, onScanAPs, focusFolder }: Props) {
   // Restore state from ref or use defaults
   const saved = stateRef.current;
 
@@ -170,6 +173,14 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
       finally { setSearching(false); }
     }, 220);
   };
+
+  // A breadcrumb click in the note editor lands here: show that folder,
+  // dropping any search so the tree is actually what you see.
+  useEffect(() => {
+    if (!focusFolder) return;
+    runSearch("");
+    setCurrentFolder(focusFolder.path);
+  }, [focusFolder?.nonce]);
 
   // ─── Creating ───────────────────────────────────────────────────
   // Both land in whatever folder is open, so anywhere in the vault is
