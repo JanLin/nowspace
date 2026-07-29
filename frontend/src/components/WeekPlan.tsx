@@ -13,7 +13,7 @@ import { resolveLink, longPressProps } from "../links";
 import { useAppMode } from "../appMode";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
-  ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
+  ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames, sizeOfTask, withTaskSize,
   stripCtxTokens, stripGroupCtxTag, stripBucketMeta, isPinnedText, isEpicText, resolveContext, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
 } from "../contexts";
@@ -2079,8 +2079,33 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Badge menu for a planned task — priority row, park-in-bucket row
   // (n/nw/m horizons or plain 🪣), and move-to-weekday row. Mirrors the
   // Bucket tab's picker so both tabs steer tasks the same way.
+  // The size a task carries (~es) is funnel vocabulary, so the row only
+  // exists in Advanced — the same menu is plain priority/day/bucket in Basic.
+  const setTaskSize = (dayIdx: number, taskIdx: number, size: "" | "s" | "m" | "l") => {
+    if (!data) return;
+    const task = data.days[dayIdx]?.tasks[taskIdx];
+    if (!task) return;
+    editTask(dayIdx, taskIdx, withTaskSize(task.text, size));
+  };
+
   const planTaskMenu = (dayIdx: number, taskIdx: number, task: Task) => (
     <div className="absolute left-0 top-full mt-0.5 z-20 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+      {funnelOn && (
+        <div className="flex gap-0.5 items-center">
+          {(["s", "m", "l"] as const).map((s) => {
+            const current = sizeOfTask(task.text);
+            return (
+              <button key={s} onClick={(e) => { e.stopPropagation(); setTaskSize(dayIdx, taskIdx, current === s ? "" : s); setPriorityMenu(null); }}
+                title={s === "s" ? "small" : s === "m" ? "medium" : "large"}
+                className={`px-1 py-0 rounded text-[10px] font-mono ${current === s ? "bg-emerald-100 text-emerald-700 font-bold" : "text-gray-500"}`}
+                style={current !== s ? { border: "1px solid var(--border)" } : undefined}>
+                {s}
+              </button>
+            );
+          })}
+          <span className="text-[8px] pl-0.5" style={{ color: "var(--text-tertiary)" }}>size</span>
+        </div>
+      )}
       <div className="flex gap-0.5">
         {PRIORITIES.filter((p) => p !== task.priority).map((p) => (
           <button key={p} onClick={(e) => { e.stopPropagation(); setPriority(dayIdx, taskIdx, p); }}
