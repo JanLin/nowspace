@@ -188,8 +188,10 @@ export default function App() {
           restored.forEach((t) => lastSeen.current.set(t.path, ++seenTick.current));
         }
       }
-      // The API key only matters when the coach feature is on
-      if (s.vault_status.exists && s.vault_status.has_para && (s.api_key_status.configured || !coach)) {
+      // Readiness is about the vault alone. It used to also require an API
+      // key whenever the coach was enabled — with the key panel gone from
+      // Settings that would strand you on a page with nothing to fix.
+      if (s.vault_status.exists && s.vault_status.has_para) {
         setVaultReady(true);
       } else {
         setVaultReady(false);

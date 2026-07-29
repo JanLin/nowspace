@@ -467,7 +467,6 @@ export const api = {
       vault_root: string;
       reference_links: Record<string, string>;
       vault_status: VaultStatus;
-      api_key_status: ApiKeyStatus;
       contexts: Record<string, string[]>;
       context_tags: Record<string, string>;
       coach_enabled?: boolean;
@@ -645,12 +644,6 @@ export const api = {
       `/api/settings/browse-folders?path=${encodeURIComponent(path)}`
     ),
 };
-
-export interface ApiKeyStatus {
-  configured: boolean;
-  masked: string;
-  source: string;
-}
 
 export interface VaultStatus {
   exists: boolean;

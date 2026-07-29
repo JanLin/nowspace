@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../api";
-import type { VaultStatus, ApiKeyStatus } from "../api";
+import type { VaultStatus } from "../api";
 
 interface FolderEntry {
   name: string;
@@ -60,9 +60,6 @@ export default function Settings({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-
-  // API key
-  const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus | null>(null);
 
   // Vault validation
   const [validating, setValidating] = useState(false);
@@ -139,7 +136,6 @@ export default function Settings({
       setVaultRoot(s.vault_root);
       setReferenceLinks(s.reference_links);
       setVaultStatus(s.vault_status);
-      setApiKeyStatus(s.api_key_status);
       setCtxRows(buildCtxRows(s.contexts || {}, s.context_tags || {}));
       setDiaryFolder(s.diary_folder || "");
       if (s.funnel) {
@@ -198,7 +194,7 @@ export default function Settings({
       if (res.created_folders.length > 0) parts.push(`Created folders: ${res.created_folders.join(", ")}`);
       if (Object.keys(res.reference_links).length > 0) parts.push(`Loaded ${Object.keys(res.reference_links).length} reference groups`);
       flash("ok", parts.join(". "));
-      if (res.vault_status.exists && res.vault_status.has_para && apiKeyStatus?.configured) onVaultReady?.();
+      if (res.vault_status.exists && res.vault_status.has_para) onVaultReady?.();
     } catch (e: unknown) {
       flash("err", e instanceof Error ? e.message : "Failed to save");
     }
@@ -272,7 +268,7 @@ export default function Settings({
         const parts = ["Vault connected"];
         if (Object.keys(res.reference_links).length > 0) parts.push(`Loaded ${Object.keys(res.reference_links).length} reference groups`);
         flash("ok", parts.join(". "));
-        if (res.vault_status.exists && res.vault_status.has_para && apiKeyStatus?.configured) onVaultReady?.();
+        if (res.vault_status.exists && res.vault_status.has_para) onVaultReady?.();
       } catch (e: unknown) {
         // Path might not exist yet — validate instead
         validateVaultPath(folderPath);
@@ -565,74 +561,6 @@ export default function Settings({
             <span className="font-mono">{hasUnsavedChanges ? validationResult?.vault_root : vaultRoot}</span>
           </div>
         </div>
-      </section>
-
-      {/* ================================================================ */}
-      {/* API Key                                                          */}
-      {/* ================================================================ */}
-      <section
-        className="rounded-xl p-5 sm:p-6"
-        style={{
-          backgroundColor: "var(--bg-secondary)",
-          border: `1px solid ${apiKeyStatus?.configured ? "var(--border)" : "#fca5a5"}`,
-        }}
-      >
-        <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
-          Claude API Key
-        </h2>
-        <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-          Required for the coaching agent. Get your key from{" "}
-          <a
-            href="https://console.anthropic.com/settings/keys"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "var(--accent)" }}
-            className="underline"
-          >
-            console.anthropic.com
-          </a>
-          . For safety the key is read from your <span className="font-mono">.env</span> file and
-          isn't editable here — this page only shows whether it's set.
-        </p>
-
-        {apiKeyStatus?.configured ? (
-          <div
-            className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
-            style={{ backgroundColor: "var(--accent-bg)", border: "1px solid var(--accent)" }}
-          >
-            <span style={{ color: "var(--accent)" }}>✓</span>
-            <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>Configured</span>
-            <span className="flex-1 min-w-0 break-all text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-              {apiKeyStatus.masked}
-            </span>
-            <span className="text-[10px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
-              from {apiKeyStatus.source || ".env"}
-            </span>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {/* Status: not set */}
-            <div
-              className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
-              style={{ backgroundColor: "#fef2f2", border: "1px solid #fca5a5" }}
-            >
-              <span style={{ color: "#dc2626" }}>✗</span>
-              <span className="text-sm font-medium" style={{ color: "#dc2626" }}>Not set</span>
-            </div>
-            {/* How to set it (via .env, not the UI) */}
-            <div className="text-xs px-1 space-y-1.5" style={{ color: "var(--text-secondary)" }}>
-              <p>Add your key to the <span className="font-mono">.env</span> file, then restart Nowspace:</p>
-              <pre
-                className="font-mono text-[11px] px-2 py-1.5 rounded overflow-x-auto"
-                style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
-              >ANTHROPIC_API_KEY=sk-ant-...</pre>
-              <p>
-                <span className="font-mono">.env</span> lives in the project root (when running <span className="font-mono">start.sh</span>)
-                or <span className="font-mono">~/.nowspace/.env</span> (desktop app). It's git-ignored and never sent to the browser.
-              </p>
-            </div>
-          </div>
-        )}
       </section>
 
       {/* ================================================================ */}
