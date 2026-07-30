@@ -102,6 +102,50 @@ export function nextOccurrenceISO(c: RepeatChoice, from: Date): string {
   return iso(d);
 }
 
+/** Interval length in days for "every 6w" / "every 45d" (null otherwise). */
+export function intervalDays(repeat: string): number | null {
+  const im = repeat.trim().match(/^every\s+(\d+)\s*([wd])$/i);
+  return im ? parseInt(im[1], 10) * (im[2].toLowerCase() === "w" ? 7 : 1) : null;
+}
+
+export function addDaysISO(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Next occurrence strictly AFTER the anchor (the last handled occurrence),
+    honouring every-N parity the same way the backend anchors it on
+    `spawned`. Used for "next 25 Aug" display, never for spawning. */
+export function nextAfterISO(c: RepeatChoice, anchorISO: string): string {
+  const anchor = new Date(`${anchorISO}T00:00:00`);
+  if (isNaN(anchor.getTime())) return nextOccurrenceISO(c, new Date());
+  const p = (n: number) => String(n).padStart(2, "0");
+  const iso = (x: Date) => `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
+  if (c.kind === "monthly") {
+    const m = anchor.getMonth() + c.every;
+    const last = new Date(anchor.getFullYear(), m + 1, 0).getDate();
+    return iso(new Date(anchor.getFullYear(), m, Math.min(c.day, last)));
+  }
+  const monWeekday = (x: Date) => (x.getDay() + 6) % 7;
+  const mondayOf = (x: Date) => { const d = new Date(x); d.setDate(d.getDate() - monWeekday(d)); return d; };
+  if (!c.weekdays.length) {
+    const d = mondayOf(anchor);
+    d.setDate(d.getDate() + 7 * c.every);
+    return iso(d);
+  }
+  const aMon = mondayOf(anchor).getTime();
+  for (let i = 1; i <= 7 * (c.every + 1); i++) {
+    const cand = new Date(anchor);
+    cand.setDate(anchor.getDate() + i);
+    if (!c.weekdays.includes(monWeekday(cand))) continue;
+    const wk = Math.round((mondayOf(cand).getTime() - aMon) / (7 * 86400000));
+    if (wk % c.every === 0) return iso(cand);
+  }
+  return nextOccurrenceISO(c, new Date());
+}
+
 /** The per-task repeat popover: weekly with clickable days (none = "comes
     up as n that week") or monthly with a clickable day grid. When editing
     an existing template it also offers pause/resume and stop. Absolutely

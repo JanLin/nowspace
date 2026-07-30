@@ -3080,7 +3080,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // not a hidden pile.
   const bucketHzCounts = bucketTasks.reduce((acc, task) => {
     if (!taskVisibleInMode(task.text)) return acc;
-    if ((task.stage || "captured") !== "ready") return acc;
+    // Ready items are schedulable; recurring copies are also LISTED even
+    // when unsized (captured) — with a one-tap size instead of weekdays.
+    const st = task.stage || "captured";
+    if (st !== "ready" && !(task.recurrence_id && st !== "discarded")) return acc;
     // A recurring copy's due date counts as its horizon (n = this week)
     const hz = (task.horizon || dueHorizon(task.due_date) || "none") as "n" | "nw" | "m" | "none";
     acc[hz] = (acc[hz] || 0) + 1;
@@ -4580,8 +4583,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               if (!taskVisibleInMode(task.text)) return;
               // The Bucket–Timing contract only exists while the funnel is
               // on; in Basic every bucket item is schedulable, so the sheet
-              // would otherwise be permanently empty.
-              if (funnelOn && (task.stage || "captured") !== "ready") { unboundCount++; return; }
+              // would otherwise be permanently empty. Recurring copies are
+              // listed even when unsized — not schedulable yet, but a one-
+              // tap size makes them so right here.
+              if (funnelOn && (task.stage || "captured") !== "ready") {
+                if (!(task.recurrence_id && (task.stage || "captured") !== "discarded")) { unboundCount++; return; }
+              }
               // Horizon lens — filters what's listed, never what's schedulable.
               // A recurring copy's due date counts as its horizon.
               if (bucketHz && (task.horizon || dueHorizon(task.due_date) || "none") !== bucketHz) return;
@@ -4603,20 +4610,38 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               });
             };
 
-            const renderBucketItem = (task: import("../api").BucketTask, idx: number, label: string) => (
+            const renderBucketItem = (task: import("../api").BucketTask, idx: number, label: string) => {
+              // An unsized recurring copy is listed but not yet schedulable
+              // (only Ready is). One tap on s/m/l right here makes it Ready.
+              const needsSize = funnelOn && (task.stage || "captured") !== "ready";
+              return (
               <div
                 key={idx}
-                draggable
-                onDragStart={(e) => {
+                draggable={!needsSize}
+                onDragStart={needsSize ? undefined : (e) => {
                   e.dataTransfer.setData("bucket-task", JSON.stringify({ bucketIdx: idx }));
                   e.dataTransfer.effectAllowed = "move";
                   bucketDragRef.current = { bucketIdx: idx };
                 }}
                 onDragEnd={() => { bucketDragRef.current = null; }}
-                className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs cursor-grab active:cursor-grabbing group/bt transition-colors"
+                className={`flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs group/bt transition-colors ${needsSize ? "" : "cursor-grab active:cursor-grabbing"}`}
               >
+                {needsSize && (
+                  <span className="flex gap-0.5 shrink-0">
+                    {(["s", "m", "l"] as const).map((sz) => (
+                      <button key={sz}
+                        onClick={(e) => { e.stopPropagation(); panelUpdateBucketTask(idx, { estimate: sz, stage: "ready", priority: task.priority || "C" }); }}
+                        className="px-1 rounded text-[10px] font-mono hover:bg-emerald-100 hover:text-emerald-700"
+                        style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+                        title={`Size it ${sz} — one tap makes it Ready and schedulable`}>
+                        {sz}
+                      </button>
+                    ))}
+                  </span>
+                )}
                 {/* Badge opens the same picker as the Planning and Bucket
                     tabs: priority, horizon (n/nw/m), or file into a weekday */}
+                {!needsSize && (
                 <span className="plan-pop relative shrink-0">
                   <button
                     onClick={(e) => { e.stopPropagation(); setPanelPrioMenu(panelPrioMenu === idx ? null : idx); }}
@@ -4671,11 +4696,21 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     </div>
                   )}
                 </span>
+                )}
+                {/* ↻ recurring designation — quiet, with the copy's date */}
+                {task.recurrence_id && (
+                  <span className="shrink-0 text-[8px] px-1 rounded"
+                    style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}
+                    title="A recurring task — one copy at a time; misses go to the schedule, never to you">
+                    ↻{task.due_date ? ` ${new Date(`${task.due_date}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}
+                  </span>
+                )}
                 <span className={`flex-1 truncate ${task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }}
                   title={`${label} — from ${DAY_LABELS[task.from_day] || task.from_day}`}>
                   {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
                   {label}
                 </span>
+                {!needsSize && (
                 <button
                   onClick={() => pullFromBucket(idx, carryTargetIdx)}
                   className="text-[10px] text-purple-400 hover:text-purple-700 opacity-100 md:opacity-0 md:group-hover/bt:opacity-100 shrink-0 transition-opacity"
@@ -4683,8 +4718,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 >
                   → {carryTargetLabel}
                 </button>
+                )}
               </div>
-            );
+              );
+            };
 
             const unboundNote = unboundCount > 0 ? (
               <p key="unbound-note" className="text-[10px] text-center py-1.5 px-2" style={{ color: "var(--text-tertiary)" }}>

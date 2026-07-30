@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink, BucketStage, FunnelSettings, RecurrenceTemplate } from "../api";
 import {
-  RepeatPopover, emptyTemplate, isIntervalRepeat, nextOccurrenceISO,
+  RepeatPopover, addDaysISO, emptyTemplate, intervalDays, isIntervalRepeat,
+  nextAfterISO, nextOccurrenceISO, parseRepeatChoice,
   repeatShort, repeatString, repeatTooltip, type RepeatChoice,
 } from "./Recurrence";
 import TaskCheck from "./TaskCheck";
@@ -2212,7 +2213,21 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                   </span>
                   <span className="flex-1 truncate">{t.group ? `${t.group}: ` : ""}{t.title}</span>
                   <span className="text-[9px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
-                    {t.state === "paused" ? "paused ⏸" : isIntervalRepeat(t.repeat) ? "wakes in the review" : "next copy on schedule"}
+                    {(() => {
+                      if (t.state === "paused") return "paused ⏸";
+                      const days = intervalDays(t.repeat);
+                      if (days !== null) {
+                        // Interval: wakes in the review once the time has passed
+                        const anchor = t.last_done || t.created;
+                        if (!anchor) return "wakes in the review";
+                        let wake = addDaysISO(anchor, days);
+                        if (t.deferred && t.deferred > wake) wake = t.deferred;
+                        return `review ≈ ${fmtDue(wake)}`;
+                      }
+                      const c = parseRepeatChoice(t.repeat);
+                      if (!c) return "next copy on schedule";
+                      return `next ${fmtDue(t.spawned ? nextAfterISO(c, t.spawned) : nextOccurrenceISO(c, new Date()))}`;
+                    })()}
                   </span>
                 </div>
               ))}
