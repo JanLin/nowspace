@@ -147,6 +147,16 @@ const SECTIONS: { id?: string; title: string; img?: string; imgAlt?: string; img
     ],
   },
   {
+    title: "Repeating work",
+    body: [
+      "Some things come back. Nowspace treats them as two different species, because missing them means two different things.",
+      "If missing it creates a debt — a bill unpaid, a chore undone, a customer unvisited — it's a recurring task. You define it once (the ↻ Recurring button on the Bucket tab): what it's called, its size, and when it comes back. Nowspace then places one copy at a time into your Ready list, where you schedule it like anything else.",
+      "If missing it only breaks a pattern — practice, exercise, a morning ritual — it's a habit. Habits have no overdue state, because Tuesday's missed practice can't be done on Wednesday; there's nothing to catch up on, only a pattern to resume.",
+      "There is only ever one live copy of a recurring task. If the bill task is still open when the next month's date arrives, Nowspace doesn't add a second — it moves the date forward and quietly notes the miss. Thirty overdue copies of the same chore is an accusation, not a plan, and Nowspace refuses to build one. If a recurring task keeps not happening, the weekly review will ask you one question: wrong cadence, too big, or not a task at all? Sometimes the honest answer is that it's become a habit — and there's a path for that.",
+      "Some recurring work is measured from the last time it happened, not from the calendar — visiting a customer every six weeks or so. These don't appear as dated tasks, because the actual date needs agreeing with another human. Instead, when the interval has passed, the template surfaces in your weekly review, and accepting it creates a task whose first action is to propose a date. The review is the reminder; nothing pings you.",
+    ],
+  },
+  {
     title: "Why Nowspace never notifies you about overdue work",
     body: [
       "It doesn't, and it won't. See the principles (Philosophy in the help menu).",
@@ -156,6 +166,7 @@ const SECTIONS: { id?: string; title: string; img?: string; imgAlt?: string; img
     title: "Habits — gentle rhythms",
     body: [
       "Recurring habits for body, mind and soul, ticked through the week. A small strip on the Plan tab keeps them visible without turning them into chores.",
+      "A habit can link the note that explains how — the steps of the form, the routine, the checklist. Add it in the Habits editor, or write \", [[Note name]]\" on the habit's line in Plan Week Habits.md. The 📄 shows up wherever the habit does. You never need a placeholder task just to keep instructions findable.",
     ],
   },
   {
