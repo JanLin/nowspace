@@ -150,9 +150,18 @@ export function nextAfterISO(c: RepeatChoice, anchorISO: string): string {
     up as n that week") or monthly with a clickable day grid. When editing
     an existing template it also offers pause/resume and stop. Absolutely
     positioned — render inside a `relative` anchor. */
+/** What the popover hands back on save. `calendar` is null for interval
+    schedules (review-driven, measured from the last completion), which
+    also carry their required coordination step. */
+export type RepeatResult = {
+  repeat: string;
+  calendar: RepeatChoice | null;
+  nextAction?: string;
+};
+
 export function RepeatPopover({ template, onSave, onPause, onStop, onClose, align = "right" }: {
   template?: RecurrenceTemplate | null; // null/undefined = creating
-  onSave: (choice: RepeatChoice) => void;
+  onSave: (result: RepeatResult) => void;
   onPause?: () => void; // toggles pause/resume when editing
   onStop?: () => void;  // retire; the task stays as an ordinary task
   onClose: () => void;
@@ -163,12 +172,17 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose, alig
   align?: "left" | "right";
 }) {
   const existing = template ? parseRepeatChoice(template.repeat) : null;
-  const interval = template ? isIntervalRepeat(template.repeat) : false;
-  const [kind, setKind] = useState<"weekly" | "monthly">(existing?.kind === "monthly" ? "monthly" : "weekly");
+  const existingDays = template ? intervalDays(template.repeat) : null;
+  const [kind, setKind] = useState<"weekly" | "monthly" | "interval">(
+    existingDays !== null ? "interval" : existing?.kind === "monthly" ? "monthly" : "weekly");
   const [weekdays, setWeekdays] = useState<number[]>(existing?.kind === "weekly" ? existing.weekdays : []);
   const [monthDay, setMonthDay] = useState<number>(existing?.kind === "monthly" ? existing.day : 0);
-  const [every, setEvery] = useState<number>(existing?.every || 1);
-  const everyMax = kind === "weekly" ? 52 : 12;
+  // Intervals count in weeks unless the file says days ("every 45d")
+  const intUnit: "w" | "d" = existingDays !== null && existingDays % 7 !== 0 ? "d" : "w";
+  const [every, setEvery] = useState<number>(
+    existingDays !== null ? (intUnit === "w" ? existingDays / 7 : existingDays) : existing?.every || 1);
+  const [nextAction, setNextAction] = useState(template?.next_action || "");
+  const everyMax = kind === "monthly" ? 12 : kind === "weekly" ? 52 : intUnit === "w" ? 52 : 365;
   const clampedEvery = Math.max(1, Math.min(everyMax, every || 1));
 
   // Clicking anywhere outside closes the popover (same as the note picker)
@@ -184,8 +198,16 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose, alig
   const choice: RepeatChoice | null =
     kind === "weekly"
       ? { kind: "weekly", weekdays, every: clampedEvery }
-      : monthDay ? { kind: "monthly", day: monthDay, every: clampedEvery } : null;
-  const changed = !existing || !template || (choice && repeatString(choice) !== template.repeat.trim().toLowerCase());
+      : kind === "monthly" && monthDay ? { kind: "monthly", day: monthDay, every: clampedEvery } : null;
+  const result: RepeatResult | null =
+    kind === "interval"
+      ? (nextAction.trim()
+          ? { repeat: `every ${clampedEvery}${intUnit}`, calendar: null, nextAction: nextAction.trim() }
+          : null)
+      : choice ? { repeat: repeatString(choice), calendar: choice } : null;
+  const changed = !template || !result
+    || result.repeat !== template.repeat.trim().toLowerCase()
+    || (result.nextAction !== undefined && result.nextAction !== template.next_action);
 
   const chip = (active: boolean) =>
     `px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${active ? "bg-blue-600 text-white" : ""}`;
@@ -194,21 +216,18 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose, alig
 
   return (
     <div ref={popRef}
-      className={`absolute top-6 ${align === "left" ? "left-0" : "right-0"} z-40 rounded-lg shadow-xl border p-2.5 w-60 space-y-2`}
+      className={`absolute top-6 ${align === "left" ? "left-0" : "right-0"} z-40 rounded-lg shadow-xl border p-2.5 w-64 space-y-2`}
       style={{ background: "var(--bg)", borderColor: "var(--border)" }}
       onClick={(e) => e.stopPropagation()}>
-      {interval ? (
-        <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>
-          {repeatTooltip(template!.repeat)}. Interval schedules are measured
-          from the last completion — edit the interval in Plan Week Recurring.md.
-        </p>
-      ) : (
+      {(
         <>
           {/* One compact row: cadence toggle + every-N stepper (no unit word
               — the toggle IS the unit; the hint line spells it out below) */}
           <div className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
             <button onClick={() => setKind("weekly")} className={chip(kind === "weekly")} style={chipStyle(kind === "weekly")}>weekly</button>
             <button onClick={() => setKind("monthly")} className={chip(kind === "monthly")} style={chipStyle(kind === "monthly")}>monthly</button>
+            <button onClick={() => setKind("interval")} className={chip(kind === "interval")} style={chipStyle(kind === "interval")}
+              title="Measured from the last time it was done — wakes in the weekly review instead of spawning on a date">interval</button>
             <span className="ml-auto">every</span>
             <button onClick={() => setEvery(Math.max(1, clampedEvery - 1))}
               className="px-1.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>−</button>
@@ -218,6 +237,7 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose, alig
               style={{ background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
             <button onClick={() => setEvery(Math.min(everyMax, clampedEvery + 1))}
               className="px-1.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>＋</button>
+            {kind === "interval" && <span>{intUnit === "w" ? "wk" : "d"}</span>}
           </div>
           {kind === "weekly" && (
             <>
@@ -254,7 +274,20 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose, alig
               </p>
             </>
           )}
-          <button onClick={() => choice && onSave(choice)} disabled={!choice || !changed}
+          {kind === "interval" && (
+            <>
+              <input type="text" value={nextAction} onChange={(e) => setNextAction(e.target.value)}
+                placeholder="first action — e.g. propose a date to X (required)"
+                className="w-full text-[10px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-blue-400"
+                style={{ background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+              <p className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>
+                Counts from the last time it was done. Wakes in the weekly
+                review — no date, nothing pings; each copy starts with the
+                first action above.
+              </p>
+            </>
+          )}
+          <button onClick={() => result && onSave(result)} disabled={!result || !changed}
             className="w-full py-1 rounded text-[10px] font-medium text-white disabled:opacity-40"
             style={{ background: "var(--accent)" }}>
             {template ? "Change schedule" : "Repeat"}

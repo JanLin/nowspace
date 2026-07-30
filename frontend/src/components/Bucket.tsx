@@ -2,9 +2,9 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink, BucketStage, FunnelSettings, RecurrenceTemplate } from "../api";
 import {
-  RepeatPopover, addDaysISO, emptyTemplate, intervalDays, isIntervalRepeat,
+  RepeatPopover, addDaysISO, emptyTemplate, intervalDays,
   nextAfterISO, nextOccurrenceISO, parseRepeatChoice,
-  repeatShort, repeatString, repeatTooltip, type RepeatChoice,
+  repeatShort, repeatTooltip, type RepeatResult,
 } from "./Recurrence";
 import TaskCheck from "./TaskCheck";
 import { Cluster } from "../clusters";
@@ -546,17 +546,26 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     setTemplatePopover(null);
   };
 
-  const applyRepeat = async (idx: number, choice: RepeatChoice) => {
+  /** The template fields a popover save carries: the schedule itself, a
+      fresh spawn anchor for calendar cadences, and the coordination step
+      for intervals (which require one — the server gate agrees). */
+  const repeatPatch = (r: RepeatResult) => ({
+    repeat: r.repeat,
+    ...(r.calendar ? { spawned: nextOccurrenceISO(r.calendar, new Date()) } : {}),
+    ...(r.nextAction !== undefined ? { next_action: r.nextAction } : {}),
+  });
+
+  const applyRepeat = async (idx: number, r: RepeatResult) => {
     const task = tasks[idx];
     const { group, label } = parseGroup(task.text);
     const title = stripBucketMeta(stripCtxTokens(label)); // keeps [[links]] — copies inherit them
-    const occ = nextOccurrenceISO(choice, new Date());
-    const daySpecific = choice.kind === "monthly" || choice.weekdays.length > 0;
+    const occ = r.calendar ? nextOccurrenceISO(r.calendar, new Date()) : "";
+    const daySpecific = !!r.calendar && (r.calendar.kind === "monthly" || r.calendar.weekdays.length > 0);
     const existing = task.recurrence_id ? recTemplates.find((t) => t.id === task.recurrence_id) : null;
     const templates = existing
-      ? recTemplates.map((t) => (t.id === existing.id ? { ...t, repeat: repeatString(choice), spawned: occ } : t))
+      ? recTemplates.map((t) => (t.id === existing.id ? { ...t, ...repeatPatch(r) } : t))
       : [...recTemplates, emptyTemplate({
-          title, group, size: task.estimate || "", repeat: repeatString(choice), spawned: occ,
+          title, group, size: task.estimate || "", ...repeatPatch(r),
         })];
     try {
       const saved = await saveRecTemplates(templates);
@@ -2193,19 +2202,33 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                   Done for now — next copy arrives on schedule
                 </p>
               )}
-              {dormantTs.map((t) => (
-                <div key={t.id} className="flex items-center gap-1.5 py-1 px-2 rounded-lg text-xs"
+              {dormantTs.map((t) => {
+                // Same badge convention as task rows: ↻ + cadence + date.
+                const days = intervalDays(t.repeat);
+                const c = parseRepeatChoice(t.repeat);
+                const nextISO = c
+                  ? (t.spawned ? nextAfterISO(c, t.spawned) : nextOccurrenceISO(c, new Date()))
+                  : "";
+                const wakeISO = (() => {
+                  if (days === null) return "";
+                  const anchor = t.last_done || t.created;
+                  if (!anchor) return "";
+                  const wake = addDaysISO(anchor, days);
+                  return t.deferred && t.deferred > wake ? t.deferred : wake;
+                })();
+                return (
+                <div key={t.id} className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg text-xs"
                   style={{ color: "var(--text-secondary)" }}>
                   <span className="relative shrink-0">
                     <button onClick={(e) => { e.stopPropagation(); setTemplatePopover(t.id); }}
                       className="text-[8px] px-1 rounded hover:opacity-80"
                       style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}
-                      title={`${repeatTooltip(t.repeat)} — click to change`}>
-                      ↻{repeatShort(t.repeat)}
+                      title={`${repeatTooltip(t.repeat)} — click to change, pause or retire`}>
+                      ↻{repeatShort(t.repeat)}{c && nextISO && t.state !== "paused" ? ` ${fmtDue(nextISO)}` : ""}
                     </button>
                     {templatePopover === t.id && (
                       <RepeatPopover template={t} align="left"
-                        onSave={(c) => patchRecTemplate(t.id, { repeat: repeatString(c), spawned: nextOccurrenceISO(c, new Date()) })}
+                        onSave={(r) => patchRecTemplate(t.id, repeatPatch(r))}
                         onPause={() => patchRecTemplate(t.id, { state: t.state === "paused" ? "active" : "paused" })}
                         onStop={() => patchRecTemplate(t.id, { state: "retired" })}
                         onClose={() => setTemplatePopover(null)} />
@@ -2213,24 +2236,13 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                   </span>
                   <span className="flex-1 truncate">{t.group ? `${t.group}: ` : ""}{t.title}</span>
                   <span className="text-[9px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
-                    {(() => {
-                      if (t.state === "paused") return "paused ⏸";
-                      const days = intervalDays(t.repeat);
-                      if (days !== null) {
-                        // Interval: wakes in the review once the time has passed
-                        const anchor = t.last_done || t.created;
-                        if (!anchor) return "wakes in the review";
-                        let wake = addDaysISO(anchor, days);
-                        if (t.deferred && t.deferred > wake) wake = t.deferred;
-                        return `review ≈ ${fmtDue(wake)}`;
-                      }
-                      const c = parseRepeatChoice(t.repeat);
-                      if (!c) return "next copy on schedule";
-                      return `next ${fmtDue(t.spawned ? nextAfterISO(c, t.spawned) : nextOccurrenceISO(c, new Date()))}`;
-                    })()}
+                    {t.state === "paused" ? "paused ⏸"
+                      : days !== null ? (wakeISO ? `review ≈ ${fmtDue(wakeISO)}` : "wakes in the review")
+                      : ""}
                   </span>
                 </div>
-              ))}
+                );
+              })}
               {retired.length > 0 && (
                 <p className="text-[9px] px-2 pt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 items-center" style={{ color: "var(--text-tertiary)" }}>
                   retired:
