@@ -1782,7 +1782,12 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
             ＋
           </button>
         </div>
-        {(laneGroups ?? [{ ctx: "" as CtxName, sections }]).map(({ ctx, sections: laneSections }) => (
+        {(laneGroups ?? [{ ctx: "" as CtxName, sections }]).map(({ ctx, sections: laneSections }) => {
+          // While a filter narrows the list, an empty tag lane is just noise
+          // (its drag-target affordance only matters in the full view).
+          const filtersActive = !!(recurringFilter || horizonFilter || filterGroup || stageFilter);
+          if (filtersActive && laneSections.length === 0) return null;
+          return (
           <div key={`lane-${ctx || "flat"}`}>
           {laneGroups && (() => {
             const laneNames = laneSections.map((s) => s.name);
@@ -2168,7 +2173,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           );
           })}
           </div>
-        ))}
+          );
+        })}
 
         {/* ↻ filter footer: templates with no live copy right now — between
             occurrences, paused, or interval visits waiting on the review.
@@ -2181,8 +2187,9 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           return (
             <div className="mt-3 space-y-0.5">
               {dormantTs.length > 0 && (
-                <p className="text-[9px] uppercase tracking-wide px-1" style={{ color: "var(--text-tertiary)" }}>
-                  No copy right now
+                <p className="text-[9px] uppercase tracking-wide px-1" style={{ color: "var(--text-tertiary)" }}
+                  title="These repeat, but have no open task at the moment — the last copy was finished (or the visit hasn't come round). The next copy appears by itself; nothing is owed in between.">
+                  Done for now — next copy arrives on schedule
                 </p>
               )}
               {dormantTs.map((t) => (
