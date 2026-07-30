@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink, BucketStage, FunnelSettings, RecurrenceTemplate } from "../api";
 import RecurrenceModal, {
-  RepeatPopover, emptyTemplate, nextOccurrenceISO, repeatString, repeatTooltip,
+  RepeatPopover, emptyTemplate, nextOccurrenceISO, repeatShort, repeatString, repeatTooltip,
   type RepeatChoice,
 } from "./Recurrence";
 import TaskCheck from "./TaskCheck";
@@ -59,6 +59,22 @@ function parseGroup(rawText: string): { group: string; label: string } {
 function fmtDue(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/** A due date implies a horizon for filtering and the board: due this ISO
+    week (or already past — the date is quiet, not overdue) = n, next week
+    = nw, later = m. An explicit horizon prefix always wins. */
+function dueHorizon(due?: string): "" | "n" | "nw" | "m" {
+  if (!due) return "";
+  const d = new Date(`${due}T00:00:00`);
+  if (isNaN(d.getTime())) return "";
+  const monday = (x: Date) => {
+    const m = new Date(x.getFullYear(), x.getMonth(), x.getDate());
+    m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+    return m.getTime();
+  };
+  const weeks = Math.round((monday(d) - monday(new Date())) / (7 * 86400000));
+  return weeks <= 0 ? "n" : weeks === 1 ? "nw" : "m";
 }
 
 /** Extract wiki links from text */
@@ -1183,8 +1199,12 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       return st === "captured" || st === "ready";
     });
     if (horizonFilter) {
-      filtered = filtered.filter(({ task }) =>
-        horizonFilter === "none" ? !(task.horizon || "") : (task.horizon || "") === horizonFilter);
+      // A recurring copy's due date counts as its horizon when it carries
+      // no explicit prefix — "n" shows what is due this week, "nw" next.
+      filtered = filtered.filter(({ task }) => {
+        const h = task.horizon || dueHorizon(task.due_date);
+        return horizonFilter === "none" ? !h : h === horizonFilter;
+      });
     }
     if (filterGroup) {
       filtered = filtered.filter(({ task }) => parseGroup(task.text).group === filterGroup);
@@ -1380,12 +1400,6 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           title="The weekly review: reconcile slips, check Shaping, refill slots, set the week's line. ~5 minutes.">
           🧭 Review{reviewDue ? " · due" : ""}
         </button>}
-        {funnelOn && <button onClick={() => setRecurrenceOpen({})}
-          className="whitespace-nowrap px-2 py-1 mt-0.5 rounded text-[10px] font-medium transition-colors"
-          style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
-          title="Recurring tasks — standing templates that place one Ready copy at a time. Never a pile.">
-          ↻ Recurring
-        </button>}
         {ctxEnabled && (
           <Cluster kind="tag" label="Tag" open={openCluster === "tag"} onToggle={() => toggleCluster("tag")}
             summary={ctxSel.length ? ctxSel.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join("+") : "All"}>
@@ -1478,12 +1492,23 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
         <span className="text-[9px] uppercase tracking-wide self-center pr-0.5" style={{ color: "var(--text-tertiary)" }}>Horizon</span>
         {([["", "Any time"], ["n", "n"], ["nw", "nw"], ["m", "m"], ["none", "unplanned"]] as const).map(([h, name]) => (
           <button key={h || "any"} onClick={() => setHorizonFilter(h)}
-            title={h === "n" ? "this week" : h === "nw" ? "next week" : h === "m" ? "next month" : h === "none" ? "no horizon set" : "all horizons"}
+            title={h === "n" ? "this week (incl. recurring due this week)" : h === "nw" ? "next week (incl. recurring due next week)" : h === "m" ? "next month" : h === "none" ? "no horizon set" : "all horizons"}
             className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${h ? "font-mono" : ""} ${horizonFilter === h ? "bg-blue-100 text-blue-700" : ""}`}
             style={horizonFilter !== h ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : undefined}>
             {name}
           </button>
         ))}
+        {funnelOn && (
+          <>
+            <span className="w-px h-4 shrink-0" style={{ backgroundColor: "var(--border)" }} />
+            <button onClick={() => setRecurrenceOpen({})}
+              className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+              style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+              title="Recurring — the summary of everything that repeats: schedules, pause/retire, interval visits.">
+              ↻ recurring
+            </button>
+          </>
+        )}
       </Cluster>
       {/* Stage — the funnel's own lens, kept apart from the GTD filters so one
           row isn't three vocabularies deep. Absent entirely in Basic. */}
@@ -1552,7 +1577,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                 .filter(({ t }) => !filterGroup || parseGroup(t.text).group === filterGroup)
                 .sort((a, b) => bucketAgeKey(a.t.text) - bucketAgeKey(b.t.text));
               // Legacy ~m month tokens count as the "m" horizon
-              const horizonOf = (task: BucketTask) => (task.horizon || (isMonthHorizon(task.text) ? "m" : ""));
+              const horizonOf = (task: BucketTask) =>
+                (task.horizon || dueHorizon(task.due_date) || (isMonthHorizon(task.text) ? "m" : ""));
 
               const card = ({ t, i }: { t: BucketTask; i: number }) => {
                 const { label } = parseGroup(stripBucketMeta(stripCtxTokens(t.text)));
@@ -1932,7 +1958,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                             title={`${recById.get(task.recurrence_id)
                               ? repeatTooltip(recById.get(task.recurrence_id)!.repeat)
                               : "Repeats"} — one copy at a time; misses go to the schedule, never to you. Click to change.`}>
-                            ↻{task.due_date ? ` ${fmtDue(task.due_date)}` : ""}
+                            ↻{(() => {
+                              const t = recById.get(task.recurrence_id!);
+                              const cad = t ? repeatShort(t.repeat) : "";
+                              return `${cad}${task.due_date ? ` ${fmtDue(task.due_date)}` : ""}`;
+                            })()}
                           </button>
                           {repeatPopover === originalIdx && (
                             <RepeatPopover template={recById.get(task.recurrence_id) || null}

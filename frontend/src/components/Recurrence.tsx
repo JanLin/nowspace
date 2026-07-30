@@ -47,6 +47,16 @@ export function parseRepeatChoice(repeat: string): RepeatChoice | null {
   return null;
 }
 
+/** Terse cadence for the ↻ badge: "w", "2w", "m", "3m"; interval "6w". */
+export function repeatShort(repeat: string): string {
+  const r = repeat.trim().toLowerCase();
+  const im = r.match(/^every\s+(\d+)\s*([wd])$/);
+  if (im) return `${im[1]}${im[2]}`;
+  const c = parseRepeatChoice(r);
+  if (!c) return "";
+  return `${c.every > 1 ? c.every : ""}${c.kind === "monthly" ? "m" : "w"}`;
+}
+
 /** Hover text for the ↻ badge: the schedule in plain words. */
 export function repeatTooltip(repeat: string): string {
   const r = repeat.trim();
@@ -142,23 +152,20 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose, alig
         </p>
       ) : (
         <>
-          <div className="flex gap-1">
+          {/* One compact row: cadence toggle + every-N stepper (no unit word
+              — the toggle IS the unit; the hint line spells it out below) */}
+          <div className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
             <button onClick={() => setKind("weekly")} className={chip(kind === "weekly")} style={chipStyle(kind === "weekly")}>weekly</button>
             <button onClick={() => setKind("monthly")} className={chip(kind === "monthly")} style={chipStyle(kind === "monthly")}>monthly</button>
-          </div>
-          {/* Cadence: every N weeks/months. − and + because number-input
-              spinners are fiddly at this size; the value is also typeable. */}
-          <div className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-            <span>every</span>
+            <span className="ml-auto">every</span>
             <button onClick={() => setEvery(Math.max(1, clampedEvery - 1))}
               className="px-1.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>−</button>
             <input type="number" min={1} max={everyMax} value={clampedEvery}
               onChange={(e) => setEvery(parseInt(e.target.value || "1", 10))}
-              className="w-10 px-1 py-0.5 rounded text-center"
+              className="w-8 px-0.5 py-0.5 rounded text-center"
               style={{ background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
             <button onClick={() => setEvery(Math.min(everyMax, clampedEvery + 1))}
               className="px-1.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>＋</button>
-            <span>{kind === "weekly" ? (clampedEvery === 1 ? "week" : "weeks") : (clampedEvery === 1 ? "month" : "months")}</span>
           </div>
           {kind === "weekly" && (
             <>
@@ -308,13 +315,10 @@ export default function RecurrenceModal({ onClose, prefill, groups }: {
   return (
     <ModalShell onClose={onClose} wide>
       <div className="space-y-3">
-        <div>
-          <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>↻ Recurring tasks</h3>
-          <p className="text-[10px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-            If missing it creates debt someone can collect, it's a recurring task.
-            If missing it only breaks a pattern, it's a habit — put it in 🌱 Habits instead.
-          </p>
-        </div>
+        <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}
+          title="If missing it creates debt someone can collect, it's a recurring task. If missing it only breaks a pattern, it's a habit — put it in 🌱 Habits instead.">
+          ↻ Recurring — one copy at a time
+        </h3>
         {error && <p className="text-xs text-red-500">{error}</p>}
         {!loaded && !error && <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading…</p>}
 
