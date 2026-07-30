@@ -1637,13 +1637,14 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
         if t.mode not in ("solve", "rehearse"):
             errors.append(f"“{label}”: unknown mode '{t.mode}'")
         if t.recurrence_id:
-            # Instances are born ready and never exist as captured or
-            # binding, by any route — binding happened once, at template
-            # creation, behind the same gate.
-            if t.stage in ("captured", "binding"):
+            # A recurring copy never enters Shaping: the copy respawns, so
+            # shaping it answers nothing — that thinking belongs on the
+            # template (the review's template question). Captured is fine:
+            # unsized templates spawn Captured copies that take the one-tap
+            # size like any capture (Jan's call, 2026-07-30).
+            if t.stage == "binding":
                 errors.append(
-                    f"“{label}”: a recurring instance can't enter "
-                    f"{'Shaping' if t.stage == 'binding' else 'Captured'} — "
+                    f"“{label}”: a recurring copy can't enter Shaping — "
                     "edit its template instead"
                 )
             if t.stage not in ("discarded",):

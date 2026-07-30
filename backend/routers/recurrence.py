@@ -1,12 +1,13 @@
 """Recurring template routes: list, save (with the creation gate), accept.
 
-The gate mirrors binding → ready because a template IS a standing binding
-decision: size (s/m/l) is required on every template — that is the ready
-gate — and a next action is required on interval templates only, where the
-coordination step ("propose a date to X") is the instance's real content
-(calendar templates are their own next action; Jan's GTD call, 2026-07-27).
-A template that can't meet the gate is an unbound topic and goes through
-the funnel, not around it.
+The creation gate is deliberately light (Jan's calls, 2026-07-27/30): a
+parseable schedule always; a next action only on interval templates, where
+the coordination step ("propose a date to X") is the instance's real
+content; size optional — a sized template's copies spawn Ready (the size
+WAS the ready gate, so this is the sanctioned bypass), an unsized one's
+copies arrive Captured and go through the funnel's one-tap size like any
+capture. Recurrence changes when a copy appears, never what the funnel
+requires of it.
 """
 
 import secrets
@@ -44,10 +45,12 @@ def _template_errors(t: rec.RecurrenceTemplate) -> List[str]:
     parsed = rec.parse_repeat(t.repeat)
     if parsed is None:
         errors.append(
-            f"“{label}”: repeat must be “monthly on 25”, “weekly on mon” or “every 6w”"
+            f"“{label}”: repeat must be “monthly on 25”, “weekly [on mon]” or “every 6w”"
         )
-    if t.size not in ("s", "m", "l"):
-        errors.append(f"“{label}”: a template needs a size (s/m/l) — that is the ready gate")
+    # Size is optional (Jan's call, 2026-07-30): sized copies spawn Ready,
+    # unsized copies arrive Captured and take the one-tap size later.
+    if t.size not in ("", "s", "m", "l"):
+        errors.append(f"“{label}”: size must be s, m or l (or left unset)")
     if parsed and parsed["kind"] == "interval" and not t.next_action.strip():
         errors.append(
             f"“{label}”: an interval template needs its coordination step "
@@ -116,6 +119,9 @@ async def save_recurrence(req: RecurrenceSaveRequest):
     return {
         "status": "saved",
         "count": len(req.templates),
+        # Echo back with server-stamped ids — the per-task ↻ flow needs the
+        # new template's id to stamp ~r onto the task it came from.
+        "templates": [t.model_dump() for t in req.templates],
         "mtime": path.stat().st_mtime,
     }
 

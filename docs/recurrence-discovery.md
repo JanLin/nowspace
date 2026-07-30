@@ -165,6 +165,27 @@ parse, `expected_mtime` guard on the client-facing save route.
 4. **The miss threshold is a hardcoded 3**, matching the existing slip
    threshold (also hardcoded). No new config surface until a real need.
 
+## Post-brief iteration (Jan's calls, 2026-07-30, second session round)
+
+Deliberate override of the brief's non-goal "no recurrence on arbitrary
+work items", confirmed explicitly: recurrence is set **on the task** via a
+↻ popover (weekly with clickable days / monthly with a day grid / plain
+"weekly" = comes up as `n` with no date). The graveyard protections are
+untouched — the task becomes the live copy of a template created
+invisibly underneath, so one-live-copy, miss accounting and the review's
+template question all still hold. Two consequences:
+
+- **Size optional on templates.** Sized copies spawn Ready + horizon `n`
+  (the sanctioned bypass — size *was* the gate); unsized copies arrive as
+  plain Captured and take the one-tap size (only Ready is schedulable, so
+  no bypass occurs). Recurring copies may therefore be Captured now; the
+  save gate still refuses Shaping.
+- The toolbar ↻ Recurring modal remains as the management list (pause /
+  retire / intervals / history), no longer the creation path.
+
+Habit note link is picked via the shared NoteFilePicker vault panel, and
+the 📄 renders inside the habit chip.
+
 ## Sequencing note
 
 Stages 1–4 land together as 0.5.0 (the schema bump forces the minor, and

@@ -9,10 +9,190 @@ import { ModalShell } from "./Funnel";
    a question about the cadence). The creation gate refuses — size always,
    a coordination step for interval templates — and never warns. */
 
-export const REPEAT_HINT = 'e.g. "monthly on 25", "weekly on mon", "every 6w"';
+export const REPEAT_HINT = 'e.g. "monthly on 25", "weekly on mon", "weekly", "every 6w"';
 
 export function isIntervalRepeat(repeat: string): boolean {
   return /^every\s+\d+\s*[wd]$/i.test(repeat.trim());
+}
+
+/* ── The clickable schedule (per-task ↻ popover) ───────────── */
+
+const WDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const WDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+export type RepeatChoice =
+  | { kind: "weekly"; weekdays: number[] } // [] = any day that week
+  | { kind: "monthly"; day: number };
+
+export function repeatString(c: RepeatChoice): string {
+  if (c.kind === "monthly") return `monthly on ${c.day}`;
+  return c.weekdays.length ? `weekly on ${c.weekdays.map((i) => WDAY_KEYS[i]).join(" ")}` : "weekly";
+}
+
+/** Parse a calendar repeat back into a choice (null for interval/invalid). */
+export function parseRepeatChoice(repeat: string): RepeatChoice | null {
+  const r = repeat.trim().toLowerCase();
+  const mm = r.match(/^monthly\s+on\s+(\d{1,2})$/);
+  if (mm) return { kind: "monthly", day: parseInt(mm[1], 10) };
+  if (r === "weekly") return { kind: "weekly", weekdays: [] };
+  const wm = r.match(/^weekly\s+on\s+((?:\w{3}\s*)+)$/);
+  if (wm) {
+    const days = wm[1].split(/\s+/).map((w) => WDAY_KEYS.indexOf(w.slice(0, 3))).filter((i) => i >= 0);
+    return days.length ? { kind: "weekly", weekdays: [...new Set(days)].sort() } : null;
+  }
+  return null;
+}
+
+/** Hover text for the ↻ badge: the schedule in plain words. */
+export function repeatTooltip(repeat: string): string {
+  const r = repeat.trim();
+  if (isIntervalRepeat(r)) return `Repeats ${r.toLowerCase()} — surfaces in the weekly review`;
+  const c = parseRepeatChoice(r);
+  if (!c) return "Repeats";
+  if (c.kind === "monthly") return `Repeats monthly on the ${c.day}${ordinal(c.day)}`;
+  if (!c.weekdays.length) return "Repeats weekly — comes up as n, no set day";
+  return `Repeats weekly on ${c.weekdays.map((i) => WDAY_LABELS[i]).join(", ")}`;
+}
+
+function ordinal(n: number): string {
+  if (n % 100 >= 11 && n % 100 <= 13) return "th";
+  return ["th", "st", "nd", "rd"][n % 10] ?? "th";
+}
+
+/** Next occurrence on/after `from` — mirrors the backend's occurrence walk
+    (weekly-no-day anchors on Monday of the current week). ISO date. */
+export function nextOccurrenceISO(c: RepeatChoice, from: Date): string {
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const iso = (x: Date) => {
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
+  };
+  if (c.kind === "monthly") {
+    const clamp = (y: number, m: number) => {
+      const last = new Date(y, m + 1, 0).getDate();
+      return new Date(y, m, Math.min(c.day, last));
+    };
+    const thisMonth = clamp(d.getFullYear(), d.getMonth());
+    return iso(thisMonth >= d ? thisMonth : clamp(d.getFullYear(), d.getMonth() + 1));
+  }
+  const monWeekday = (x: Date) => (x.getDay() + 6) % 7; // Mon=0
+  if (!c.weekdays.length) {
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - monWeekday(d));
+    return iso(monday);
+  }
+  for (let i = 0; i < 7; i++) {
+    const cand = new Date(d);
+    cand.setDate(d.getDate() + i);
+    if (c.weekdays.includes(monWeekday(cand))) return iso(cand);
+  }
+  return iso(d);
+}
+
+/** The per-task repeat popover: weekly with clickable days (none = "comes
+    up as n that week") or monthly with a clickable day grid. When editing
+    an existing template it also offers pause/resume and stop. Absolutely
+    positioned — render inside a `relative` anchor. */
+export function RepeatPopover({ template, onSave, onPause, onStop, onClose }: {
+  template?: RecurrenceTemplate | null; // null/undefined = creating
+  onSave: (choice: RepeatChoice) => void;
+  onPause?: () => void; // toggles pause/resume when editing
+  onStop?: () => void;  // retire; the task stays as an ordinary task
+  onClose: () => void;
+}) {
+  const existing = template ? parseRepeatChoice(template.repeat) : null;
+  const interval = template ? isIntervalRepeat(template.repeat) : false;
+  const [kind, setKind] = useState<"weekly" | "monthly">(existing?.kind === "monthly" ? "monthly" : "weekly");
+  const [weekdays, setWeekdays] = useState<number[]>(existing?.kind === "weekly" ? existing.weekdays : []);
+  const [monthDay, setMonthDay] = useState<number>(existing?.kind === "monthly" ? existing.day : 0);
+
+  const choice: RepeatChoice | null =
+    kind === "weekly" ? { kind: "weekly", weekdays } : monthDay ? { kind: "monthly", day: monthDay } : null;
+  const changed = !existing || !template || (choice && repeatString(choice) !== template.repeat.trim().toLowerCase());
+
+  const chip = (active: boolean) =>
+    `px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${active ? "bg-blue-600 text-white" : ""}`;
+  const chipStyle = (active: boolean) =>
+    active ? undefined : ({ background: "var(--bg-tertiary)", color: "var(--text-secondary)" } as const);
+
+  return (
+    <div className="absolute top-6 right-0 z-40 rounded-lg shadow-xl border p-2.5 w-60 space-y-2"
+      style={{ background: "var(--bg)", borderColor: "var(--border)" }}
+      onClick={(e) => e.stopPropagation()}>
+      {interval ? (
+        <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>
+          {repeatTooltip(template!.repeat)}. Edit interval schedules from ↻ Recurring in the toolbar.
+        </p>
+      ) : (
+        <>
+          <div className="flex gap-1">
+            <button onClick={() => setKind("weekly")} className={chip(kind === "weekly")} style={chipStyle(kind === "weekly")}>weekly</button>
+            <button onClick={() => setKind("monthly")} className={chip(kind === "monthly")} style={chipStyle(kind === "monthly")}>monthly</button>
+          </div>
+          {kind === "weekly" && (
+            <>
+              <div className="flex gap-0.5">
+                {WDAY_LABELS.map((label, i) => (
+                  <button key={label}
+                    onClick={() => setWeekdays((p) => p.includes(i) ? p.filter((x) => x !== i) : [...p, i].sort())}
+                    className={`flex-1 py-0.5 rounded text-[9px] font-medium ${weekdays.includes(i) ? "bg-blue-600 text-white" : ""}`}
+                    style={weekdays.includes(i) ? undefined : { background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                    {label.slice(0, 2)}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>
+                {weekdays.length ? `Every ${weekdays.map((i) => WDAY_LABELS[i]).join(", ")}` : "No day picked — comes up as n for the week"}
+              </p>
+            </>
+          )}
+          {kind === "monthly" && (
+            <>
+              <div className="grid grid-cols-7 gap-0.5">
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                  <button key={day} onClick={() => setMonthDay(day)}
+                    className={`py-0.5 rounded text-[9px] ${monthDay === day ? "bg-blue-600 text-white font-bold" : ""}`}
+                    style={monthDay === day ? undefined : { background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                    {day}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>
+                {monthDay ? `Every month on the ${monthDay}${ordinal(monthDay)} (short months clamp)` : "Pick a day of the month"}
+              </p>
+            </>
+          )}
+          <button onClick={() => choice && onSave(choice)} disabled={!choice || !changed}
+            className="w-full py-1 rounded text-[10px] font-medium text-white disabled:opacity-40"
+            style={{ background: "var(--accent)" }}>
+            {template ? "Change schedule" : "Repeat"}
+          </button>
+        </>
+      )}
+      {template && (
+        <div className="flex gap-1 pt-0.5 border-t" style={{ borderColor: "var(--border)" }}>
+          {onPause && (
+            <button onClick={onPause} className="flex-1 py-0.5 rounded text-[9px]"
+              style={{ background: "var(--bg-tertiary)", color: template.state === "paused" ? "#b45309" : "var(--text-secondary)" }}
+              title={template.state === "paused" ? "Paused — spawns nothing. Resume it." : "Pause — spawns nothing until resumed"}>
+              {template.state === "paused" ? "resume" : "pause"}
+            </button>
+          )}
+          {onStop && (
+            <button onClick={onStop} className="flex-1 py-0.5 rounded text-[9px]"
+              style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+              title="Stop repeating — this copy stays an ordinary task; history is kept">
+              stop repeating
+            </button>
+          )}
+        </div>
+      )}
+      <button onClick={onClose} className="w-full py-0.5 rounded text-[9px]"
+        style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}>
+        close
+      </button>
+    </div>
+  );
 }
 
 /** "monthly on 25" → next occurrence as a quiet display string. Not used for
@@ -123,8 +303,9 @@ export default function RecurrenceModal({ onClose, prefill, groups }: {
                   onChange={(e) => update(i, { title: e.target.value })}
                   className={`${input} flex-1 min-w-[10rem] font-medium`} style={inputStyle} />
                 <select value={r.size} onChange={(e) => update(i, { size: e.target.value })}
-                  className={input} style={inputStyle} title="Size — the same gate as Ready">
-                  <option value="">size…</option>
+                  className={input} style={inputStyle}
+                  title="Optional — sized copies spawn Ready; unsized ones arrive Captured and take the one-tap size later">
+                  <option value="">no size</option>
                   <option value="s">s</option><option value="m">m</option><option value="l">l</option>
                 </select>
                 <select value={groups.includes(r.group) ? r.group : ""}

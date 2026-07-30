@@ -1,7 +1,10 @@
 import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
 import type { BucketTask, BucketResponse, TaskLink, BucketStage, FunnelSettings, RecurrenceTemplate } from "../api";
-import RecurrenceModal from "./Recurrence";
+import RecurrenceModal, {
+  RepeatPopover, emptyTemplate, nextOccurrenceISO, repeatString, repeatTooltip,
+  type RepeatChoice,
+} from "./Recurrence";
 import TaskCheck from "./TaskCheck";
 import { Cluster } from "../clusters";
 import {
@@ -184,8 +187,16 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   const [stageDialog, setStageDialog] = useState<{ idx: number; kind: "bind" | "ready" | "dormant" | "discard" } | null>(null);
   const [evictionFor, setEvictionFor] = useState<number | null>(null); // idx of item waiting for a Shaping slot
   const [reviewOpen, setReviewOpen] = useState(false);
-  // null = closed; {} = open plain; {prefill} = open with a new template row
-  const [recurrenceOpen, setRecurrenceOpen] = useState<null | { prefill?: Partial<RecurrenceTemplate> }>(null);
+  // null = closed; {} = open (the management list)
+  const [recurrenceOpen, setRecurrenceOpen] = useState<null | object>(null);
+  // Recurrence templates, for the per-task ↻ popover and badge tooltips
+  const [recTemplates, setRecTemplates] = useState<RecurrenceTemplate[]>([]);
+  const [recMtime, setRecMtime] = useState<number | null>(null);
+  const [repeatPopover, setRepeatPopover] = useState<number | null>(null); // task idx
+  const recById = new Map(recTemplates.map((t) => [t.id, t]));
+  const loadRecurrence = () =>
+    api.getRecurrence().then((r) => { setRecTemplates(r.templates); setRecMtime(r.mtime); }).catch(() => {});
+  useEffect(() => { if (funnelOn) loadRecurrence(); }, [funnelOn]);
   const [statsOpen, setStatsOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [composerFor, setComposerFor] = useState<{ idx: number; area: string } | null>(null);
@@ -502,6 +513,68 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     pushUndo();
     setData({ ...data, tasks: newTasks });
     setDirty(true);
+  };
+
+  /* ── Recurrence: the per-task ↻ flow ─────────────────────
+     The task itself becomes (or already is) the live copy; a template is
+     created invisibly underneath so one-live-copy, miss accounting and the
+     review's template question keep working. `spawned` is set to the next
+     occurrence so the pass treats this copy as that occurrence — no double
+     spawn, no phantom miss. */
+
+  const recError = (e: unknown) => {
+    const msg = e instanceof Error ? e.message : "Couldn't save the schedule";
+    if (msg.includes("changed on disk")) { loadRecurrence(); setError("Recurring templates changed on another device — reloaded, redo the change."); }
+    else setError(msg);
+  };
+
+  const applyRepeat = async (idx: number, choice: RepeatChoice) => {
+    const task = tasks[idx];
+    const { group, label } = parseGroup(task.text);
+    const title = stripBucketMeta(stripCtxTokens(label)); // keeps [[links]] — copies inherit them
+    const occ = nextOccurrenceISO(choice, new Date());
+    const daySpecific = choice.kind === "monthly" || choice.weekdays.length > 0;
+    const existing = task.recurrence_id ? recTemplates.find((t) => t.id === task.recurrence_id) : null;
+    const templates = existing
+      ? recTemplates.map((t) => (t.id === existing.id ? { ...t, repeat: repeatString(choice), spawned: occ } : t))
+      : [...recTemplates, emptyTemplate({
+          title, group, size: task.estimate || "", repeat: repeatString(choice), spawned: occ,
+        })];
+    try {
+      const res = await api.saveRecurrence(templates, recMtime);
+      setRecTemplates(res.templates);
+      setRecMtime(res.mtime);
+      const id = existing ? existing.id : res.templates[res.templates.length - 1].id;
+      updateTasks(tasks.map((t, i) => (i === idx ? { ...t, recurrence_id: id, due_date: daySpecific ? occ : "" } : t)));
+      setRepeatPopover(null);
+    } catch (e) { recError(e); }
+  };
+
+  const togglePauseRepeat = async (idx: number) => {
+    const t = recTemplates.find((x) => x.id === tasks[idx].recurrence_id);
+    if (!t) return;
+    try {
+      const res = await api.saveRecurrence(
+        recTemplates.map((x) => (x.id === t.id ? { ...x, state: x.state === "paused" ? "active" : "paused" } : x)), recMtime);
+      setRecTemplates(res.templates);
+      setRecMtime(res.mtime);
+    } catch (e) { recError(e); }
+  };
+
+  const stopRepeat = async (idx: number) => {
+    const task = tasks[idx];
+    const t = recTemplates.find((x) => x.id === task.recurrence_id);
+    try {
+      if (t) {
+        const res = await api.saveRecurrence(
+          recTemplates.map((x) => (x.id === t.id ? { ...x, state: "retired" as const } : x)), recMtime);
+        setRecTemplates(res.templates);
+        setRecMtime(res.mtime);
+      }
+      // The copy stays an ordinary task; only the designation goes
+      updateTasks(tasks.map((x, i) => (i === idx ? { ...x, recurrence_id: "", due_date: "" } : x)));
+      setRepeatPopover(null);
+    } catch (e) { recError(e); }
   };
 
   const addTask = (afterIdx: number, text: string, group?: string) => {
@@ -1845,14 +1918,29 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         </span>
                       )}
 
-                      {/* ↻ recurring designation — a quiet fact. The date never
-                          changes styling when it passes: there is no overdue
-                          state, the copy just keeps its date until done. */}
+                      {/* ↻ recurring designation, left of the text — a quiet
+                          fact. The date never changes styling when it passes:
+                          there is no overdue state, the copy just keeps its
+                          date until done. Hover shows the schedule; click
+                          edits it. */}
                       {funnelOn && task.recurrence_id && (
-                        <span className="shrink-0 text-[8px] px-1 rounded"
-                          style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}
-                          title="A recurring task — one copy at a time; misses go to its template, never to you">
-                          ↻{task.due_date ? ` ${fmtDue(task.due_date)}` : ""}
+                        <span className="relative shrink-0">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setRepeatPopover(repeatPopover === originalIdx ? null : originalIdx); }}
+                            className="text-[8px] px-1 rounded hover:opacity-80"
+                            style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}
+                            title={`${recById.get(task.recurrence_id)
+                              ? repeatTooltip(recById.get(task.recurrence_id)!.repeat)
+                              : "Repeats"} — one copy at a time; misses go to the schedule, never to you. Click to change.`}>
+                            ↻{task.due_date ? ` ${fmtDue(task.due_date)}` : ""}
+                          </button>
+                          {repeatPopover === originalIdx && (
+                            <RepeatPopover template={recById.get(task.recurrence_id) || null}
+                              onSave={(c) => applyRepeat(originalIdx, c)}
+                              onPause={() => togglePauseRepeat(originalIdx)}
+                              onStop={() => stopRepeat(originalIdx)}
+                              onClose={() => setRepeatPopover(null)} />
+                          )}
                         </span>
                       )}
 
@@ -1897,20 +1985,20 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         🔗{hasLinks && taskLinks.length > 1 && <sup className="text-[8px] font-bold">{taskLinks.length}</sup>}
                       </button>
 
-                      {/* ↻ Make recurring — opens template creation prefilled;
-                          this item stays and is completed/discarded normally,
-                          it does not become the template */}
-                      {funnelOn && !task.recurrence_id && stageOf(task) === "ready" && (
-                        <button onClick={(e) => {
-                          e.stopPropagation();
-                          setRecurrenceOpen({ prefill: {
-                            title: displayLabel.includes(": ") ? displayLabel.slice(displayLabel.indexOf(": ") + 2) : displayLabel,
-                            group: parseGroup(task.text).group || "",
-                            size: task.estimate || "",
-                          } });
-                        }}
-                          className="text-xs opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
-                          title="Make a recurring template from this — the template repeats; this copy is still finished normally">↻</button>
+                      {/* ↻ Make this task repeat — weekly (optional day) or
+                          monthly (day of month). The task becomes the live
+                          copy; a template is created invisibly underneath. */}
+                      {funnelOn && !task.recurrence_id && stageOf(task) !== "discarded" && (
+                        <span className="relative">
+                          <button onClick={(e) => { e.stopPropagation(); setRepeatPopover(repeatPopover === originalIdx ? null : originalIdx); }}
+                            className="text-xs opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
+                            title="Repeat this task — weekly or monthly, one copy at a time">↻</button>
+                          {repeatPopover === originalIdx && (
+                            <RepeatPopover template={null}
+                              onSave={(c) => applyRepeat(originalIdx, c)}
+                              onClose={() => setRepeatPopover(null)} />
+                          )}
+                        </span>
                       )}
 
                       {/* 📂 Move to group */}
@@ -2158,10 +2246,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           onClose={() => setReviewOpen(false)} />
       )}
       {recurrenceOpen && (
-        <RecurrenceModal prefill={recurrenceOpen.prefill || null}
+        <RecurrenceModal prefill={null}
           groups={[...allGroups.keys()]}
           onClose={() => {
             setRecurrenceOpen(null);
+            loadRecurrence();
             // A saved template may spawn on the next read — refetch unless
             // there are unsaved local edits (never clobber those).
             if (!dirty) fetchBucket();

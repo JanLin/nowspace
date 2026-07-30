@@ -56,6 +56,7 @@ def _weekly_template(**overrides) -> RecurrenceTemplate:
 def test_parse_repeat_vocabulary():
     assert parse_repeat("monthly on 25") == {"kind": "monthly", "day": 25}
     assert parse_repeat("Weekly on Mon Thu") == {"kind": "weekly", "weekdays": [0, 3]}
+    assert parse_repeat("weekly") == {"kind": "weekly", "weekdays": []}  # any day that week
     assert parse_repeat("every 6w") == {"kind": "interval", "days": 42}
     assert parse_repeat("every 45d") == {"kind": "interval", "days": 45}
     for bad in ("", "monthly on 0", "monthly on 32", "weekly on xyz", "every 0w", "sometimes"):
@@ -115,6 +116,7 @@ def test_spawn_creates_one_ready_instance(client, vault):
     assert len(inst) == 1
     assert inst[0]["stage"] == "ready"
     assert inst[0]["estimate"] == "s"
+    assert inst[0]["horizon"] == "n"  # the copy is for this week
     assert inst[0]["due_date"] == _iso(TODAY)
     assert inst[0]["text"].startswith("Home: water plants")
     assert inst[0]["subtasks"][0]["text"] == "check the soil first"
@@ -217,14 +219,54 @@ def test_no_stacking_moves_due_date_on_a_scheduled_instance(client, vault):
     assert stored[0].missed == 1
 
 
+# ── Unsized templates and the plain-weekly schedule ───────────
+
+def test_unsized_template_spawns_a_captured_copy(client, vault):
+    """Size stays a funnel matter: an unsized template's copy arrives as
+    plain Captured — no horizon, no priority — and takes the one-tap size
+    like any capture. Only Ready is schedulable, so no bypass happens."""
+    _write_templates(vault, [_weekly_template(size="", spawned=_iso(TODAY - timedelta(days=7)))])
+    r = client.get("/plan/bucket")
+    inst = [t for t in r.json()["tasks"] if t["recurrence_id"] == "abc123"]
+    assert len(inst) == 1
+    assert inst[0]["stage"] == "captured"
+    assert inst[0]["estimate"] == ""
+    assert inst[0]["horizon"] == ""
+    assert inst[0]["priority"] == ""
+
+
+def test_plain_weekly_spawns_without_a_due_date(client, vault):
+    """"Comes up as n for that week" — the week is the promise, no date."""
+    _write_templates(vault, [_weekly_template(repeat="weekly", spawned=_iso(TODAY - timedelta(days=7)))])
+    r = client.get("/plan/bucket")
+    inst = [t for t in r.json()["tasks"] if t["recurrence_id"] == "abc123"]
+    assert len(inst) == 1
+    assert inst[0]["due_date"] == ""
+    assert inst[0]["horizon"] == "n"
+    monday = TODAY - timedelta(days=TODAY.weekday())
+    stored = parse_recurring_file((vault / "0-Inbox" / "Plan Week Recurring.md").read_text(encoding="utf-8"))
+    assert stored[0].spawned == _iso(monday)  # Monday-anchored occurrence key
+
+
 # ── Creation gate ─────────────────────────────────────────────
 
-def test_template_without_size_is_refused(client, vault):
+def test_size_is_optional_but_validated(client, vault):
     r = client.post("/plan/recurrence/save", json={"templates": [
         {"title": "pay bill", "repeat": "monthly on 25"},
     ]})
-    assert r.status_code == 422
-    assert "size" in r.json()["detail"]
+    assert r.status_code == 200  # unsized is fine — copies arrive Captured
+    r2 = client.post("/plan/recurrence/save", json={"templates": [
+        {"title": "pay bill", "repeat": "monthly on 25", "size": "x"},
+    ]})
+    assert r2.status_code == 422
+
+
+def test_save_echoes_stamped_ids(client, vault):
+    """The per-task ↻ flow needs the new template's id to stamp the task."""
+    r = client.post("/plan/recurrence/save", json={"templates": [
+        {"title": "pay bill", "repeat": "monthly on 25", "size": "s"},
+    ]})
+    assert r.json()["templates"][0]["id"]
 
 
 def test_interval_template_without_next_action_is_refused(client, vault):
@@ -256,7 +298,7 @@ def test_template_note_cannot_be_a_work_item(client, vault):
 
 def test_gate_reports_every_failure_not_the_first(client, vault):
     r = client.post("/plan/recurrence/save", json={"templates": [
-        {"title": "a", "repeat": "nonsense"},
+        {"title": "a", "repeat": "nonsense", "size": "x"},
         {"title": "b", "repeat": "every 2w"},
     ]})
     assert r.status_code == 422
@@ -273,14 +315,20 @@ def _instance_payload(stage: str, rid: str = "abc123", text: str = "water plants
     }
 
 
-def test_an_instance_cannot_be_captured_or_binding(client, vault):
-    for stage in ("captured", "binding"):
-        r = client.post("/plan/bucket/save", json={
-            "tasks": [_instance_payload(stage)],
-            "schema_version": BUCKET_SCHEMA_VERSION,
-        })
-        assert r.status_code == 422, stage
-        assert "template" in r.json()["detail"]
+def test_an_instance_cannot_enter_shaping(client, vault):
+    """Shaping a copy answers nothing — that thinking belongs on the
+    template. Captured is allowed: unsized templates spawn Captured copies."""
+    r = client.post("/plan/bucket/save", json={
+        "tasks": [_instance_payload("binding")],
+        "schema_version": BUCKET_SCHEMA_VERSION,
+    })
+    assert r.status_code == 422
+    assert "template" in r.json()["detail"]
+    r2 = client.post("/plan/bucket/save", json={
+        "tasks": [{**_instance_payload("captured"), "estimate": ""}],
+        "schema_version": BUCKET_SCHEMA_VERSION,
+    })
+    assert r2.status_code == 200
 
 
 def test_a_save_with_two_live_copies_is_refused(client, vault):

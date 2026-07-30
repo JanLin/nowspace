@@ -48,7 +48,8 @@ MISS_THRESHOLD = 3
 _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 REPEAT_MONTHLY_RE = re.compile(r"^monthly\s+on\s+(\d{1,2})$", re.IGNORECASE)
-REPEAT_WEEKLY_RE = re.compile(r"^weekly\s+on\s+((?:\w{3}\s*)+)$", re.IGNORECASE)
+# Bare "weekly" = comes up that week with no preferred day (no due date)
+REPEAT_WEEKLY_RE = re.compile(r"^weekly(?:\s+on\s+((?:\w{3}\s*)+))?$", re.IGNORECASE)
 REPEAT_INTERVAL_RE = re.compile(r"^every\s+(\d{1,3})\s*([wd])$", re.IGNORECASE)
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -65,7 +66,8 @@ collect, it's a recurring task and belongs here; if missing it only breaks
 a pattern, it's a habit and belongs in Plan Week Habits.md.
 
 Repeat vocabulary: "monthly on 25", "weekly on mon" (or "mon thu"),
-"every 6w" / "every 45d" (measured from the last completion).
+plain "weekly" (comes up that week, no set day), and "every 6w" /
+"every 45d" (measured from the last completion).
 """
 
 
@@ -99,6 +101,8 @@ def parse_repeat(repeat: str) -> Optional[dict]:
         return None
     m = REPEAT_WEEKLY_RE.match(r)
     if m:
+        if not m.group(1):
+            return {"kind": "weekly", "weekdays": []}  # any day that week
         days = []
         for w in m.group(1).split():
             wl = w.lower()[:3]
@@ -251,12 +255,23 @@ def occurrences_between(parsed: dict, after: date, until: date) -> List[date]:
             if m > 12:
                 y, m = y + 1, 1
     elif parsed["kind"] == "weekly":
+        # No preferred day = the week itself is the occurrence; anchor on
+        # Monday so every device derives the same occurrence key.
+        weekdays = parsed["weekdays"] or [0]
         d = after + timedelta(days=1)
         while d <= until:
-            if d.weekday() in parsed["weekdays"]:
+            if d.weekday() in weekdays:
                 out.append(d)
             d += timedelta(days=1)
     return out
+
+
+def is_day_specific(parsed: Optional[dict]) -> bool:
+    """Does this schedule name an actual date (→ instances carry ~du)?
+    Plain "weekly" only promises the week, so its copies get no date."""
+    if not parsed or parsed["kind"] == "interval":
+        return False
+    return parsed["kind"] == "monthly" or bool(parsed.get("weekdays"))
 
 
 def instance_identity(template_id: str, occurrence: str) -> str:
@@ -368,21 +383,31 @@ def credit_completions(content: str, templates: List[RecurrenceTemplate],
 
 
 def build_instance_task(t: RecurrenceTemplate, occurrence_iso: str, with_due: bool):
-    """An ordinary ready BucketTask carrying the recurrence designation.
-    Identity is derived from (template, occurrence) — see instance_identity."""
+    """An ordinary BucketTask carrying the recurrence designation.
+    Identity is derived from (template, occurrence) — see instance_identity.
+
+    Sized templates spawn Ready with horizon n (the copy is for this week /
+    this date) — the sanctioned bypass, safe because the size WAS the ready
+    gate. An unsized template's copies arrive as plain Captured and take the
+    one-tap size like any capture: size stays a funnel matter, and only
+    Ready is schedulable, so an unsized copy can't carry a horizon (Jan's
+    call, 2026-07-30)."""
     from backend.models import BucketTask, Subtask
     from backend.routers.plan import _stamp_bucket_week
 
     label = f"{t.group.strip()}: {t.title.strip()}" if t.group.strip() else t.title.strip()
     if t.note.strip():
         label = f"{label} [[{t.note.strip()}]]"
+    sized = t.size in ("s", "m", "l")
     return BucketTask(
         text=_stamp_bucket_week(f"{label} ~i{instance_identity(t.id, occurrence_iso)}"),
-        stage="ready",
-        estimate=t.size if t.size in ("s", "m", "l") else "s",
+        stage="ready" if sized else "captured",
+        estimate=t.size if sized else "",
+        priority="C" if sized else "",
+        horizon="n" if sized else "",
         recurrence_id=t.id,
         due_date=occurrence_iso if with_due else "",
-        ready_since=occurrence_iso,
+        ready_since=occurrence_iso if sized else "",
         stage_entered_at=occurrence_iso,
         subtasks=[Subtask(text=t.next_action.strip())] if t.next_action.strip() else [],
     )
@@ -496,7 +521,7 @@ def _run_recurrence_pass() -> None:
                     else:
                         _move_week_due_date(ref, t.id, occ_iso)
             else:
-                new_task = build_instance_task(t, occ_iso, with_due=True)
+                new_task = build_instance_task(t, occ_iso, with_due=is_day_specific(parsed))
                 bucket_tasks.append(new_task)
                 bucket_changed = True
                 live.setdefault(t.id, []).append(("bucket", new_task))

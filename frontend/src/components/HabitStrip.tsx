@@ -23,25 +23,29 @@ export function habitDomainStyle(domain: string) {
 
 /** The note that explains how — reference material, nothing more. Shown
     wherever the habit is; resolves on tap so a note synced in moments ago
-    still opens. */
+    still opens. A span, not a button, so it can live INSIDE the habit
+    chip's button without invalid nesting. */
 export function HabitNoteLink({ note, onOpenNote }: {
   note: string;
   onOpenNote: (path: string, name: string) => void;
 }) {
   const name = note.split("|")[0].split("#")[0].trim();
   return (
-    <button
+    <span
+      role="button"
+      tabIndex={0}
       onClick={(e) => {
         e.stopPropagation();
         api.vaultResolve(name).then((res) => {
           if (res.path) onOpenNote(res.path, res.name || name);
         }).catch(() => {});
       }}
-      className="px-0.5 text-[10px] opacity-60 hover:opacity-100"
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLElement).click(); }}
+      className="px-0.5 text-[10px] opacity-60 hover:opacity-100 cursor-pointer"
       title={`Open ${name}`}
     >
       📄
-    </button>
+    </span>
   );
 }
 
@@ -136,10 +140,10 @@ export default function HabitStrip({
               {!tiny && h.period === "week" && (
                 <span className="opacity-70">{h.week_count}/{h.target}</span>
               )}
+              {h.note && onOpenNote && !tiny && (
+                <HabitNoteLink note={h.note} onOpenNote={onOpenNote} />
+              )}
             </button>
-            {h.note && onOpenNote && !tiny && (
-              <HabitNoteLink note={h.note} onOpenNote={onOpenNote} />
-            )}
             {pickerFor === h.name && (
               <div
                 className="absolute left-0 top-full mt-1 z-30 flex gap-1 rounded-lg shadow-lg border p-1"

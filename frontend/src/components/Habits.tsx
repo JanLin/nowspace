@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Habit } from "../api";
 import { HabitNoteLink, habitDomainStyle } from "./HabitStrip";
+import NoteFilePicker from "./NoteFilePicker";
 
 /* The registration of habits you've built — a calm, read-mostly view.
    Logging happens via the habit strip in the week view; this tab shows
@@ -35,6 +36,8 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState<HabitRow[]>([]);
   const [savingRows, setSavingRows] = useState(false);
+  // Vault note picker for the how-to note (same panel tasks use)
+  const [notePicker, setNotePicker] = useState<{ idx: number; pos: { top: number; left: number } } | null>(null);
 
   const load = () => {
     api.getHabits().then((r) => { setFound(r.found); setHabits(r.habits); setError(""); })
@@ -126,6 +129,8 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
       ...DOMAIN_ORDER,
       ...[...new Set(rows.map((r) => r.domain))].filter((d) => !DOMAIN_ORDER.includes(d)).sort(),
     ];
+    const setRowNote = (idx: number, note: string) =>
+      setRows((prev) => prev.map((r, j) => (j === idx ? { ...r, note } : r)));
     return (
       <div className="space-y-5 pb-12">
         <div className="flex items-center justify-between">
@@ -192,14 +197,16 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
                         title="Minutes per occurrence — 0 means untimed" />
                       min
                     </label>
-                    <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                      📄
-                      <input type="text" value={r.note} placeholder="note that explains how"
-                        onChange={(e) => update({ note: e.target.value })}
-                        className="w-36 px-1.5 py-1 rounded text-xs"
-                        style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
-                        title="Name of the vault note with the steps — reference only, never a task" />
-                    </label>
+                    <button
+                      onClick={(e) => {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setNotePicker({ idx: i, pos: { top: rect.bottom + 4, left: Math.max(8, rect.right - 300) } });
+                      }}
+                      className="flex items-center gap-1 px-1.5 py-1 rounded text-[10px]"
+                      style={{ backgroundColor: "var(--bg)", color: r.note ? "var(--text)" : "var(--text-tertiary)", border: "1px solid var(--border)" }}
+                      title={r.note ? `Linked: ${r.note} — click to change or remove (in the panel)` : "Link the vault note that explains how — reference only, never a task"}>
+                      📄 {r.note || "how-to note"}
+                    </button>
                     <button onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
                       className="text-xs px-1" style={{ color: "var(--text-tertiary)" }} title="Remove habit">
                       ✕
@@ -216,6 +223,17 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
             </section>
           );
         })}
+        {notePicker && (
+          <NoteFilePicker
+            existingLinks={rows[notePicker.idx]?.note ? [{ name: rows[notePicker.idx].note }] : []}
+            position={notePicker.pos}
+            onSelect={(path, name) => { setNotePicker(null); onOpenNote?.(path, name); }}
+            onAddLink={(name) => { setRowNote(notePicker.idx, name); setNotePicker(null); }}
+            onRemoveLink={() => { setRowNote(notePicker.idx, ""); setNotePicker(null); }}
+            onReplaceLink={(_old, newName) => { setRowNote(notePicker.idx, newName); setNotePicker(null); }}
+            onClose={() => setNotePicker(null)}
+          />
+        )}
       </div>
     );
   }
