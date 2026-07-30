@@ -618,6 +618,21 @@ export const api = {
       body: JSON.stringify({ templates, expected_mtime: expected_mtime ?? null }),
     }),
 
+  recurrenceAccept: (id: string) =>
+    request<{ status: string }>("/plan/recurrence/accept", {
+      method: "POST", body: JSON.stringify({ id }),
+    }),
+
+  recurrenceDefer: (id: string) =>
+    request<{ status: string; until: string }>("/plan/recurrence/defer", {
+      method: "POST", body: JSON.stringify({ id }),
+    }),
+
+  recurrenceDemote: (id: string, domain: string) =>
+    request<{ status: string; habit: string; target: number }>("/plan/recurrence/demote", {
+      method: "POST", body: JSON.stringify({ id, domain }),
+    }),
+
   // Time tracking
   getTimeLog: (month?: string) =>
     request<{ month: string; entries: TimeEntry[]; running: TimeEntry | null }>(

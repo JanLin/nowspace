@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { BucketTask, BucketStage, DiscardReason } from "../api";
+import type { BucketTask, BucketStage, DiscardReason, RecurrenceTemplate } from "../api";
 import { stripBucketMeta, stripCtxTokens } from "../contexts";
 
 export const STAGE_META: Record<BucketStage, { label: string; chip: string; hint: string }> = {
@@ -455,6 +455,8 @@ type ReviewStep =
   | { kind: "binding-check"; idx: number }
   | { kind: "refill" }
   | { kind: "woken"; idx: number }
+  | { kind: "rec-lapsed"; id: string }    // interval template come round
+  | { kind: "rec-question"; id: string }  // template over the miss threshold
   | { kind: "focus" }
   | { kind: "done" };
 
@@ -470,6 +472,17 @@ export function WeeklyReview({ tasks, limit, weekFocus, onApply, onFinish, onClo
   const startedAt = useRef(Date.now());
   const today = new Date().toISOString().slice(0, 10);
 
+  // Recurrence review data — both steps are empty most weeks and cost zero
+  // seconds when empty: no ids ⇒ no steps ⇒ nothing rendered, no screen.
+  const [rec, setRec] = useState<{ templates: RecurrenceTemplate[]; lapsed: string[]; threshold: string[]; mtime: number | null } | null>(null);
+  const [recHandled, setRecHandled] = useState<Set<string>>(new Set());
+  const [recError, setRecError] = useState("");
+  useEffect(() => {
+    api.getRecurrence()
+      .then((r) => setRec({ templates: r.templates, lapsed: r.lapsed_ids, threshold: r.threshold_ids, mtime: r.mtime }))
+      .catch(() => setRec({ templates: [], lapsed: [], threshold: [], mtime: null }));
+  }, []);
+
   // Snapshot the step list up front; indexes reference the live tasks array.
   const bindingIdxs = tasks.map((t, i) => ({ t, i })).filter(({ t }) => stageOf(t) === "binding").map(({ i }) => i);
   const slippedIdxs = tasks.map((t, i) => ({ t, i }))
@@ -483,6 +496,8 @@ export function WeeklyReview({ tasks, limit, weekFocus, onApply, onFinish, onClo
     ...bindingIdxs.map((idx) => ({ kind: "binding-check", idx } as ReviewStep)),
     { kind: "refill" },
     ...wokenIdxs.map((idx) => ({ kind: "woken", idx } as ReviewStep)),
+    ...(rec?.lapsed || []).map((id) => ({ kind: "rec-lapsed", id } as ReviewStep)),
+    ...(rec?.threshold || []).map((id) => ({ kind: "rec-question", id } as ReviewStep)),
     { kind: "focus" },
     { kind: "done" },
   ];
@@ -505,6 +520,19 @@ export function WeeklyReview({ tasks, limit, weekFocus, onApply, onFinish, onClo
 
   const elapsed = () => Math.round((Date.now() - startedAt.current) / 1000);
   const fmtMin = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+  const markRecHandled = (id: string) => setRecHandled((p) => new Set(p).add(id));
+  const patchTemplate = async (id: string, patch: Partial<RecurrenceTemplate>) => {
+    if (!rec) return;
+    const updated = rec.templates.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    const res = await api.saveRecurrence(updated, rec.mtime);
+    setRec({ ...rec, templates: updated, mtime: res.mtime });
+  };
+  const recAction = (id: string, act: () => Promise<unknown>) => {
+    setRecError("");
+    act().then(() => { markRecHandled(id); next(); })
+      .catch((e) => setRecError(e instanceof Error ? e.message : "That didn't save — try again"));
+  };
 
   const dlgTask = dialog ? tasks[dialog.idx] : null;
 
@@ -676,6 +704,54 @@ export function WeeklyReview({ tasks, limit, weekFocus, onApply, onFinish, onClo
           );
         })()}
 
+        {step.kind === "rec-lapsed" && (() => {
+          const id = (step as { kind: "rec-lapsed"; id: string }).id;
+          const t = rec?.templates.find((x) => x.id === id);
+          if (!t || recHandled.has(id)) { return (
+            <div className="space-y-2">
+              <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>Resolved.</p>
+              <div className="flex justify-end"><button onClick={next} className={btnPrimary} style={{ background: "var(--accent)" }}>Next</button></div>
+            </div>
+          ); }
+          return (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold">Come round: {t.title}</h3>
+              <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                {t.repeat}{t.last_done ? ` · last done ${t.last_done}` : " · never done yet"}.
+                Accepting creates one Ready task{t.next_action ? <> — first action: “{t.next_action}”</> : null}.
+              </p>
+              {recError && <p className="text-[10px] text-red-500">{recError}</p>}
+              <div className="flex gap-1.5 flex-wrap">
+                <button onClick={() => recAction(id, () => api.recurrenceAccept(id))}
+                  className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700">
+                  Accept — create the task</button>
+                <button onClick={() => recAction(id, () => api.recurrenceDefer(id))}
+                  className="px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600"
+                  title="Waits for the next review. The miss is noted on the template, not on you.">
+                  Not this week</button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {step.kind === "rec-question" && (() => {
+          const id = (step as { kind: "rec-question"; id: string }).id;
+          const t = rec?.templates.find((x) => x.id === id);
+          if (!t || recHandled.has(id)) { return (
+            <div className="space-y-2">
+              <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>Resolved.</p>
+              <div className="flex justify-end"><button onClick={next} className={btnPrimary} style={{ background: "var(--accent)" }}>Next</button></div>
+            </div>
+          ); }
+          return (
+            <TemplateQuestion key={id} template={t} error={recError}
+              onCadence={(repeat) => recAction(id, () => patchTemplate(id, { repeat, missed: 0, deferred: "" }))}
+              onTooBig={(next_action, size) => recAction(id, () => patchTemplate(id, { next_action, size, missed: 0, deferred: "" }))}
+              onDemote={(domain) => recAction(id, () => api.recurrenceDemote(id, domain))}
+              onRetire={() => recAction(id, () => patchTemplate(id, { state: "retired" }))} />
+          );
+        })()}
+
         {step.kind === "focus" && (
           <div className="space-y-2">
             <h3 className="text-sm font-semibold">One line for the week</h3>
@@ -725,5 +801,88 @@ export function WeeklyReview({ tasks, limit, weekFocus, onApply, onFinish, onClo
         <DiscardDialog task={dlgTask} onResolve={(r) => resolveWith(dialog.idx, r)} onCancel={() => setDialog(null)} />
       )}
     </>
+  );
+}
+
+/* ── The template question ──────────────────────────────────────
+   A recurring task that keeps not happening is evidence about the
+   template, not the person. The review may ask the question; it may
+   not answer it — no auto-demotion, ever. */
+
+function TemplateQuestion({ template: t, error, onCadence, onTooBig, onDemote, onRetire }: {
+  template: RecurrenceTemplate;
+  error: string;
+  onCadence: (repeat: string) => void;
+  onTooBig: (next_action: string, size: string) => void;
+  onDemote: (domain: string) => void;
+  onRetire: () => void;
+}) {
+  const [mode, setMode] = useState<null | "cadence" | "toobig" | "demote">(null);
+  const [repeat, setRepeat] = useState(t.repeat);
+  const [nextAction, setNextAction] = useState(t.next_action);
+  const [size, setSize] = useState(t.size);
+  const [domain, setDomain] = useState("body");
+
+  const input = "text-xs px-2 py-1 rounded outline-none focus:ring-1 focus:ring-blue-400";
+  const inputStyle = { background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" } as const;
+  const opt = "px-2 py-0.5 rounded text-[10px] font-medium";
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold">↻ {t.title}</h3>
+      <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+        This keeps not happening. Wrong cadence, too big, or not a task at all?
+      </p>
+      {error && <p className="text-[10px] text-red-500">{error}</p>}
+      <div className="flex gap-1.5 flex-wrap">
+        <button onClick={() => setMode(mode === "cadence" ? null : "cadence")}
+          className={`${opt} bg-blue-100 text-blue-700`}>Wrong cadence</button>
+        <button onClick={() => setMode(mode === "toobig" ? null : "toobig")}
+          className={`${opt} bg-purple-100 text-purple-700`}>Too big</button>
+        <button onClick={() => setMode(mode === "demote" ? null : "demote")}
+          className={`${opt} bg-emerald-100 text-emerald-700`}
+          title="Not a task — it's a pattern. Retires the template and creates a habit carrying the note.">
+          It's a habit</button>
+        <button onClick={onRetire} className={`${opt} bg-gray-100 text-gray-500`}
+          title="The obligation is over. Completed copies stay done, in place.">Retire</button>
+      </div>
+      {mode === "cadence" && (
+        <div className="flex gap-1.5 items-center">
+          <input type="text" value={repeat} onChange={(e) => setRepeat(e.target.value)}
+            className={`${input} w-48`} style={inputStyle}
+            placeholder='e.g. "monthly on 25", "every 8w"' />
+          <button onClick={() => onCadence(repeat)} disabled={!repeat.trim()}
+            className={`${opt} bg-blue-100 text-blue-700 disabled:opacity-50`}>
+            Adjust — a correction, not a defeat</button>
+        </div>
+      )}
+      {mode === "toobig" && (
+        <div className="space-y-1.5">
+          <input type="text" value={nextAction} onChange={(e) => setNextAction(e.target.value)}
+            className={`${input} w-full`} style={inputStyle}
+            placeholder="an honest first action" />
+          <div className="flex gap-1.5 items-center">
+            <select value={size} onChange={(e) => setSize(e.target.value)} className={input} style={inputStyle}>
+              {ESTIMATES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+            <button onClick={() => onTooBig(nextAction, size)}
+              className={`${opt} bg-purple-100 text-purple-700`}>Scope it down</button>
+          </div>
+        </div>
+      )}
+      {mode === "demote" && (
+        <div className="flex gap-1.5 items-center">
+          <select value={domain} onChange={(e) => setDomain(e.target.value)} className={input} style={inputStyle}>
+            <option value="body">🌱 Body</option>
+            <option value="mind">🌱 Mind</option>
+            <option value="soul">🌱 Soul</option>
+            <option value="sleep">🌱 Sleep</option>
+          </select>
+          <button onClick={() => onDemote(domain)} className={`${opt} bg-emerald-100 text-emerald-700`}
+            title="Missing a pattern only breaks the pattern — nothing will be owed anymore">
+            Make it a habit</button>
+        </div>
+      )}
+    </div>
   );
 }

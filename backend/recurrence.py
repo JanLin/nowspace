@@ -367,6 +367,41 @@ def credit_completions(content: str, templates: List[RecurrenceTemplate],
     return changed
 
 
+def build_instance_task(t: RecurrenceTemplate, occurrence_iso: str, with_due: bool):
+    """An ordinary ready BucketTask carrying the recurrence designation.
+    Identity is derived from (template, occurrence) — see instance_identity."""
+    from backend.models import BucketTask, Subtask
+    from backend.routers.plan import _stamp_bucket_week
+
+    label = f"{t.group.strip()}: {t.title.strip()}" if t.group.strip() else t.title.strip()
+    if t.note.strip():
+        label = f"{label} [[{t.note.strip()}]]"
+    return BucketTask(
+        text=_stamp_bucket_week(f"{label} ~i{instance_identity(t.id, occurrence_iso)}"),
+        stage="ready",
+        estimate=t.size if t.size in ("s", "m", "l") else "s",
+        recurrence_id=t.id,
+        due_date=occurrence_iso if with_due else "",
+        ready_since=occurrence_iso,
+        stage_entered_at=occurrence_iso,
+        subtasks=[Subtask(text=t.next_action.strip())] if t.next_action.strip() else [],
+    )
+
+
+def has_live_instance(template_id: str) -> bool:
+    """Any live copy in the bucket or a current/future week file?"""
+    from backend.routers.plan import _bucket_path, _parse_bucket_file
+
+    bucket = _bucket_path()
+    tasks: list = []
+    if bucket.exists():
+        try:
+            tasks, _ = _parse_bucket_file(bucket.read_text(encoding="utf-8"))
+        except Exception:
+            return True  # unreadable bucket: assume live, never double-spawn
+    return template_id in _find_live_instances(tasks, _week_files())
+
+
 def run_recurrence_pass() -> None:
     """Spawn due calendar occurrences, apply the no-stacking rule, credit
     completions, repair one-live-instance violations that arrived over sync.
@@ -384,12 +419,10 @@ def run_recurrence_pass() -> None:
 
 
 def _run_recurrence_pass() -> None:
-    # Local import: plan.py imports nothing from here, this module owns the
-    # dependency direction (recurrence → plan parsing helpers).
-    from backend.models import BucketTask, Subtask
+    # Local import: plan.py imports nothing from here at module level, this
+    # module owns the dependency direction (recurrence → plan helpers).
     from backend.routers.plan import (
         _bucket_path, _format_bucket_tasks, _parse_bucket_file,
-        _stamp_bucket_week,
     )
 
     templates = load_templates()
@@ -463,20 +496,7 @@ def _run_recurrence_pass() -> None:
                     else:
                         _move_week_due_date(ref, t.id, occ_iso)
             else:
-                label = f"{t.group.strip()}: {t.title.strip()}" if t.group.strip() else t.title.strip()
-                if t.note.strip():
-                    label = f"{label} [[{t.note.strip()}]]"
-                text = _stamp_bucket_week(f"{label} ~i{instance_identity(t.id, occ_iso)}")
-                new_task = BucketTask(
-                    text=text,
-                    stage="ready",
-                    estimate=t.size if t.size in ("s", "m", "l") else "s",
-                    recurrence_id=t.id,
-                    due_date=occ_iso,
-                    ready_since=occ_iso,
-                    stage_entered_at=occ_iso,
-                    subtasks=[Subtask(text=t.next_action.strip())] if t.next_action.strip() else [],
-                )
+                new_task = build_instance_task(t, occ_iso, with_due=True)
                 bucket_tasks.append(new_task)
                 bucket_changed = True
                 live.setdefault(t.id, []).append(("bucket", new_task))

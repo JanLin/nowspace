@@ -331,6 +331,87 @@ def test_get_recurrence_reports_lapsed_and_threshold(client, vault):
     assert data["threshold_ids"] == ["bbbbbb"]
 
 
+# ── Review actions: accept / defer / demote ───────────────────
+
+def _interval_template(**overrides):
+    fields = dict(
+        id="abc123", title="visit customer x", repeat="every 6w", size="m",
+        group="Work", next_action="propose a date to X", state="active",
+        created=_iso(TODAY - timedelta(days=100)),
+        last_done=_iso(TODAY - timedelta(days=50)),
+    )
+    fields.update(overrides)
+    return RecurrenceTemplate(**fields)
+
+
+def test_accept_creates_one_ready_instance_without_due_date(client, vault):
+    _write_templates(vault, [_interval_template()])
+    r = client.post("/plan/recurrence/accept", json={"id": "abc123"})
+    assert r.json()["status"] == "created"
+    tasks = client.get("/plan/bucket").json()["tasks"]
+    inst = [t for t in tasks if t["recurrence_id"] == "abc123"]
+    assert len(inst) == 1
+    assert inst[0]["stage"] == "ready"
+    assert inst[0]["due_date"] == ""  # the actual date needs agreeing with a human
+    assert inst[0]["subtasks"][0]["text"] == "propose a date to X"
+    # Idempotent: a second accept (other device, double tap) creates nothing
+    r2 = client.post("/plan/recurrence/accept", json={"id": "abc123"})
+    assert r2.json()["status"] == "exists"
+    tasks2 = client.get("/plan/bucket").json()["tasks"]
+    assert len([t for t in tasks2 if t["recurrence_id"] == "abc123"]) == 1
+
+
+def test_accept_refuses_calendar_templates(client, vault):
+    _write_templates(vault, [_weekly_template()])
+    r = client.post("/plan/recurrence/accept", json={"id": "abc123"})
+    assert r.status_code == 400
+
+
+def test_accepted_template_leaves_the_lapsed_list(client, vault):
+    _write_templates(vault, [_interval_template()])
+    assert client.get("/plan/recurrence").json()["lapsed_ids"] == ["abc123"]
+    client.post("/plan/recurrence/accept", json={"id": "abc123"})
+    assert client.get("/plan/recurrence").json()["lapsed_ids"] == []
+
+
+def test_defer_increments_missed_and_waits_for_next_review(client, vault):
+    _write_templates(vault, [_interval_template()])
+    r = client.post("/plan/recurrence/defer", json={"id": "abc123"})
+    assert r.status_code == 200
+    until = r.json()["until"]
+    assert until > _iso(TODAY)
+    stored = parse_recurring_file((vault / "0-Inbox" / "Plan Week Recurring.md").read_text(encoding="utf-8"))
+    assert stored[0].missed == 1
+    assert stored[0].deferred == until
+    assert client.get("/plan/recurrence").json()["lapsed_ids"] == []
+
+
+def test_demote_retires_the_template_and_creates_a_habit(client, vault):
+    """The conversion path is a migration — retire plus create, carrying the
+    note link and a weekly target (day steering doesn't exist on habits)."""
+    _write_templates(vault, [_weekly_template(
+        repeat="weekly on mon thu", note="Plant care", missed=3)])
+    r = client.post("/plan/recurrence/demote", json={"id": "abc123", "domain": "soul"})
+    assert r.status_code == 200
+    assert r.json()["habit"] == "water plants"
+    stored = parse_recurring_file((vault / "0-Inbox" / "Plan Week Recurring.md").read_text(encoding="utf-8"))
+    assert stored[0].state == "retired"
+    habits_text = (vault / "0-Inbox" / "Plan Week Habits.md").read_text(encoding="utf-8")
+    assert "- water plants: 2x/week, [[Plant care]]" in habits_text
+    assert "## Soul" in habits_text
+
+
+def test_retiring_never_touches_completed_instances(client, vault):
+    """Done items stay done, in place — retire only flips the template."""
+    _write_templates(vault, [_weekly_template(spawned=_iso(TODAY))])
+    week = vault / "0-Inbox" / "Plan Week.md"
+    year, wk, _ = TODAY.isocalendar()
+    done_line = "- [x] C1: water plants ~es ~rabc123"
+    week.write_text(f"Week {year}-wk{wk:02d}\n\n##### Mon 1\n{done_line}\n", encoding="utf-8")
+    client.post("/plan/recurrence/demote", json={"id": "abc123", "domain": "body"})
+    assert done_line in week.read_text(encoding="utf-8")
+
+
 # ── Basic mode ────────────────────────────────────────────────
 
 def test_pass_is_a_noop_in_basic_mode(client, vault, monkeypatch):
