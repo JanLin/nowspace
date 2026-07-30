@@ -182,6 +182,22 @@ export function bucketAnchorKey(text: string): string {
   return m ? `i:${m[1].toLowerCase()}` : stripBucketMeta(stripCtxTokens(text));
 }
 
+/** A recurring copy's due date implies a horizon for filtering: due this
+    ISO week (or past — quiet, never overdue) = n, next week = nw, later
+    = m. An explicit horizon prefix always wins over this. */
+export function dueHorizon(due?: string): "" | "n" | "nw" | "m" {
+  if (!due) return "";
+  const d = new Date(`${due}T00:00:00`);
+  if (isNaN(d.getTime())) return "";
+  const monday = (x: Date) => {
+    const m = new Date(x.getFullYear(), x.getMonth(), x.getDate());
+    m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+    return m.getTime();
+  };
+  const weeks = Math.round((monday(d) - monday(new Date())) / (7 * 86400000));
+  return weeks <= 0 ? "n" : weeks === 1 ? "nw" : "m";
+}
+
 /** Entered-week stamp as {yy, week} or null if unstamped */
 export function bucketEnteredWeek(text: string): { yy: number; week: number } | null {
   const m = text.match(/~w(\d{2})(\d{2})\b/i);

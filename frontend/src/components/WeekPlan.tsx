@@ -15,7 +15,7 @@ import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
   ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
   stripCtxTokens, stripGroupCtxTag, stripBucketMeta, isPinnedText, isEpicText, resolveContext, ctxFeatureEnabled,
-  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
+  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection, dueHorizon,
 } from "../contexts";
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -3081,7 +3081,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const bucketHzCounts = bucketTasks.reduce((acc, task) => {
     if (!taskVisibleInMode(task.text)) return acc;
     if ((task.stage || "captured") !== "ready") return acc;
-    const hz = (task.horizon || "none") as "n" | "nw" | "m" | "none";
+    // A recurring copy's due date counts as its horizon (n = this week)
+    const hz = (task.horizon || dueHorizon(task.due_date) || "none") as "n" | "nw" | "m" | "none";
     acc[hz] = (acc[hz] || 0) + 1;
     acc[""] = (acc[""] || 0) + 1;
     return acc;
@@ -4581,8 +4582,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               // on; in Basic every bucket item is schedulable, so the sheet
               // would otherwise be permanently empty.
               if (funnelOn && (task.stage || "captured") !== "ready") { unboundCount++; return; }
-              // Horizon lens — filters what's listed, never what's schedulable
-              if (bucketHz && (task.horizon || "none") !== bucketHz) return;
+              // Horizon lens — filters what's listed, never what's schedulable.
+              // A recurring copy's due date counts as its horizon.
+              if (bucketHz && (task.horizon || dueHorizon(task.due_date) || "none") !== bucketHz) return;
               const { group, label } = parseGroup(stripBucketMeta(stripCtxTokens(task.text)));
               let section = byGroup.get(group);
               if (!section) {
