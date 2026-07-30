@@ -100,12 +100,17 @@ export function nextOccurrenceISO(c: RepeatChoice, from: Date): string {
     up as n that week") or monthly with a clickable day grid. When editing
     an existing template it also offers pause/resume and stop. Absolutely
     positioned — render inside a `relative` anchor. */
-export function RepeatPopover({ template, onSave, onPause, onStop, onClose }: {
+export function RepeatPopover({ template, onSave, onPause, onStop, onClose, align = "right" }: {
   template?: RecurrenceTemplate | null; // null/undefined = creating
   onSave: (choice: RepeatChoice) => void;
   onPause?: () => void; // toggles pause/resume when editing
   onStop?: () => void;  // retire; the task stays as an ordinary task
   onClose: () => void;
+  /** Which edge of the anchor to align with. The ↻ badge sits at the LEFT
+      of the task, so its popover must open rightward (align="left") or it
+      falls off the window; the hover icon on the row's right edge keeps
+      the default. */
+  align?: "left" | "right";
 }) {
   const existing = template ? parseRepeatChoice(template.repeat) : null;
   const interval = template ? isIntervalRepeat(template.repeat) : false;
@@ -128,7 +133,7 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose }: {
     active ? undefined : ({ background: "var(--bg-tertiary)", color: "var(--text-secondary)" } as const);
 
   return (
-    <div className="absolute top-6 right-0 z-40 rounded-lg shadow-xl border p-2.5 w-60 space-y-2"
+    <div className={`absolute top-6 ${align === "left" ? "left-0" : "right-0"} z-40 rounded-lg shadow-xl border p-2.5 w-60 space-y-2`}
       style={{ background: "var(--bg)", borderColor: "var(--border)" }}
       onClick={(e) => e.stopPropagation()}>
       {interval ? (

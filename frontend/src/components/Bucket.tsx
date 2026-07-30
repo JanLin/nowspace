@@ -1936,6 +1936,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                           </button>
                           {repeatPopover === originalIdx && (
                             <RepeatPopover template={recById.get(task.recurrence_id) || null}
+                              align="left"
                               onSave={(c) => applyRepeat(originalIdx, c)}
                               onPause={() => togglePauseRepeat(originalIdx)}
                               onStop={() => stopRepeat(originalIdx)}
