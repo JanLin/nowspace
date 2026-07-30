@@ -371,6 +371,11 @@ def _increment_bucket_slips() -> int:
     the bucket slipped. Increment their slipCount (funnel stage 4). Slips and
     age-in-ready stay separate figures — never summed anywhere.
 
+    Recurring instances are excluded: a recurring copy that keeps slipping is
+    evidence the *template* is mis-specified, not the item or the person, so
+    the miss routes to the template's counter — where it triggers one
+    question in the review — and never to slip_count or the 3-slip dialog.
+
     Called once per archived week. Returns how many items slipped.
     """
     bucket = _bucket_path()
@@ -381,13 +386,39 @@ def _increment_bucket_slips() -> int:
     except Exception:
         return 0
     slipped = 0
+    missed_template_ids: list[str] = []
     for t in tasks:
         if t.stage == "ready" and t.horizon == "n":
+            if t.recurrence_id:
+                missed_template_ids.append(t.recurrence_id)
+                continue
             t.slip_count += 1
             slipped += 1
     if slipped:
         bucket.write_text(_format_bucket_tasks(tasks, pinned), encoding="utf-8")
+    if missed_template_ids:
+        _route_misses_to_templates(missed_template_ids)
     return slipped
+
+
+def _route_misses_to_templates(template_ids: list[str]) -> None:
+    """Instance slips at week close accrue on their templates (missedStreak).
+    Best-effort, same posture as the funnel log — never blocks the close."""
+    try:
+        from backend import recurrence as rec
+        templates = rec.load_templates()
+        changed = False
+        by_id = {t.id: t for t in templates if t.id}
+        for tid in template_ids:
+            t = by_id.get(tid)
+            if t is not None:
+                t.missed += 1
+                changed = True
+        if changed:
+            rec.save_templates(templates)
+    except Exception:
+        import logging
+        logging.getLogger("plan.recurrence").exception("miss routing failed")
 
 
 def _auto_transition_if_needed() -> list[str]:
@@ -420,6 +451,19 @@ def _auto_transition_if_needed() -> list[str]:
             break  # file is current or future — no transition needed
 
         log.info(f"Auto-transitioning: Plan Week.md is wk{file_week:02d}, calendar is wk{cal_week:02d}")
+
+        # Credit recurring completions in the closing week before it leaves —
+        # a copy checked off late (or synced in unread) must not look like a
+        # miss when the next occurrence arrives. Best-effort, never blocks.
+        try:
+            from backend import recurrence as rec_mod
+            rec_templates = rec_mod.load_templates()
+            if rec_templates and rec_mod.credit_completions(
+                current_file.read_text(encoding="utf-8"), rec_templates
+            ):
+                rec_mod.save_templates(rec_templates)
+        except Exception:
+            log.exception("recurrence credit at week close failed")
 
         # Archive the stale file
         archive_dir = _archive_path()
@@ -1931,6 +1975,10 @@ async def funnel_stats():
     slip_by_group: dict[str, dict] = {}
     for t in tasks:
         if t.stage != "ready":
+            continue
+        # Recurring instances never carry slips (misses live on the template),
+        # so counting them here would only deflate every group's slip rate.
+        if t.recurrence_id:
             continue
         group, _ = _parse_group(t.text)
         g = group or "(ungrouped)"

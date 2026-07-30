@@ -412,6 +412,57 @@ def test_retiring_never_touches_completed_instances(client, vault):
     assert done_line in week.read_text(encoding="utf-8")
 
 
+# ── Week close: misses route to the template, never slip_count ─
+
+def _stale_week_label():
+    iso = TODAY.isocalendar()
+    wk = iso[1] - 1 if iso[1] > 1 else 52
+    yr = iso[0] if iso[1] > 1 else iso[0] - 1
+    return f"{yr}-wk{wk:02d}"
+
+
+def test_week_close_routes_instance_slips_to_the_template(client, vault):
+    """Acceptance (stage 4): a recurring instance committed to a closing week
+    leaves slip_count untouched and increments its template's missedStreak."""
+    _write_templates(vault, [_weekly_template(spawned=_iso(TODAY))])
+    (vault / "0-Inbox" / "Plan Week Bucket.md").write_text(
+        "# Planning Bucket\n\n"
+        "- nA: ordinary thing ~s:ready ~e:s ~i111111\n"
+        "- nB: water plants ~s:ready ~e:s ~rabc123 ~i222222\n",
+        encoding="utf-8",
+    )
+    (vault / "0-Inbox" / "Plan Week.md").write_text(
+        f"## Goals\n\nWeek {_stale_week_label()}\n\n##### Monday 01.01\n\n#### Notes\n",
+        encoding="utf-8",
+    )
+    r = client.get("/plan/week?offset=0")
+    assert r.status_code == 200
+    from backend.routers.plan import _parse_bucket_file, _strip_bucket_meta
+    tasks, _ = _parse_bucket_file((vault / "0-Inbox" / "Plan Week Bucket.md").read_text(encoding="utf-8"))
+    by_label = {_strip_bucket_meta(t.text): t for t in tasks}
+    assert by_label["ordinary thing"].slip_count == 1
+    assert by_label["water plants"].slip_count == 0
+    stored = parse_recurring_file((vault / "0-Inbox" / "Plan Week Recurring.md").read_text(encoding="utf-8"))
+    assert stored[0].missed == 1
+
+
+def test_week_close_credits_a_done_instance_before_archiving(client, vault):
+    """A copy checked off in the closing week (perhaps synced in unread)
+    credits the template before the file leaves for the archive."""
+    _write_templates(vault, [_weekly_template(
+        spawned=_iso(TODAY), missed=2, last_done=_iso(TODAY - timedelta(days=30)))])
+    (vault / "0-Inbox" / "Plan Week.md").write_text(
+        f"## Goals\n\nWeek {_stale_week_label()}\n\n"
+        "##### Monday 01.01\n- [x] C1: water plants ~es ~rabc123\n\n#### Notes\n",
+        encoding="utf-8",
+    )
+    r = client.get("/plan/week?offset=0")
+    assert r.status_code == 200
+    stored = parse_recurring_file((vault / "0-Inbox" / "Plan Week Recurring.md").read_text(encoding="utf-8"))
+    assert stored[0].last_done == _iso(TODAY)
+    assert stored[0].missed == 0
+
+
 # ── Basic mode ────────────────────────────────────────────────
 
 def test_pass_is_a_noop_in_basic_mode(client, vault, monkeypatch):

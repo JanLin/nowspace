@@ -485,8 +485,10 @@ export function WeeklyReview({ tasks, limit, weekFocus, onApply, onFinish, onClo
 
   // Snapshot the step list up front; indexes reference the live tasks array.
   const bindingIdxs = tasks.map((t, i) => ({ t, i })).filter(({ t }) => stageOf(t) === "binding").map(({ i }) => i);
+  // Recurring instances never enter the slips step or the 3-slip question —
+  // their misses accrue on the template and get the template question instead.
   const slippedIdxs = tasks.map((t, i) => ({ t, i }))
-    .filter(({ t }) => stageOf(t) === "ready" && (t.slip_count || 0) > 0).map(({ i }) => i);
+    .filter(({ t }) => stageOf(t) === "ready" && (t.slip_count || 0) > 0 && !t.recurrence_id).map(({ i }) => i);
   const wokenIdxs = tasks.map((t, i) => ({ t, i }))
     .filter(({ t }) => stageOf(t) === "dormant" && (t.wake_date || "9999") <= today).map(({ i }) => i);
 
