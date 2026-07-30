@@ -1,6 +1,6 @@
 [package]
 name = "nowspace"
-version = "0.4.12"
+version = "0.4.13"
 description = "Nowspace - Personal Coaching Agent"
 authors = ["Jan Lindquist"]
 edition = "2021"

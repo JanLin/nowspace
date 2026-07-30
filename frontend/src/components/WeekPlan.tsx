@@ -4610,7 +4610,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 <span className="plan-pop relative shrink-0">
                   <button
                     onClick={(e) => { e.stopPropagation(); setPanelPrioMenu(panelPrioMenu === idx ? null : idx); }}
-                    className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${task.priority ? PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
+                    className={`px-1 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${task.priority ? PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
                     style={!task.priority ? { border: "1px solid var(--border)" } : undefined}
                     title="Priority, horizon (n / nw / m), or pick a weekday"
                   >
@@ -4661,7 +4661,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     </div>
                   )}
                 </span>
-                <span className={`flex-1 truncate ${task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }} title={label}>
+                <span className={`flex-1 truncate ${task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }}
+                  title={`${label} — from ${DAY_LABELS[task.from_day] || task.from_day}`}>
                   {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
                   {label}
                 </span>
@@ -4798,7 +4799,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 <span className="plan-pop relative shrink-0 mr-1">
                   <button
                     onClick={(e) => { e.stopPropagation(); setCarryPrioMenu(carryPrioMenu === idx ? null : idx); }}
-                    className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C}`}
+                    className={`px-1 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C}`}
                     title="Priority, park in bucket (n / nw / m), or pick a weekday"
                   >
                     {task.priority || "C"}
@@ -4843,7 +4844,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
                   {label}
                 </span>
-                <span className="text-[9px] text-gray-300 shrink-0">{task.from_day.slice(0, 3)}</span>
                 <button
                   onClick={() => pullFromCarry(idx, carryTargetIdx)}
                   title={`Carry to ${carryTargetLabel}`}
@@ -5032,7 +5032,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     <span className="plan-pop relative shrink-0 mr-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); setPriorityMenu(priorityMenu?.day === it.dayIdx && priorityMenu?.task === it.taskIdx ? null : { day: it.dayIdx, task: it.taskIdx }); }}
-                        className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${PRIORITY_BADGE[it.task.priority] || PRIORITY_BADGE.C}`}
+                        className={`px-1 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${PRIORITY_BADGE[it.task.priority] || PRIORITY_BADGE.C}`}
                         title="Priority, park in bucket (n / nw / m), or move to a weekday"
                       >
                         {it.task.priority || "C"}
