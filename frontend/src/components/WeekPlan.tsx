@@ -3133,7 +3133,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{habitsOpen ? "▾" : "▸"}</span>
             </button>
             <div className={`${habitsOpen ? "block" : "hidden"} sm:block`}>
-              <HabitStrip habits={habits} onLog={logHabit} />
+              <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} />
             </div>
           </>
         )}
@@ -3446,7 +3446,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       <>
         {weekOffset === 0 && habits.length > 0 && (
           <div className="mb-2">
-            <HabitStrip habits={habits} onLog={logHabit} compact />
+            <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} compact />
           </div>
         )}
         {/* On phones the 5/7-day grids scroll horizontally with readable columns

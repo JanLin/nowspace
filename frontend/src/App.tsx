@@ -527,7 +527,7 @@ export default function App() {
             </div>
           </div>
           <div className={view === "habits" ? "max-w-3xl mx-auto" : "hidden"}>
-            <Habits />
+            <Habits onOpenNote={showNote} />
           </div>
           <div className={view === "time" ? "max-w-3xl mx-auto" : "hidden"}>
             <TimeTab />

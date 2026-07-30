@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Habit } from "../api";
-import { habitDomainStyle } from "./HabitStrip";
+import { HabitNoteLink, habitDomainStyle } from "./HabitStrip";
 
 /* The registration of habits you've built — a calm, read-mostly view.
    Logging happens via the habit strip in the week view; this tab shows
@@ -22,9 +22,10 @@ type HabitRow = {
   period: string;
   morning: boolean;
   duration: number; // minutes per occurrence; 0 = untimed
+  note: string; // wikilink target of the how-to note; "" = none
 };
 
-export default function Habits() {
+export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, name: string) => void }) {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [found, setFound] = useState<boolean | null>(null);
   const [creating, setCreating] = useState(false);
@@ -63,7 +64,7 @@ export default function Habits() {
     setRows(habits.map((h) => ({
       name: h.name, domain: h.domain, variants: h.variants.join(", "),
       target: h.period === "day" ? 1 : h.target, period: h.period, morning: h.morning,
-      duration: h.duration || 0,
+      duration: h.duration || 0, note: h.note || "",
     })));
     setEditing(true);
   };
@@ -80,6 +81,7 @@ export default function Habits() {
         period: r.period === "day" ? "day" : "week",
         morning: r.morning,
         duration: Math.max(0, r.duration || 0),
+        note: r.note.replace(/^\[\[|\]\]$/g, "").trim(),
       })));
       setEditing(false);
       load();
@@ -190,6 +192,14 @@ export default function Habits() {
                         title="Minutes per occurrence — 0 means untimed" />
                       min
                     </label>
+                    <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                      📄
+                      <input type="text" value={r.note} placeholder="note that explains how"
+                        onChange={(e) => update({ note: e.target.value })}
+                        className="w-36 px-1.5 py-1 rounded text-xs"
+                        style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+                        title="Name of the vault note with the steps — reference only, never a task" />
+                    </label>
                     <button onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
                       className="text-xs px-1" style={{ color: "var(--text-tertiary)" }} title="Remove habit">
                       ✕
@@ -198,7 +208,7 @@ export default function Habits() {
                 );
               })}
               <button
-                onClick={() => setRows((prev) => [...prev, { name: "", domain: d, variants: "", target: 1, period: "week", morning: false, duration: 0 }])}
+                onClick={() => setRows((prev) => [...prev, { name: "", domain: d, variants: "", target: 1, period: "week", morning: false, duration: 0, note: "" }])}
                 className="text-[10px] px-2 py-1 rounded"
                 style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
                 + Add {DOMAIN_TITLES[d] || d} habit
@@ -264,6 +274,7 @@ export default function Habits() {
                       )}
                       {h.morning && <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>morning</span>}
                       {h.duration > 0 && <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>~{h.duration >= 60 ? `${Math.floor(h.duration / 60)}h${h.duration % 60 || ""}` : `${h.duration}min`}</span>}
+                      {h.note && onOpenNote && <HabitNoteLink note={h.note} onOpenNote={onOpenNote} />}
                     </div>
                     {h.variants.length > 0 && (
                       <div className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>

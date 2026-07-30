@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Habit } from "../api";
+import { api, type Habit } from "../api";
 import { normTime, shiftTime, nowHHMM } from "../timefmt";
 
 export interface HabitTime { start: string; minutes: number }
@@ -21,13 +21,39 @@ export function habitDomainStyle(domain: string) {
   return HABIT_DOMAIN[domain] || { icon: "🌱", color: "#9ca3af" };
 }
 
+/** The note that explains how — reference material, nothing more. Shown
+    wherever the habit is; resolves on tap so a note synced in moments ago
+    still opens. */
+export function HabitNoteLink({ note, onOpenNote }: {
+  note: string;
+  onOpenNote: (path: string, name: string) => void;
+}) {
+  const name = note.split("|")[0].split("#")[0].trim();
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        api.vaultResolve(name).then((res) => {
+          if (res.path) onOpenNote(res.path, res.name || name);
+        }).catch(() => {});
+      }}
+      className="px-0.5 text-[10px] opacity-60 hover:opacity-100"
+      title={`Open ${name}`}
+    >
+      📄
+    </button>
+  );
+}
+
 export default function HabitStrip({
   habits,
   onLog,
+  onOpenNote,
   compact = false,
 }: {
   habits: Habit[];
   onLog: (habit: Habit, variant?: string, time?: HabitTime) => void;
+  onOpenNote?: (path: string, name: string) => void;
   compact?: boolean;
 }) {
   const [pickerFor, setPickerFor] = useState<string | null>(null);
@@ -87,7 +113,7 @@ export default function HabitStrip({
         const atTarget = !remaining(h);
         const tiny = h.established && atTarget;
         return (
-          <div key={h.name} className="relative">
+          <div key={h.name} className="relative flex items-center">
             <button
               onClick={() => handleTap(h)}
               title={
@@ -111,6 +137,9 @@ export default function HabitStrip({
                 <span className="opacity-70">{h.week_count}/{h.target}</span>
               )}
             </button>
+            {h.note && onOpenNote && !tiny && (
+              <HabitNoteLink note={h.note} onOpenNote={onOpenNote} />
+            )}
             {pickerFor === h.name && (
               <div
                 className="absolute left-0 top-full mt-1 z-30 flex gap-1 rounded-lg shadow-lg border p-1"
