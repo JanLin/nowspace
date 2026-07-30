@@ -1483,7 +1483,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       <span className="prio-pop relative shrink-0">
                         <button
                           onClick={(e) => { e.stopPropagation(); setPrioMenu(prioMenu === i ? null : i); }}
-                          className={`px-1 rounded text-[9px] font-bold cursor-pointer hover:opacity-70 ${t.priority ? PRIORITY_BADGE[t.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
+                          className={`px-1 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${t.priority ? PRIORITY_BADGE[t.priority] || PRIORITY_BADGE.C : "text-gray-400"}`}
                           style={{
                             ...(!t.priority ? { border: "1px solid var(--border)" } : {}),
                             ...(t.priority === "A" && hz !== "n" ? { boxShadow: "0 0 0 1.5px rgb(245 158 11 / 0.7)" } : {}),
@@ -1803,7 +1803,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       <span className="prio-pop relative shrink-0">
                         <button
                           onClick={(e) => { e.stopPropagation(); setPrioMenu(prioMenu === originalIdx ? null : originalIdx); }}
-                          className={`px-1 py-0 rounded text-[10px] font-bold cursor-pointer hover:opacity-70 ${
+                          className={`px-1.5 py-0.5 rounded text-xs font-bold cursor-pointer hover:opacity-70 ${
                             task.priority ? PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.C : "text-gray-400"
                           }`}
                           style={{
