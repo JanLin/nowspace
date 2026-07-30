@@ -2894,6 +2894,14 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             {renderLinkedText(displayText)}
           </span>
         )}
+        {/* ↻ recurring designation — a quiet fact, no overdue styling ever */}
+        {/~r[0-9a-f]{6}\b/i.test(task.text) && (
+          <span className="shrink-0 text-[9px] px-1 rounded"
+            style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}
+            title="A recurring task — one copy at a time; misses go to its template, never to you">
+            ↻
+          </span>
+        )}
         {task.pillars?.length > 0 && (
           <span className="shrink-0" title={task.pillars.map((p) => PILLAR_ICONS[p]?.title || p).join(", ")}>
             {task.pillars.map((p) => PILLAR_ICONS[p]?.symbol || p).join("")}

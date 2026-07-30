@@ -1,5 +1,6 @@
 """Funnel stages 4–6: slippage at week close, the slate cutoff, diagnostics."""
 
+from backend.models import BUCKET_SCHEMA_VERSION
 from datetime import date
 
 from backend.routers import plan as plan_mod
@@ -116,7 +117,7 @@ def test_transitions_are_logged(client, vault):
     tasks[0].wake_date = "2026-10-01"
     r = client.post("/plan/bucket/save", json={
         "tasks": [t.model_dump() for t in tasks], "pinned_groups": [],
-        "schema_version": 2,
+        "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 200
     log = (vault / "0-Inbox" / "Plan Week Funnel Log.md").read_text()

@@ -11,13 +11,14 @@ from pydantic import BaseModel, ConfigDict
 # the frontend refuses to edit against an older backend. Both directions of
 # version skew then fail loudly instead of silently flattening the vault.
 #   1 = pre-funnel · 2 = funnel (stage/question/mode/estimate/…)
+#   3 = recurrence (recurrence_id/due_date)
 #
 # VERSIONING POLICY: this constant moves only with a MINOR app release
 # (0.4 → 0.5), never in a patch. Patch releases (0.x.y) must keep the
 # format unchanged, so mixed patch levels interoperate freely and
 # upgrading is optional; a schema bump is what makes an upgrade mandatory
 # across every instance. Bump the two together, or not at all.
-BUCKET_SCHEMA_VERSION = 2
+BUCKET_SCHEMA_VERSION = 3
 
 
 class Subtask(BaseModel):
@@ -140,6 +141,15 @@ class BucketTask(BaseModel):
     wake_date: str = ""      # ISO date, required on dormant
     discard_reason: str = "" # no_agency | already_decided | not_mine
     stage_entered_at: str = ""  # ISO date, updated on every stage change
+    # ── Recurrence (spawned instances of a template) ────────────
+    # Presence of recurrence_id IS the designation: it routes week-close
+    # misses to the template instead of slip_count, and bars the item from
+    # captured/binding (binding happened once, at template creation).
+    # Tokens ~r… / ~du… are colon-free because, unlike the rest of the
+    # tilde family, they ride week lines too (see plan.py FUNNEL_META).
+    recurrence_id: str = ""  # 6-hex template id; "" = not recurring
+    due_date: str = ""       # ISO date, calendar instances only — a quiet
+                             # fact, never an overdue signal
 
 
 class BucketResponse(BaseModel):

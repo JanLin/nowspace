@@ -1,5 +1,6 @@
 """Basic vs Advanced: what the funnel switch does to the vault and the gate."""
 
+from backend.models import BUCKET_SCHEMA_VERSION
 import pytest
 
 
@@ -50,7 +51,7 @@ def test_ready_gate_follows_the_funnel_flag_not_the_mode(client, bucket):
     client.post("/api/settings/app", json={"mode": "advanced", "funnel": False})
     r = client.post("/plan/bucket/move", json={
         "task_index": 0, "direction": "from_bucket", "day_idx": 0,
-        "week_offset": 0, "schema_version": 2,
+        "week_offset": 0, "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 200, r.text
 
@@ -81,7 +82,7 @@ def test_basic_reads_past_funnel_tokens_without_erasing_them(client, bucket):
     # save the bucket back exactly as Basic would see it
     r = client.post("/plan/bucket/save", json={
         "tasks": body["tasks"], "pinned_groups": body.get("pinned_groups", []),
-        "schema_version": 2,
+        "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 200, r.text
     text = (bucket / "0-Inbox" / "Plan Week Bucket.md").read_text(encoding="utf-8")
@@ -95,7 +96,7 @@ def test_ready_gate_applies_in_advanced(client, bucket):
         "Week 2026-wk30\n\n##### Monday 20.07\n\n#### Notes\n", encoding="utf-8")
     r = client.post("/plan/bucket/move", json={
         "task_index": 0, "direction": "from_bucket", "day_idx": 0,
-        "week_offset": 0, "schema_version": 2,
+        "week_offset": 0, "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 400 and "Ready" in r.json()["detail"]
 
@@ -108,7 +109,7 @@ def test_basic_can_schedule_without_a_stage(client, bucket):
     client.post("/api/settings/app", json={"mode": "basic"})
     r = client.post("/plan/bucket/move", json={
         "task_index": 0, "direction": "from_bucket", "day_idx": 0,
-        "week_offset": 0, "schema_version": 2,
+        "week_offset": 0, "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 200, r.text
     week = (bucket / "0-Inbox" / "Plan Week.md").read_text(encoding="utf-8")

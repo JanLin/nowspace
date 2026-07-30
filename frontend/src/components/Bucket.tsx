@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { api } from "../api";
-import type { BucketTask, BucketResponse, TaskLink, BucketStage, FunnelSettings } from "../api";
+import type { BucketTask, BucketResponse, TaskLink, BucketStage, FunnelSettings, RecurrenceTemplate } from "../api";
+import RecurrenceModal from "./Recurrence";
 import TaskCheck from "./TaskCheck";
 import { Cluster } from "../clusters";
 import {
@@ -48,6 +49,13 @@ function parseGroup(rawText: string): { group: string; label: string } {
       return { group, label };
   }
   return { group: "", label: text };
+}
+
+/** Quiet due-date label ("25 Aug"). Identical styling before and after the
+    date — a recurring copy has no overdue state, only a date that moves. */
+function fmtDue(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
 /** Extract wiki links from text */
@@ -176,6 +184,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   const [stageDialog, setStageDialog] = useState<{ idx: number; kind: "bind" | "ready" | "dormant" | "discard" } | null>(null);
   const [evictionFor, setEvictionFor] = useState<number | null>(null); // idx of item waiting for a Shaping slot
   const [reviewOpen, setReviewOpen] = useState(false);
+  // null = closed; {} = open plain; {prefill} = open with a new template row
+  const [recurrenceOpen, setRecurrenceOpen] = useState<null | { prefill?: Partial<RecurrenceTemplate> }>(null);
   const [statsOpen, setStatsOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [composerFor, setComposerFor] = useState<{ idx: number; area: string } | null>(null);
@@ -1297,6 +1307,12 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           title="The weekly review: reconcile slips, check Shaping, refill slots, set the week's line. ~5 minutes.">
           🧭 Review{reviewDue ? " · due" : ""}
         </button>}
+        {funnelOn && <button onClick={() => setRecurrenceOpen({})}
+          className="whitespace-nowrap px-2 py-1 mt-0.5 rounded text-[10px] font-medium transition-colors"
+          style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+          title="Recurring tasks — standing templates that place one Ready copy at a time. Never a pile.">
+          ↻ Recurring
+        </button>}
         {ctxEnabled && (
           <Cluster kind="tag" label="Tag" open={openCluster === "tag"} onToggle={() => toggleCluster("tag")}
             summary={ctxSel.length ? ctxSel.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join("+") : "All"}>
@@ -1829,6 +1845,17 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         </span>
                       )}
 
+                      {/* ↻ recurring designation — a quiet fact. The date never
+                          changes styling when it passes: there is no overdue
+                          state, the copy just keeps its date until done. */}
+                      {funnelOn && task.recurrence_id && (
+                        <span className="shrink-0 text-[8px] px-1 rounded"
+                          style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}
+                          title="A recurring task — one copy at a time; misses go to its template, never to you">
+                          ↻{task.due_date ? ` ${fmtDue(task.due_date)}` : ""}
+                        </span>
+                      )}
+
                       {/* Task text */}
                       {editingTask === originalIdx ? (
                         <EditInput initialValue={displayLabel} onSave={(t) => editTask(originalIdx, t)} onCancel={() => setEditingTask(null)}
@@ -1869,6 +1896,22 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                           : "Link vault note"}>
                         🔗{hasLinks && taskLinks.length > 1 && <sup className="text-[8px] font-bold">{taskLinks.length}</sup>}
                       </button>
+
+                      {/* ↻ Make recurring — opens template creation prefilled;
+                          this item stays and is completed/discarded normally,
+                          it does not become the template */}
+                      {funnelOn && !task.recurrence_id && stageOf(task) === "ready" && (
+                        <button onClick={(e) => {
+                          e.stopPropagation();
+                          setRecurrenceOpen({ prefill: {
+                            title: displayLabel.includes(": ") ? displayLabel.slice(displayLabel.indexOf(": ") + 2) : displayLabel,
+                            group: parseGroup(task.text).group || "",
+                            size: task.estimate || "",
+                          } });
+                        }}
+                          className="text-xs opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
+                          title="Make a recurring template from this — the template repeats; this copy is still finished normally">↻</button>
+                      )}
 
                       {/* 📂 Move to group */}
                       <div className="relative">
@@ -2113,6 +2156,16 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
           onApply={(idx, updated) => updateTasks(tasks.map((t, i) => (i === idx ? updated : t)))}
           onFinish={finishReview}
           onClose={() => setReviewOpen(false)} />
+      )}
+      {recurrenceOpen && (
+        <RecurrenceModal prefill={recurrenceOpen.prefill || null}
+          groups={[...allGroups.keys()]}
+          onClose={() => {
+            setRecurrenceOpen(null);
+            // A saved template may spawn on the next read — refetch unless
+            // there are unsaved local edits (never clobber those).
+            if (!dirty) fetchBucket();
+          }} />
       )}
       {statsOpen && <FunnelStatsModal onClose={() => setStatsOpen(false)} />}
       {handoffOpen && <HandoffSurface onClose={() => setHandoffOpen(false)} onOpenNote={onOpenNote} />}

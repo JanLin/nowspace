@@ -8,6 +8,7 @@ existing one; `question` cannot be empty and must end in '?'.
 
 from datetime import date
 
+from backend.models import BUCKET_SCHEMA_VERSION
 from backend.routers.plan import (
     _extract_funnel_meta,
     _format_bucket_tasks,
@@ -115,7 +116,7 @@ def test_move_refuses_non_ready(client, vault):
     _week_file(vault)
     _write_bucket(vault, "# Planning Bucket\n\n- unbounded topic\n")
     r = client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": 2,
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 400
     assert "Ready" in r.json()["detail"]
@@ -130,7 +131,7 @@ def test_move_allows_ready_and_preserves_binding_artifacts(client, vault):
         "\t- do the first step\n",
     )
     r = client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": 2,
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 200, r.text
     week = (vault / "0-Inbox" / WEEK).read_text()
@@ -149,11 +150,11 @@ def test_week_task_returns_ready_when_still_bound(client, vault):
         "\t- do the first step\n",
     )
     client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": 2,
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": BUCKET_SCHEMA_VERSION,
     })
     # it is Monday's only task — send it back
     r = client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "to_bucket", "day_idx": 0, "schema_version": 2,
+        "task_index": 0, "direction": "to_bucket", "day_idx": 0, "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 200, r.text
     tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
@@ -167,7 +168,7 @@ def test_unbound_week_task_returns_captured(client, vault):
     _week_file(vault, monday_task="loose idea from the week")
     _write_bucket(vault, "# Planning Bucket\n")
     r = client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "to_bucket", "day_idx": 0, "schema_version": 2,
+        "task_index": 0, "direction": "to_bucket", "day_idx": 0, "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 200, r.text
     tasks, _ = _parse_bucket_file((vault / "0-Inbox" / BUCKET).read_text())
@@ -179,7 +180,7 @@ def test_unbound_week_task_returns_captured(client, vault):
 def _save(client, tasks):
     return client.post("/plan/bucket/save", json={
         "tasks": [t.model_dump() for t in tasks], "pinned_groups": [],
-        "schema_version": 2,
+        "schema_version": BUCKET_SCHEMA_VERSION,
     })
 
 
@@ -372,7 +373,7 @@ def test_vault_from_the_future_refuses_edits(client, vault):
     assert "another device" in r.json()["detail"].lower() or "format 99" in r.json()["detail"]
     assert (vault / "0-Inbox" / BUCKET).read_text() == before
     r = client.post("/plan/bucket/move", json={
-        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": 2,
+        "task_index": 0, "direction": "from_bucket", "day_idx": 0, "schema_version": BUCKET_SCHEMA_VERSION,
     })
     assert r.status_code == 422
 
