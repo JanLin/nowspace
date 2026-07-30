@@ -35,6 +35,9 @@ interface NoteFilePickerProps {
   onClose: () => void;
   /** Week offset for folder resolution */
   weekOffset?: number;
+  /** Folder to open in when no group resolves ("" = vault root, browse
+      everything). Default: the inbox, matching the capture convention. */
+  startFolder?: string;
 }
 
 export default function NoteFilePicker({
@@ -47,6 +50,7 @@ export default function NoteFilePicker({
   onReplaceLink,
   onClose,
   weekOffset = 0,
+  startFolder = DEFAULT_FOLDER,
 }: NoteFilePickerProps) {
   const [files, setFiles] = useState<NoteFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,13 +81,14 @@ export default function NoteFilePicker({
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
-  // Load files: group folder if resolved, otherwise the inbox
-  const loadProjectsFolder = () => {
-    api.vaultFolder(DEFAULT_FOLDER).then((res) => {
+  // Load files: group folder if resolved, otherwise the start folder
+  const loadFolder = (path: string) => {
+    api.vaultFolder(path).then((res) => {
       setFiles(res.files.map(f => ({ name: f.name, path: f.path, type: f.type === "folder" ? "subfolder" : "project" })));
-      setFolderPath(DEFAULT_FOLDER);
+      setFolderPath(path);
     }).catch(() => setFiles([])).finally(() => setLoading(false));
   };
+  const loadProjectsFolder = () => loadFolder(startFolder);
 
   useEffect(() => {
     setLoading(true);
@@ -208,15 +213,13 @@ export default function NoteFilePicker({
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1 min-w-0">
-          {folderPath && folderPath !== DEFAULT_FOLDER && (
+          {/* Up goes all the way to the vault root — the whole vault is
+              browsable, wherever the picker happened to open */}
+          {folderPath && (
             <button
               onClick={() => {
-                const parent = folderPath.split("/").slice(0, -1).join("/") || DEFAULT_FOLDER;
                 setLoading(true);
-                api.vaultFolder(parent).then((res) => {
-                  setFiles(res.files.map(f => ({ name: f.name, path: f.path, type: f.type === "folder" ? "subfolder" : "project" })));
-                  setFolderPath(parent);
-                }).catch(() => setFiles([])).finally(() => setLoading(false));
+                loadFolder(folderPath.split("/").slice(0, -1).join("/"));
               }}
               className="text-[10px] text-blue-500 hover:text-blue-700 shrink-0"
               title="Go up"
@@ -225,7 +228,7 @@ export default function NoteFilePicker({
             </button>
           )}
           <span className="text-xs font-semibold text-gray-700 truncate">
-            {group && folderPath && folderPath !== DEFAULT_FOLDER ? `Notes — ${group}` : folderPath ? folderPath.split("/").pop() : "Inbox"}
+            {group && folderPath && folderPath !== DEFAULT_FOLDER ? `Notes — ${group}` : folderPath ? folderPath.split("/").pop() : "Vault"}
           </span>
         </div>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xs shrink-0">&times;</button>

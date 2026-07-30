@@ -54,13 +54,50 @@ def _weekly_template(**overrides) -> RecurrenceTemplate:
 # ── Repeat vocabulary ─────────────────────────────────────────
 
 def test_parse_repeat_vocabulary():
-    assert parse_repeat("monthly on 25") == {"kind": "monthly", "day": 25}
-    assert parse_repeat("Weekly on Mon Thu") == {"kind": "weekly", "weekdays": [0, 3]}
-    assert parse_repeat("weekly") == {"kind": "weekly", "weekdays": []}  # any day that week
+    assert parse_repeat("monthly on 25") == {"kind": "monthly", "day": 25, "every": 1}
+    assert parse_repeat("Weekly on Mon Thu") == {"kind": "weekly", "weekdays": [0, 3], "every": 1}
+    assert parse_repeat("weekly") == {"kind": "weekly", "weekdays": [], "every": 1}  # any day that week
+    assert parse_repeat("2-weekly on thu") == {"kind": "weekly", "weekdays": [3], "every": 2}
+    assert parse_repeat("2-weekly") == {"kind": "weekly", "weekdays": [], "every": 2}
+    assert parse_repeat("3-monthly on 25") == {"kind": "monthly", "day": 25, "every": 3}
     assert parse_repeat("every 6w") == {"kind": "interval", "days": 42}
     assert parse_repeat("every 45d") == {"kind": "interval", "days": 45}
-    for bad in ("", "monthly on 0", "monthly on 32", "weekly on xyz", "every 0w", "sometimes"):
+    for bad in ("", "monthly on 0", "monthly on 32", "weekly on xyz", "every 0w",
+                "0-weekly", "53-weekly", "13-monthly on 5", "sometimes"):
         assert parse_repeat(bad) is None, bad
+
+
+def test_every_n_weeks_skips_the_off_weeks():
+    """2-weekly: only weeks an even number of weeks from the anchor are on."""
+    monday = date(2026, 7, 6)
+    occs = occurrences_between(
+        {"kind": "weekly", "weekdays": [3], "every": 2}, monday, monday + timedelta(days=28))
+    assert occs == [date(2026, 7, 9), date(2026, 7, 23)]  # Thu on-week, Thu skip, Thu on-week
+    # Re-anchoring on the last handled occurrence keeps the same parity
+    occs2 = occurrences_between(
+        {"kind": "weekly", "weekdays": [3], "every": 2}, date(2026, 7, 9), date(2026, 8, 10))
+    assert occs2 == [date(2026, 7, 23), date(2026, 8, 6)]
+
+
+def test_every_n_months_skips_the_off_months():
+    occs = occurrences_between(
+        {"kind": "monthly", "day": 25, "every": 3}, date(2026, 1, 25), date(2026, 12, 31))
+    assert occs == [date(2026, 4, 25), date(2026, 7, 25), date(2026, 10, 25)]
+
+
+def test_every_n_weeks_spawn_honours_parity(client, vault):
+    """A 2-weekly template whose ledger is two weeks back spawns exactly the
+    on-week occurrence — the off week in between is not an occurrence and
+    records no miss."""
+    _write_templates(vault, [_weekly_template(
+        repeat=f"2-weekly on {_weekday_name(TODAY)}", spawned=_iso(TODAY - timedelta(days=14)))])
+    r = client.get("/plan/bucket")
+    inst = [t for t in r.json()["tasks"] if t["recurrence_id"] == "abc123"]
+    assert len(inst) == 1
+    assert inst[0]["due_date"] == _iso(TODAY)
+    stored = parse_recurring_file((vault / "0-Inbox" / "Plan Week Recurring.md").read_text(encoding="utf-8"))
+    assert stored[0].missed == 0  # one occurrence handled, nothing collided
+    assert stored[0].spawned == _iso(TODAY)
 
 
 def test_monthly_occurrences_clamp_to_short_months():

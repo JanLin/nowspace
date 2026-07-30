@@ -47,9 +47,13 @@ MISS_THRESHOLD = 3
 
 _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
-REPEAT_MONTHLY_RE = re.compile(r"^monthly\s+on\s+(\d{1,2})$", re.IGNORECASE)
+# An optional "N-" prefix sets the cadence: "2-weekly on thu" = Thursday
+# every second week, "3-monthly on 25" = the 25th every third month. Which
+# weeks/months are "on" is anchored by the spawned ledger (parity from the
+# last handled occurrence), so editing the schedule re-anchors cleanly.
+REPEAT_MONTHLY_RE = re.compile(r"^(?:(\d{1,2})-)?monthly\s+on\s+(\d{1,2})$", re.IGNORECASE)
 # Bare "weekly" = comes up that week with no preferred day (no due date)
-REPEAT_WEEKLY_RE = re.compile(r"^weekly(?:\s+on\s+((?:\w{3}\s*)+))?$", re.IGNORECASE)
+REPEAT_WEEKLY_RE = re.compile(r"^(?:(\d{1,2})-)?weekly(?:\s+on\s+((?:\w{3}\s*)+))?$", re.IGNORECASE)
 REPEAT_INTERVAL_RE = re.compile(r"^every\s+(\d{1,3})\s*([wd])$", re.IGNORECASE)
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -66,8 +70,9 @@ collect, it's a recurring task and belongs here; if missing it only breaks
 a pattern, it's a habit and belongs in Plan Week Habits.md.
 
 Repeat vocabulary: "monthly on 25", "weekly on mon" (or "mon thu"),
-plain "weekly" (comes up that week, no set day), and "every 6w" /
-"every 45d" (measured from the last completion).
+plain "weekly" (comes up that week, no set day), an "N-" cadence prefix
+("2-weekly on thu", "3-monthly on 25"), and "every 6w" / "every 45d"
+(measured from the last completion).
 """
 
 
@@ -95,23 +100,27 @@ def parse_repeat(repeat: str) -> Optional[dict]:
     r = (repeat or "").strip()
     m = REPEAT_MONTHLY_RE.match(r)
     if m:
-        day = int(m.group(1))
-        if 1 <= day <= 31:
-            return {"kind": "monthly", "day": day}
+        every = int(m.group(1)) if m.group(1) else 1
+        day = int(m.group(2))
+        if 1 <= day <= 31 and 1 <= every <= 12:
+            return {"kind": "monthly", "day": day, "every": every}
         return None
     m = REPEAT_WEEKLY_RE.match(r)
     if m:
-        if not m.group(1):
-            return {"kind": "weekly", "weekdays": []}  # any day that week
+        every = int(m.group(1)) if m.group(1) else 1
+        if not 1 <= every <= 52:
+            return None
+        if not m.group(2):
+            return {"kind": "weekly", "weekdays": [], "every": every}
         days = []
-        for w in m.group(1).split():
+        for w in m.group(2).split():
             wl = w.lower()[:3]
             if wl not in _WEEKDAYS:
                 return None
             idx = _WEEKDAYS.index(wl)
             if idx not in days:
                 days.append(idx)
-        return {"kind": "weekly", "weekdays": sorted(days)} if days else None
+        return {"kind": "weekly", "weekdays": sorted(days), "every": every} if days else None
     m = REPEAT_INTERVAL_RE.match(r)
     if m:
         n = int(m.group(1))
@@ -191,7 +200,8 @@ def format_recurring_file(templates: List[RecurrenceTemplate]) -> str:
         if t.id:
             lines.append(f"- id: {t.id}")
         lines.append(f"- repeat: {t.repeat.strip()}")
-        lines.append(f"- size: {t.size}")
+        if t.size:
+            lines.append(f"- size: {t.size}")
         if t.group.strip():
             lines.append(f"- group: {t.group.strip()}")
         if t.next_action.strip():
@@ -241,16 +251,24 @@ def _month_occurrence(year: int, month: int, day: int) -> date:
 
 
 def occurrences_between(parsed: dict, after: date, until: date) -> List[date]:
-    """Calendar occurrence dates d with after < d <= until, oldest first."""
+    """Calendar occurrence dates d with after < d <= until, oldest first.
+
+    `after` doubles as the cadence anchor for every-N schedules: the weeks
+    (Monday-aligned) or months that are "on" are those a multiple of N from
+    it. The ledger walk hands each handled occurrence back in as the next
+    anchor, so parity is stable across runs and devices."""
     if until <= after:
         return []
+    every = parsed.get("every", 1)
     out: List[date] = []
     if parsed["kind"] == "monthly":
+        anchor_mi = after.year * 12 + (after.month - 1)
         y, m = after.year, after.month
         for _ in range(0, (until.year - after.year) * 12 + (until.month - after.month) + 1):
-            occ = _month_occurrence(y, m, parsed["day"])
-            if after < occ <= until:
-                out.append(occ)
+            if ((y * 12 + (m - 1)) - anchor_mi) % every == 0:
+                occ = _month_occurrence(y, m, parsed["day"])
+                if after < occ <= until:
+                    out.append(occ)
             m += 1
             if m > 12:
                 y, m = y + 1, 1
@@ -258,10 +276,13 @@ def occurrences_between(parsed: dict, after: date, until: date) -> List[date]:
         # No preferred day = the week itself is the occurrence; anchor on
         # Monday so every device derives the same occurrence key.
         weekdays = parsed["weekdays"] or [0]
+        anchor_monday = after - timedelta(days=after.weekday())
         d = after + timedelta(days=1)
         while d <= until:
             if d.weekday() in weekdays:
-                out.append(d)
+                monday = d - timedelta(days=d.weekday())
+                if ((monday - anchor_monday).days // 7) % every == 0:
+                    out.append(d)
             d += timedelta(days=1)
     return out
 

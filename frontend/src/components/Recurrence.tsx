@@ -9,7 +9,7 @@ import { ModalShell } from "./Funnel";
    a question about the cadence). The creation gate refuses — size always,
    a coordination step for interval templates — and never warns. */
 
-export const REPEAT_HINT = 'e.g. "monthly on 25", "weekly on mon", "weekly", "every 6w"';
+export const REPEAT_HINT = 'e.g. "monthly on 25", "weekly on mon", "2-weekly on thu", "every 6w"';
 
 export function isIntervalRepeat(repeat: string): boolean {
   return /^every\s+\d+\s*[wd]$/i.test(repeat.trim());
@@ -21,24 +21,28 @@ const WDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const WDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export type RepeatChoice =
-  | { kind: "weekly"; weekdays: number[] } // [] = any day that week
-  | { kind: "monthly"; day: number };
+  | { kind: "weekly"; weekdays: number[]; every: number } // weekdays [] = any day that week
+  | { kind: "monthly"; day: number; every: number };
 
 export function repeatString(c: RepeatChoice): string {
-  if (c.kind === "monthly") return `monthly on ${c.day}`;
-  return c.weekdays.length ? `weekly on ${c.weekdays.map((i) => WDAY_KEYS[i]).join(" ")}` : "weekly";
+  const prefix = c.every > 1 ? `${c.every}-` : "";
+  if (c.kind === "monthly") return `${prefix}monthly on ${c.day}`;
+  return c.weekdays.length
+    ? `${prefix}weekly on ${c.weekdays.map((i) => WDAY_KEYS[i]).join(" ")}`
+    : `${prefix}weekly`;
 }
 
 /** Parse a calendar repeat back into a choice (null for interval/invalid). */
 export function parseRepeatChoice(repeat: string): RepeatChoice | null {
   const r = repeat.trim().toLowerCase();
-  const mm = r.match(/^monthly\s+on\s+(\d{1,2})$/);
-  if (mm) return { kind: "monthly", day: parseInt(mm[1], 10) };
-  if (r === "weekly") return { kind: "weekly", weekdays: [] };
-  const wm = r.match(/^weekly\s+on\s+((?:\w{3}\s*)+)$/);
+  const mm = r.match(/^(?:(\d{1,2})-)?monthly\s+on\s+(\d{1,2})$/);
+  if (mm) return { kind: "monthly", day: parseInt(mm[2], 10), every: mm[1] ? parseInt(mm[1], 10) : 1 };
+  const wm = r.match(/^(?:(\d{1,2})-)?weekly(?:\s+on\s+((?:\w{3}\s*)+))?$/);
   if (wm) {
-    const days = wm[1].split(/\s+/).map((w) => WDAY_KEYS.indexOf(w.slice(0, 3))).filter((i) => i >= 0);
-    return days.length ? { kind: "weekly", weekdays: [...new Set(days)].sort() } : null;
+    const every = wm[1] ? parseInt(wm[1], 10) : 1;
+    if (!wm[2]) return { kind: "weekly", weekdays: [], every };
+    const days = wm[2].split(/\s+/).map((w) => WDAY_KEYS.indexOf(w.slice(0, 3))).filter((i) => i >= 0);
+    return days.length ? { kind: "weekly", weekdays: [...new Set(days)].sort(), every } : null;
   }
   return null;
 }
@@ -49,9 +53,12 @@ export function repeatTooltip(repeat: string): string {
   if (isIntervalRepeat(r)) return `Repeats ${r.toLowerCase()} — surfaces in the weekly review`;
   const c = parseRepeatChoice(r);
   if (!c) return "Repeats";
-  if (c.kind === "monthly") return `Repeats monthly on the ${c.day}${ordinal(c.day)}`;
-  if (!c.weekdays.length) return "Repeats weekly — comes up as n, no set day";
-  return `Repeats weekly on ${c.weekdays.map((i) => WDAY_LABELS[i]).join(", ")}`;
+  const cadence = c.every > 1
+    ? (c.kind === "monthly" ? `every ${c.every} months` : `every ${c.every} weeks`)
+    : (c.kind === "monthly" ? "monthly" : "weekly");
+  if (c.kind === "monthly") return `Repeats ${cadence} on the ${c.day}${ordinal(c.day)}`;
+  if (!c.weekdays.length) return `Repeats ${cadence} — comes up as n, no set day`;
+  return `Repeats ${cadence} on ${c.weekdays.map((i) => WDAY_LABELS[i]).join(", ")}`;
 }
 
 function ordinal(n: number): string {
@@ -105,9 +112,14 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose }: {
   const [kind, setKind] = useState<"weekly" | "monthly">(existing?.kind === "monthly" ? "monthly" : "weekly");
   const [weekdays, setWeekdays] = useState<number[]>(existing?.kind === "weekly" ? existing.weekdays : []);
   const [monthDay, setMonthDay] = useState<number>(existing?.kind === "monthly" ? existing.day : 0);
+  const [every, setEvery] = useState<number>(existing?.every || 1);
+  const everyMax = kind === "weekly" ? 52 : 12;
+  const clampedEvery = Math.max(1, Math.min(everyMax, every || 1));
 
   const choice: RepeatChoice | null =
-    kind === "weekly" ? { kind: "weekly", weekdays } : monthDay ? { kind: "monthly", day: monthDay } : null;
+    kind === "weekly"
+      ? { kind: "weekly", weekdays, every: clampedEvery }
+      : monthDay ? { kind: "monthly", day: monthDay, every: clampedEvery } : null;
   const changed = !existing || !template || (choice && repeatString(choice) !== template.repeat.trim().toLowerCase());
 
   const chip = (active: boolean) =>
@@ -129,6 +141,20 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose }: {
             <button onClick={() => setKind("weekly")} className={chip(kind === "weekly")} style={chipStyle(kind === "weekly")}>weekly</button>
             <button onClick={() => setKind("monthly")} className={chip(kind === "monthly")} style={chipStyle(kind === "monthly")}>monthly</button>
           </div>
+          {/* Cadence: every N weeks/months. − and + because number-input
+              spinners are fiddly at this size; the value is also typeable. */}
+          <div className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+            <span>every</span>
+            <button onClick={() => setEvery(Math.max(1, clampedEvery - 1))}
+              className="px-1.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>−</button>
+            <input type="number" min={1} max={everyMax} value={clampedEvery}
+              onChange={(e) => setEvery(parseInt(e.target.value || "1", 10))}
+              className="w-10 px-1 py-0.5 rounded text-center"
+              style={{ background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+            <button onClick={() => setEvery(Math.min(everyMax, clampedEvery + 1))}
+              className="px-1.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>＋</button>
+            <span>{kind === "weekly" ? (clampedEvery === 1 ? "week" : "weeks") : (clampedEvery === 1 ? "month" : "months")}</span>
+          </div>
           {kind === "weekly" && (
             <>
               <div className="flex gap-0.5">
@@ -142,7 +168,7 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose }: {
                 ))}
               </div>
               <p className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>
-                {weekdays.length ? `Every ${weekdays.map((i) => WDAY_LABELS[i]).join(", ")}` : "No day picked — comes up as n for the week"}
+                {choice ? repeatTooltip(repeatString(choice)).replace(/^Repeats /, "") : ""}
               </p>
             </>
           )}
@@ -158,7 +184,9 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose }: {
                 ))}
               </div>
               <p className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>
-                {monthDay ? `Every month on the ${monthDay}${ordinal(monthDay)} (short months clamp)` : "Pick a day of the month"}
+                {monthDay && choice
+                  ? `${repeatTooltip(repeatString(choice)).replace(/^Repeats /, "")} (short months clamp)`
+                  : "Pick a day of the month"}
               </p>
             </>
           )}
@@ -200,8 +228,7 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose }: {
 export function describeRepeat(repeat: string): string {
   const r = repeat.trim().toLowerCase();
   if (isIntervalRepeat(r)) return "wakes in the weekly review when the interval has passed";
-  if (/^monthly\s+on\s+\d{1,2}$/.test(r) || /^weekly\s+on\s+((mon|tue|wed|thu|fri|sat|sun)\s*)+$/.test(r))
-    return "spawns one Ready copy on the date";
+  if (parseRepeatChoice(r)) return "spawns one copy at a time, on schedule";
   return "";
 }
 

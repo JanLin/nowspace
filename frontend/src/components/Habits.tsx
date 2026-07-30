@@ -227,6 +227,7 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
           <NoteFilePicker
             existingLinks={rows[notePicker.idx]?.note ? [{ name: rows[notePicker.idx].note }] : []}
             position={notePicker.pos}
+            startFolder=""
             onSelect={(path, name) => { setNotePicker(null); onOpenNote?.(path, name); }}
             onAddLink={(name) => { setRowNote(notePicker.idx, name); setNotePicker(null); }}
             onRemoveLink={() => { setRowNote(notePicker.idx, ""); setNotePicker(null); }}
