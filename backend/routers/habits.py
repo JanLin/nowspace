@@ -9,10 +9,12 @@ parses definitions and computes progress — it never writes into week files.
 import re
 from datetime import date
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend import vault_index
 from backend.agents.obsidian_reader import parse_week_plan
 from backend.config import config
 from backend.routers.plan import _list_archived_week_files
@@ -20,9 +22,38 @@ from backend.routers.plan import _list_archived_week_files
 router = APIRouter(prefix="/plan/habits", tags=["habits"])
 
 # Target segment: comma-separated tokens after the last colon —
-# "3x/week", "daily", "morning", and an optional duration "30min" / "2h" / "1h30"
+# "3x/week", "daily", "morning", an optional duration "30min" / "2h" / "1h30",
+# and an optional bare wikilink "[[Note name]]" pointing at the note that
+# explains how (reference material only — never a work item).
 FREQ_RE = re.compile(r"^(\d+)\s*x\s*/\s*week$", re.IGNORECASE)
 DUR_RE = re.compile(r"^(?:(\d+)\s*h(?:ours?)?\s*(\d+)?|(\d+)\s*m(?:in(?:utes)?)?)$", re.IGNORECASE)
+NOTE_RE = re.compile(r"^\[\[([^\]]+)\]\]$")
+
+# App-managed file families a habit note must never point at: linking a work
+# item would hand the habit completion semantics through the back door.
+_WORK_ITEM_STEM_RE = re.compile(r"^(plan week|time log)\b", re.IGNORECASE)
+
+
+def note_name(note: str) -> str:
+    """Display/resolution name of a note link: strip |alias and #heading."""
+    return note.split("|")[0].split("#")[0].strip()
+
+
+def note_error(note: str) -> Optional[str]:
+    """Why this note value can't be stored, or None if it's fine."""
+    if "," in note or ":" in note:
+        # A comma splits the target segment; a colon trips the last-colon
+        # name/target split. Both would corrupt the line on re-read.
+        return f'note "{note}" can\'t contain "," or ":"'
+    name = note_name(note)
+    if not name:
+        return "note link is empty"
+    if _WORK_ITEM_STEM_RE.match(name):
+        return f'"{name}" is a work-item file — habit notes link reference notes only'
+    resolved = vault_index.resolve_name(name)
+    if resolved and _WORK_ITEM_STEM_RE.match(Path(resolved).stem):
+        return f'"{name}" resolves to a work-item file — habit notes link reference notes only'
+    return None
 
 # A daily habit counts as a met week at 5+ days — gentle, not perfectionist
 DAILY_WEEK_MET = 5
@@ -57,7 +88,7 @@ def _parse_habits_file(content: str) -> list[dict]:
         if ":" not in body:
             continue
         name_part, target_part = body.rsplit(":", 1)
-        target_part = target_part.strip().lower()
+        target_part = target_part.strip()
         # Variants in parentheses: "exercise (kayak | bike | run | weights)"
         variants: list[str] = []
         vm = re.search(r"\((.*?)\)\s*$", name_part)
@@ -69,11 +100,17 @@ def _parse_habits_file(content: str) -> list[dict]:
             continue
         morning = False
         duration = 0  # minutes per occurrence; 0 = untimed
+        note = ""  # wikilink target of the how-to note, original casing
         target, period = None, "week"
-        for token in (t.strip() for t in target_part.split(",")):
-            if not token:
+        # Keyword tokens match case-insensitively; the note link keeps its casing.
+        for raw_token in (t.strip() for t in target_part.split(",")):
+            if not raw_token:
                 continue
-            if token == "daily":
+            token = raw_token.lower()
+            nm = NOTE_RE.match(raw_token)
+            if nm:
+                note = nm.group(1).strip()
+            elif token == "daily":
                 target, period = 7, "day"
             elif token == "morning":
                 morning = True
@@ -87,7 +124,7 @@ def _parse_habits_file(content: str) -> list[dict]:
         habits.append({
             "name": name.lower(), "domain": domain or "body",
             "variants": variants, "target": target, "period": period,
-            "morning": morning, "duration": duration,
+            "morning": morning, "duration": duration, "note": note,
         })
     return habits
 
@@ -186,6 +223,7 @@ STARTER_TEMPLATE = """# Habits
 
 Targets are weekly and flexible — any variant counts, any day counts.
 Edit freely: "- name (variant | variant): 3x/week[, morning]" or "- name: daily".
+Link the note that explains how with ", [[Note name]]".
 
 ## Body
 - exercise (kayak | bike | run | weights): 3x/week, morning
@@ -210,6 +248,7 @@ class HabitDef(BaseModel):
     period: str = "week"  # "week" | "day"
     morning: bool = False
     duration: int = 0  # minutes per occurrence; 0 = untimed
+    note: str = ""  # wikilink target of the how-to note ("" = none)
 
 
 class SaveHabitsRequest(BaseModel):
@@ -223,6 +262,7 @@ def _format_habits_file(habits: list[HabitDef]) -> str:
         "",
         "Targets are weekly and flexible — any variant counts, any day counts.",
         'Edit freely: "- name (variant | variant): 3x/week[, morning]" or "- name: daily".',
+        'Link the note that explains how with ", [[Note name]]".',
     ]
     by_domain: dict[str, list[HabitDef]] = {}
     for h in habits:
@@ -241,6 +281,8 @@ def _format_habits_file(habits: list[HabitDef]) -> str:
                 target += ", morning"
             if h.duration > 0:
                 target += f", {h.duration // 60}h{h.duration % 60 or ''}" if h.duration >= 60 else f", {h.duration}min"
+            if h.note.strip():
+                target += f", [[{h.note.strip()}]]"
             lines.append(f"- {name}{variants}: {target}")
     lines.append("")
     return "\n".join(lines)
@@ -249,6 +291,14 @@ def _format_habits_file(habits: list[HabitDef]) -> str:
 @router.post("/save")
 async def save_habits(req: SaveHabitsRequest):
     """Persist habit definitions edited in the Habits tab."""
+    errors = []
+    for h in req.habits:
+        if h.note.strip():
+            err = note_error(h.note.strip())
+            if err:
+                errors.append(f"{h.name}: {err}")
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
     _habits_path().write_text(_format_habits_file(req.habits), encoding="utf-8")
     return {"status": "saved", "count": len(req.habits)}
 

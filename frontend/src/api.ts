@@ -132,6 +132,28 @@ export interface BucketTask {
   wake_date?: string;       // ISO date (dormant)
   discard_reason?: DiscardReason | "";
   stage_entered_at?: string; // ISO date
+  // Recurrence — presence of recurrence_id marks a spawned instance of a
+  // recurring template (~r / ~du tokens; they ride week lines too).
+  recurrence_id?: string;   // 6-hex template id; "" = not recurring
+  due_date?: string;        // ISO date, calendar instances only — a quiet
+                            // fact, never an overdue signal
+}
+
+export interface RecurrenceTemplate {
+  id: string;          // 6 hex; "" on a not-yet-saved template
+  title: string;
+  repeat: string;      // "monthly on 25" | "weekly on mon" | "every 6w"
+  size: string;        // s | m | l — required (this IS the ready gate)
+  group: string;       // bucket group instances spawn into
+  next_action: string; // required for interval templates only
+  note: string;        // wikilink target of the how-to note
+  state: "active" | "paused" | "retired";
+  created: string;     // ISO date
+  spawned: string;     // last handled occurrence (calendar ledger)
+  last_done: string;   // ISO date an instance last completed
+  missed: number;      // consecutive misses — surfaces only in the review
+  deferred: string;    // interval: hidden from the review until this date
+  extra: string[];     // unknown block lines, preserved verbatim
 }
 
 export interface HandoffArea {
@@ -209,6 +231,7 @@ export interface Habit {
   period: "week" | "day";
   morning: boolean;
   duration: number; // minutes per occurrence; 0 = untimed
+  note: string; // wikilink target of the how-to note ("" = none)
   week_count: number;
   days_done: number;
   today_count: number;
@@ -238,7 +261,7 @@ export interface DayNotesResponse {
 // BUCKET_SCHEMA_VERSION. Sent with every bucket write; the backend refuses
 // older senders (a stale PWA would otherwise flatten funnel fields), and
 // App.tsx compares it against /health to warn about skew at boot.
-export const CLIENT_SCHEMA_VERSION = 2;
+export const CLIENT_SCHEMA_VERSION = 3;
 
 export const api = {
   health: () => request<{ status: string; schema_version?: number }>("/health"),
@@ -573,10 +596,41 @@ export const api = {
   initHabits: () =>
     request<{ status: string }>("/plan/habits/init", { method: "POST" }),
 
-  saveHabits: (habits: { name: string; domain: string; variants: string[]; target: number; period: string; morning: boolean; duration: number }[]) =>
+  saveHabits: (habits: { name: string; domain: string; variants: string[]; target: number; period: string; morning: boolean; duration: number; note: string }[]) =>
     request<{ status: string; count: number }>("/plan/habits/save", {
       method: "POST",
       body: JSON.stringify({ habits }),
+    }),
+
+  // Recurrence templates
+  getRecurrence: () =>
+    request<{
+      found: boolean;
+      templates: RecurrenceTemplate[];
+      lapsed_ids: string[];
+      threshold_ids: string[];
+      mtime: number | null;
+    }>("/plan/recurrence"),
+
+  saveRecurrence: (templates: RecurrenceTemplate[], expected_mtime?: number | null) =>
+    request<{ status: string; count: number; mtime: number }>("/plan/recurrence/save", {
+      method: "POST",
+      body: JSON.stringify({ templates, expected_mtime: expected_mtime ?? null }),
+    }),
+
+  recurrenceAccept: (id: string) =>
+    request<{ status: string }>("/plan/recurrence/accept", {
+      method: "POST", body: JSON.stringify({ id }),
+    }),
+
+  recurrenceDefer: (id: string) =>
+    request<{ status: string; until: string }>("/plan/recurrence/defer", {
+      method: "POST", body: JSON.stringify({ id }),
+    }),
+
+  recurrenceDemote: (id: string, domain: string) =>
+    request<{ status: string; habit: string; target: number }>("/plan/recurrence/demote", {
+      method: "POST", body: JSON.stringify({ id, domain }),
     }),
 
   // Time tracking

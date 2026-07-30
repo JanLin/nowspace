@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
 from backend.config import config
-from backend.routers import plan, coach, memory, vault, notes, settings, habits, timelog, handoff
+from backend.routers import plan, coach, memory, vault, notes, settings, habits, timelog, handoff, recurrence
 
 app = FastAPI(title="Personal Coaching Agent", version="0.1.0")
 
@@ -34,6 +34,7 @@ app.include_router(settings.router)
 app.include_router(habits.router)
 app.include_router(timelog.router)
 app.include_router(handoff.router)
+app.include_router(recurrence.router)
 
 
 @app.get("/health")

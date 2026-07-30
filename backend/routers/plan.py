@@ -124,6 +124,12 @@ BUCKET_ID_RE = re.compile(r"~i(?:d:)?([0-9a-f]{6})\b", re.IGNORECASE)
 #   ~wake:2026-09-01  dormant wake date
 #   ~dr:no_agency     discard reason
 #   ~rh               mode = rehearse (absent = solve)
+#   ~ra1b2c3          recurrence template id (schema v3) — marks a spawned
+#     instance of a recurring template; colon-free because it rides week
+#     lines too (the id must survive scheduling so completion credits the
+#     template and week-close misses route to it, not to slip_count)
+#   ~du2026-08-25     due date (schema v3), calendar instances only —
+#     colon-free for the same reason; a quiet fact, never an overdue signal
 # The binding question is NOT a token — it persists as a leading "? " subtask
 # line, which old backends already round-trip as an ordinary subtask.
 FUNNEL_STAGES = ("captured", "binding", "ready", "dormant", "discarded")
@@ -141,6 +147,10 @@ FUNNEL_META_RE = re.compile(
     r"|wake:(?P<wake>\d{4}-\d{2}-\d{2})"
     r"|dr:(?P<reason>no_agency|already_decided|not_mine)"
     r"|(?P<rehearse>rh)"
+    # ~r must trail ~rs:/~rh in the alternation; the 6-hex body can't start
+    # with "s:" or be "h…", so the shorter forms never shadow each other
+    r"|r(?P<recur>[0-9a-f]{6})"
+    r"|du(?P<due>\d{4}-\d{2}-\d{2})"
     r")\b",
     re.IGNORECASE,
 )
@@ -166,6 +176,10 @@ def _extract_funnel_meta(text: str) -> tuple[str, dict]:
             fields["discard_reason"] = m.group("reason").lower()
         elif m.group("rehearse"):
             fields["mode"] = "rehearse"
+        elif m.group("recur"):
+            fields["recurrence_id"] = m.group("recur").lower()
+        elif m.group("due"):
+            fields["due_date"] = m.group("due")
         return ""
     clean = FUNNEL_META_RE.sub(_grab, text or "").strip()
     return clean, fields
@@ -196,6 +210,10 @@ def _funnel_tokens(task) -> str:
         parts.append(f"~dr:{task.discard_reason}")
     if getattr(task, "mode", "solve") == "rehearse":
         parts.append("~rh")
+    if getattr(task, "recurrence_id", ""):
+        parts.append(f"~r{task.recurrence_id}")
+    if getattr(task, "due_date", ""):
+        parts.append(f"~du{task.due_date}")
     return (" " + " ".join(parts)) if parts else ""
 
 
@@ -353,6 +371,11 @@ def _increment_bucket_slips() -> int:
     the bucket slipped. Increment their slipCount (funnel stage 4). Slips and
     age-in-ready stay separate figures — never summed anywhere.
 
+    Recurring instances are excluded: a recurring copy that keeps slipping is
+    evidence the *template* is mis-specified, not the item or the person, so
+    the miss routes to the template's counter — where it triggers one
+    question in the review — and never to slip_count or the 3-slip dialog.
+
     Called once per archived week. Returns how many items slipped.
     """
     bucket = _bucket_path()
@@ -363,13 +386,39 @@ def _increment_bucket_slips() -> int:
     except Exception:
         return 0
     slipped = 0
+    missed_template_ids: list[str] = []
     for t in tasks:
         if t.stage == "ready" and t.horizon == "n":
+            if t.recurrence_id:
+                missed_template_ids.append(t.recurrence_id)
+                continue
             t.slip_count += 1
             slipped += 1
     if slipped:
         bucket.write_text(_format_bucket_tasks(tasks, pinned), encoding="utf-8")
+    if missed_template_ids:
+        _route_misses_to_templates(missed_template_ids)
     return slipped
+
+
+def _route_misses_to_templates(template_ids: list[str]) -> None:
+    """Instance slips at week close accrue on their templates (missedStreak).
+    Best-effort, same posture as the funnel log — never blocks the close."""
+    try:
+        from backend import recurrence as rec
+        templates = rec.load_templates()
+        changed = False
+        by_id = {t.id: t for t in templates if t.id}
+        for tid in template_ids:
+            t = by_id.get(tid)
+            if t is not None:
+                t.missed += 1
+                changed = True
+        if changed:
+            rec.save_templates(templates)
+    except Exception:
+        import logging
+        logging.getLogger("plan.recurrence").exception("miss routing failed")
 
 
 def _auto_transition_if_needed() -> list[str]:
@@ -402,6 +451,19 @@ def _auto_transition_if_needed() -> list[str]:
             break  # file is current or future — no transition needed
 
         log.info(f"Auto-transitioning: Plan Week.md is wk{file_week:02d}, calendar is wk{cal_week:02d}")
+
+        # Credit recurring completions in the closing week before it leaves —
+        # a copy checked off late (or synced in unread) must not look like a
+        # miss when the next occurrence arrives. Best-effort, never blocks.
+        try:
+            from backend import recurrence as rec_mod
+            rec_templates = rec_mod.load_templates()
+            if rec_templates and rec_mod.credit_completions(
+                current_file.read_text(encoding="utf-8"), rec_templates
+            ):
+                rec_mod.save_templates(rec_templates)
+        except Exception:
+            log.exception("recurrence credit at week close failed")
 
         # Archive the stale file
         archive_dir = _archive_path()
@@ -640,6 +702,9 @@ async def get_week_plan(offset: int = 0):
     if offset == 0:
         # Auto-transition if Plan Week.md is from a past week
         _auto_transition_if_needed()
+        # Recurrence bookkeeping rides the same lazy seam (idempotent)
+        from backend.recurrence import run_recurrence_pass
+        run_recurrence_pass()
         # Current week — Plan Week.md in vault_path (0-Inbox)
         plan_file = config.vault_path / config.plan_week_file
         if not plan_file.exists():
@@ -1490,6 +1555,8 @@ async def get_bucket_modified():
 @router.get("/bucket", response_model=BucketResponse)
 async def get_bucket():
     """Read and parse Bucket.md."""
+    from backend.recurrence import run_recurrence_pass
+    run_recurrence_pass()  # lazy, idempotent — same seam as week auto-transition
     bucket = _bucket_path()
     if not bucket.exists():
         return BucketResponse(tasks=[], pinned_groups=[], mtime=None)
@@ -1561,6 +1628,7 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
 
     errors: list[str] = []
     transitions: list[tuple[str, str, str]] = []
+    live_recurring: dict[str, int] = {}
     for t in incoming:
         label = _strip_bucket_meta(t.text) or "(untitled)"
         if t.stage not in FUNNEL_STAGES:
@@ -1568,6 +1636,24 @@ def _validate_funnel_save(incoming: list[BucketTask], on_disk: list[BucketTask])
             continue
         if t.mode not in ("solve", "rehearse"):
             errors.append(f"“{label}”: unknown mode '{t.mode}'")
+        if t.recurrence_id:
+            # A recurring copy never enters Shaping: the copy respawns, so
+            # shaping it answers nothing — that thinking belongs on the
+            # template (the review's template question). Captured is fine:
+            # unsized templates spawn Captured copies that take the one-tap
+            # size like any capture (Jan's call, 2026-07-30).
+            if t.stage == "binding":
+                errors.append(
+                    f"“{label}”: a recurring copy can't enter Shaping — "
+                    "edit its template instead"
+                )
+            if t.stage not in ("discarded",):
+                live_recurring[t.recurrence_id] = live_recurring.get(t.recurrence_id, 0) + 1
+                if live_recurring[t.recurrence_id] == 2:
+                    errors.append(
+                        f"“{label}”: only one live copy of a recurring task "
+                        "can exist — the overdue pile is unrepresentable"
+                    )
         prev = disk_by_key.get(_funnel_key(t.text))
         if prev is not None and prev.stage == t.stage:
             # No transition — no gate. Server-side stamps (stageEnteredAt,
@@ -1709,6 +1795,10 @@ async def move_bucket_task(req: BucketMoveRequest):
             estimate=estimate,
             ready_since=today_iso if stage == "ready" else "",
             stage_entered_at=today_iso,
+            # A recurring instance keeps its designation and due date across
+            # the round trip — losing ~r would orphan it from its template.
+            recurrence_id=funnel.get("recurrence_id", ""),
+            due_date=funnel.get("due_date", ""),
         )
         # Insert into existing group if one matches, otherwise append
         task_group, _ = _parse_group(task.text)
@@ -1749,6 +1839,13 @@ async def move_bucket_task(req: BucketMoveRequest):
         week_text = _strip_bucket_meta(btask.text)
         if btask.estimate in ("s", "m", "l"):
             week_text = f"{week_text} ~e{btask.estimate}"
+        # Recurrence designation rides the week line (colon-free tokens):
+        # completion must credit the template, and the item must come back
+        # from the week still recognisable as recurring.
+        if btask.recurrence_id:
+            week_text = f"{week_text} ~r{btask.recurrence_id}"
+            if btask.due_date:
+                week_text = f"{week_text} ~du{btask.due_date}"
         new_task = Task(
             text=week_text,
             # Unassigned bucket tasks default to C when they become plan tasks
@@ -1879,6 +1976,10 @@ async def funnel_stats():
     slip_by_group: dict[str, dict] = {}
     for t in tasks:
         if t.stage != "ready":
+            continue
+        # Recurring instances never carry slips (misses live on the template),
+        # so counting them here would only deflate every group's slip rate.
+        if t.recurrence_id:
             continue
         group, _ = _parse_group(t.text)
         g = group or "(ungrouped)"

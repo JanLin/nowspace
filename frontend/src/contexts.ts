@@ -168,7 +168,7 @@ export function taskVisibleInCtxSelection(text: string, sel: CtxSelection, ctxMa
    strips them so hand-edited files and week lines (~es) never show them. */
 
 export const BUCKET_META_RE =
-  /\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|s:(?:captured|binding|ready|dormant|discarded)|e:?[sml]|sl:\d+|rs:\d{4}-\d{2}-\d{2}|se:\d{4}-\d{2}-\d{2}|wake:\d{4}-\d{2}-\d{2}|dr:\w+|rh)\b/gi;
+  /\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|s:(?:captured|binding|ready|dormant|discarded)|e:?[sml]|sl:\d+|rs:\d{4}-\d{2}-\d{2}|se:\d{4}-\d{2}-\d{2}|wake:\d{4}-\d{2}-\d{2}|dr:\w+|rh|r[0-9a-f]{6}|du\d{4}-\d{2}-\d{2})\b/gi;
 
 export function stripBucketMeta(text: string): string {
   return text.replace(BUCKET_META_RE, "").trim();
@@ -180,6 +180,22 @@ export function stripBucketMeta(text: string): string {
 export function bucketAnchorKey(text: string): string {
   const m = (text || "").match(/~i(?:d:)?([0-9a-f]{6})\b/i);
   return m ? `i:${m[1].toLowerCase()}` : stripBucketMeta(stripCtxTokens(text));
+}
+
+/** A recurring copy's due date implies a horizon for filtering: due this
+    ISO week (or past — quiet, never overdue) = n, next week = nw, later
+    = m. An explicit horizon prefix always wins over this. */
+export function dueHorizon(due?: string): "" | "n" | "nw" | "m" {
+  if (!due) return "";
+  const d = new Date(`${due}T00:00:00`);
+  if (isNaN(d.getTime())) return "";
+  const monday = (x: Date) => {
+    const m = new Date(x.getFullYear(), x.getMonth(), x.getDate());
+    m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+    return m.getTime();
+  };
+  const weeks = Math.round((monday(d) - monday(new Date())) / (7 * 86400000));
+  return weeks <= 0 ? "n" : weeks === 1 ? "nw" : "m";
 }
 
 /** Entered-week stamp as {yy, week} or null if unstamped */

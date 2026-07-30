@@ -41,6 +41,31 @@ const SECTIONS: { title: string; body: string[] }[] = [
     ],
   },
   {
+    title: "Debt and pattern are different things",
+    body: [
+      "A missed bill is owed; a missed practice is not. Software that models both the same way gets both wrong — obligations lose their deadline, or rituals acquire an overdue pile. Nowspace keeps them apart on purpose, and the test is one sentence: if missing it creates debt someone can collect, it's a task; if missing it only breaks a pattern, it's a habit.",
+      "Recurring tasks are the one place a date exists — and even there it is a quiet fact on the copy, never an overdue state, never a color change. The date says when the obligation comes round; it does not accuse.",
+    ],
+  },
+  {
+    title: "A miss accuses the schedule, not you",
+    body: [
+      "When a recurring task keeps not happening, the interesting question is never \"why are you failing?\" — it is \"is this schedule real?\" So misses are recorded against the template, invisibly, and surface once, in the weekly review, as a question about the cadence. Wrong cadence, too big, or not a task at all: those are the honest answers, and adjusting the schedule to match reality is a correction, not a defeat.",
+    ],
+  },
+  {
+    title: "One copy, ever",
+    body: [
+      "There is no state in which recurring work piles up, because piling up is not discouraged — it is unrepresentable. A list with thirty overdue copies of the same chore has stopped being a plan and become a feeling, and it is not a feeling that helps.",
+    ],
+  },
+  {
+    title: "The review is the only reminder",
+    body: [
+      "Recurring work — even the customer visit that's now overdue — waits for the weekly review, where you have context and can actually decide. This is the same principle as everywhere else in Nowspace: nothing interrupts you, because a reminder that arrives when you can't act on it does nothing except make the loop louder.",
+    ],
+  },
+  {
     title: "Balance is a practice",
     body: [
       "Habits in Nowspace are subtle reminders, not chores — a nudge to give good habits a chance and bad ones a challenge.",

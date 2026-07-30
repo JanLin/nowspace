@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Habit } from "../api";
-import { habitDomainStyle } from "./HabitStrip";
+import { HabitNoteLink, habitDomainStyle } from "./HabitStrip";
+import NoteFilePicker from "./NoteFilePicker";
 
 /* The registration of habits you've built — a calm, read-mostly view.
    Logging happens via the habit strip in the week view; this tab shows
@@ -22,9 +23,10 @@ type HabitRow = {
   period: string;
   morning: boolean;
   duration: number; // minutes per occurrence; 0 = untimed
+  note: string; // wikilink target of the how-to note; "" = none
 };
 
-export default function Habits() {
+export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, name: string) => void }) {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [found, setFound] = useState<boolean | null>(null);
   const [creating, setCreating] = useState(false);
@@ -34,6 +36,8 @@ export default function Habits() {
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState<HabitRow[]>([]);
   const [savingRows, setSavingRows] = useState(false);
+  // Vault note picker for the how-to note (same panel tasks use)
+  const [notePicker, setNotePicker] = useState<{ idx: number; pos: { top: number; left: number } } | null>(null);
 
   const load = () => {
     api.getHabits().then((r) => { setFound(r.found); setHabits(r.habits); setError(""); })
@@ -63,7 +67,7 @@ export default function Habits() {
     setRows(habits.map((h) => ({
       name: h.name, domain: h.domain, variants: h.variants.join(", "),
       target: h.period === "day" ? 1 : h.target, period: h.period, morning: h.morning,
-      duration: h.duration || 0,
+      duration: h.duration || 0, note: h.note || "",
     })));
     setEditing(true);
   };
@@ -80,6 +84,7 @@ export default function Habits() {
         period: r.period === "day" ? "day" : "week",
         morning: r.morning,
         duration: Math.max(0, r.duration || 0),
+        note: r.note.replace(/^\[\[|\]\]$/g, "").trim(),
       })));
       setEditing(false);
       load();
@@ -124,6 +129,8 @@ export default function Habits() {
       ...DOMAIN_ORDER,
       ...[...new Set(rows.map((r) => r.domain))].filter((d) => !DOMAIN_ORDER.includes(d)).sort(),
     ];
+    const setRowNote = (idx: number, note: string) =>
+      setRows((prev) => prev.map((r, j) => (j === idx ? { ...r, note } : r)));
     return (
       <div className="space-y-5 pb-12">
         <div className="flex items-center justify-between">
@@ -190,6 +197,16 @@ export default function Habits() {
                         title="Minutes per occurrence — 0 means untimed" />
                       min
                     </label>
+                    <button
+                      onClick={(e) => {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setNotePicker({ idx: i, pos: { top: rect.bottom + 4, left: Math.max(8, rect.right - 300) } });
+                      }}
+                      className="flex items-center gap-1 px-1.5 py-1 rounded text-[10px]"
+                      style={{ backgroundColor: "var(--bg)", color: r.note ? "var(--text)" : "var(--text-tertiary)", border: "1px solid var(--border)" }}
+                      title={r.note ? `Linked: ${r.note} — click to change or remove (in the panel)` : "Link the vault note that explains how — reference only, never a task"}>
+                      📄 {r.note || "how-to note"}
+                    </button>
                     <button onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
                       className="text-xs px-1" style={{ color: "var(--text-tertiary)" }} title="Remove habit">
                       ✕
@@ -198,7 +215,7 @@ export default function Habits() {
                 );
               })}
               <button
-                onClick={() => setRows((prev) => [...prev, { name: "", domain: d, variants: "", target: 1, period: "week", morning: false, duration: 0 }])}
+                onClick={() => setRows((prev) => [...prev, { name: "", domain: d, variants: "", target: 1, period: "week", morning: false, duration: 0, note: "" }])}
                 className="text-[10px] px-2 py-1 rounded"
                 style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
                 + Add {DOMAIN_TITLES[d] || d} habit
@@ -206,6 +223,18 @@ export default function Habits() {
             </section>
           );
         })}
+        {notePicker && (
+          <NoteFilePicker
+            existingLinks={rows[notePicker.idx]?.note ? [{ name: rows[notePicker.idx].note }] : []}
+            position={notePicker.pos}
+            startFolder=""
+            onSelect={(path, name) => { setNotePicker(null); onOpenNote?.(path, name); }}
+            onAddLink={(name) => { setRowNote(notePicker.idx, name); setNotePicker(null); }}
+            onRemoveLink={() => { setRowNote(notePicker.idx, ""); setNotePicker(null); }}
+            onReplaceLink={(_old, newName) => { setRowNote(notePicker.idx, newName); setNotePicker(null); }}
+            onClose={() => setNotePicker(null)}
+          />
+        )}
       </div>
     );
   }
@@ -264,6 +293,7 @@ export default function Habits() {
                       )}
                       {h.morning && <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>morning</span>}
                       {h.duration > 0 && <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>~{h.duration >= 60 ? `${Math.floor(h.duration / 60)}h${h.duration % 60 || ""}` : `${h.duration}min`}</span>}
+                      {h.note && onOpenNote && <HabitNoteLink note={h.note} onOpenNote={onOpenNote} />}
                     </div>
                     {h.variants.length > 0 && (
                       <div className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
