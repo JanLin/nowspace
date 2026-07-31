@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import { api } from "../api";
 import { findOpenAPs, markHarvested, defaultSections, canonicalGroup, type FoundAP } from "../actionPoints";
+import { caretOffsetTop } from "../caretView";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -166,38 +167,12 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     };
   }, [focused]);
 
-  // Where the caret sits inside the textarea, wrapping included: a mirror
-  // div with the same box and font, cut off at the caret. Measuring the box
-  // instead of the caret is what used to hide the first line — the textarea
-  // is min-h-45vh and never scrolls internally, so on a fresh note the caret
-  // is on line 1 while the box hangs far below the fold.
-  const mirrorRef = useRef<HTMLDivElement | null>(null);
+  // Chasing the CARET, not the box: the textarea is min-h-45vh and never
+  // scrolls internally, so on a fresh note the caret is on line 1 while the
+  // box hangs far below the fold — measuring the box is what used to hide
+  // the first line. caretOffsetTop (caretView) does the measuring.
   // Latest chase, for listeners registered before it is defined
   const keepCaretVisibleRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => { mirrorRef.current?.remove(); mirrorRef.current = null; }, []);
-
-  const caretOffsetTop = (ta: HTMLTextAreaElement): number => {
-    const cs = getComputedStyle(ta);
-    let mirror = mirrorRef.current;
-    if (!mirror) {
-      mirror = document.createElement("div");
-      mirror.setAttribute("aria-hidden", "true");
-      document.body.appendChild(mirror);
-      mirrorRef.current = mirror;
-    }
-    Object.assign(mirror.style, {
-      position: "absolute", visibility: "hidden", left: "-9999px", top: "0",
-      whiteSpace: "pre-wrap", overflowWrap: "break-word", boxSizing: cs.boxSizing,
-      width: `${ta.clientWidth}px`,
-      font: `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily}`,
-      letterSpacing: cs.letterSpacing, padding: cs.padding, border: "0",
-    } as CSSStyleDeclaration);
-    mirror.textContent = ta.value.slice(0, ta.selectionStart);
-    const marker = document.createElement("span");
-    marker.textContent = "​";
-    mirror.appendChild(marker);
-    return marker.offsetTop;
-  };
 
   // Fit the panel between its own top and whatever the keyboard leaves
   // visible. The CSS max-height can only guess with a fixed 260px of chrome;
