@@ -2807,73 +2807,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           {renderLinkedText(displayText)}
         </span>
       )}
-      {/* Wait hourglass toggle — only show when not already waiting */}
-      {!task.done && !task.waiting && (
-        <button
-          onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}
-          className="shrink-0 text-[10px] transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
-          title="Mark as waiting"
-        >
-          ⏳
-        </button>
-      )}
-      {/* Start time tracking (auto-pauses whatever was running) */}
-      {!task.done && (
-        <button
-          onClick={(e) => { e.stopPropagation(); startTracking(task); }}
-          className="shrink-0 text-[10px] transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
-          title="Track time on this task"
-        >
-          ▶
-        </button>
-      )}
-      {/* Pin toggle — personal/volunteer tasks only: surface during Work mode */}
-      {ctxEnabled && !task.done && taskCtx !== "work" && (
-        <button
-          onClick={(e) => { e.stopPropagation(); togglePinned(dayIdx, taskIdx); }}
-          className={`shrink-0 text-[10px] transition-opacity ${pinned ? "opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
-          title={pinned ? "Unpin — stop showing during Work mode" : "Pin — show during Work mode"}
-        >
-          📌
-        </button>
-      )}
-      {/* Focus horn icon */}
-      {!task.done && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (task.focused) {
-              toggleFocus(dayIdx, taskIdx);
-              if (pomodoro?.taskIdx === taskIdx && pomodoro?.dayIdx === dayIdx) stopPomodoro();
-            } else {
-              toggleFocus(dayIdx, taskIdx);
-              setPomodoroPrompt({ dayIdx, taskIdx, taskText: task.text });
-            }
-          }}
-          className={`shrink-0 text-[10px] transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
-          title={task.focused ? "Remove focus" : "Set as focus"}
-        >
-          🎺
-        </button>
-      )}
-      {/* Elephant icon — breakdown indicator */}
-      {task.subtasks?.length > 0 ? (
-        <button
-          onClick={(e) => { e.stopPropagation(); toggleExpandSubtasks(dayIdx, taskIdx); }}
-          className="shrink-0 text-[10px] opacity-60 hover:opacity-100 transition-opacity"
-          title={`${task.subtasks.length} step${task.subtasks.length > 1 ? "s" : ""} — click to ${expandedSubtasks.has(`${dayIdx}-${taskIdx}`) ? "collapse" : "expand"}`}
-        >
-          🐘
-        </button>
-      ) : !task.done ? (
-        <button
-          onClick={(e) => { e.stopPropagation(); startBreakdown(dayIdx, taskIdx); }}
-          className="shrink-0 text-[10px] opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
-          title="Break down into steps"
-        >
-          🐘
-        </button>
-      ) : null}
+      {/* Multi-day rows carry no action icons: seven of them on a column a
+          third of a phone wide is more furniture than task. What survives is
+          state you'd otherwise miss — the wait hourglass when it's waiting
+          (inline, above) and the link when there is one. Focus still reads
+          as bold text. The full set lives in the Day view. */}
       {/* Link icon — tap opens the note, hold manages the links */}
       {task.links?.length > 0 && (
         <button
@@ -2887,13 +2825,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           🔗{task.links.length > 1 && <sup className="text-[8px] font-bold">{task.links.length}</sup>}
         </button>
       )}
-      <button
-        onClick={(e) => { e.stopPropagation(); deleteTask(dayIdx, taskIdx); }}
-        className="shrink-0 text-[10px] text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-        title="Delete task"
-      >
-        &times;
-      </button>
     </div>
     );
   };
