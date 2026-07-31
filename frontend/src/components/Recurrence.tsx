@@ -159,6 +159,14 @@ export type RepeatResult = {
   nextAction?: string;
 };
 
+/** Is there room to hang the 16rem popover off a badge and still have it
+ *  land on screen? Measured in the app's own pixels: text size is applied as
+ *  CSS zoom, so a 375px phone at 140% has 268 to play with, not 375. */
+function fitsAnchored(): boolean {
+  const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ui-zoom")) || 1;
+  return window.innerWidth / zoom >= 480;
+}
+
 export function RepeatPopover({ template, onSave, onPause, onStop, onClose, align = "right" }: {
   template?: RecurrenceTemplate | null; // null/undefined = creating
   onSave: (result: RepeatResult) => void;
@@ -184,6 +192,21 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose, alig
   const [nextAction, setNextAction] = useState(template?.next_action || "");
   const everyMax = kind === "monthly" ? 12 : kind === "weekly" ? 52 : intUnit === "w" ? 52 : 365;
   const clampedEvery = Math.max(1, Math.min(everyMax, every || 1));
+
+  // Anchored to the badge, this box (16rem) hangs off the side of a phone —
+  // and off a zoomed one badly, since the text size multiplies its width
+  // against a screen that hasn't grown. Below the room for that, it stops
+  // being a popover and becomes a centred panel.
+  const [centred, setCentred] = useState(() => fitsAnchored() === false);
+  useEffect(() => {
+    const update = () => setCentred(fitsAnchored() === false);
+    window.addEventListener("resize", update);
+    window.addEventListener("ui-scale-changed", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("ui-scale-changed", update);
+    };
+  }, []);
 
   // Clicking anywhere outside closes the popover (same as the note picker)
   const popRef = useRef<HTMLDivElement>(null);
@@ -215,15 +238,24 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose, alig
     active ? undefined : ({ background: "var(--bg-tertiary)", color: "var(--text-secondary)" } as const);
 
   return (
+    <>
+      {/* Centred, the popover needs somewhere to be centred over — and a tap
+          anywhere off it should close it, which on a phone means having
+          something to tap. */}
+      {centred && <div className="fixed inset-0 z-40" style={{ background: "var(--overlay)" }} />}
     <div ref={popRef}
-      className={`absolute top-6 ${align === "left" ? "left-0" : "right-0"} z-40 rounded-lg shadow-xl border p-2.5 w-64 space-y-2`}
+      className={centred
+        ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 rounded-lg shadow-xl border p-2.5 w-64 space-y-2 overflow-y-auto repeat-popover-centred"
+        : `absolute top-6 ${align === "left" ? "left-0" : "right-0"} z-40 rounded-lg shadow-xl border p-2.5 w-64 space-y-2`}
       style={{ background: "var(--bg)", borderColor: "var(--border)" }}
       onClick={(e) => e.stopPropagation()}>
       {(
         <>
           {/* One compact row: cadence toggle + every-N stepper (no unit word
               — the toggle IS the unit; the hint line spells it out below) */}
-          <div className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+          {/* Wraps: capped to the screen the panel can be narrower than this
+              row wants, and a cut-off ＋ is a stepper you can't press. */}
+          <div className="flex flex-wrap items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
             <button onClick={() => setKind("weekly")} className={chip(kind === "weekly")} style={chipStyle(kind === "weekly")}>weekly</button>
             <button onClick={() => setKind("monthly")} className={chip(kind === "monthly")} style={chipStyle(kind === "monthly")}>monthly</button>
             <button onClick={() => setKind("interval")} className={chip(kind === "interval")} style={chipStyle(kind === "interval")}
@@ -313,6 +345,7 @@ export function RepeatPopover({ template, onSave, onPause, onStop, onClose, alig
         </div>
       )}
     </div>
+    </>
   );
 }
 
