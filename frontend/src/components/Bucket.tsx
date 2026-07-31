@@ -169,6 +169,9 @@ type Section = { name: string; items: { task: BucketTask; originalIdx: number; l
 
 export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name: string) => void }) {
   const [data, setData] = useState<BucketResponse | null>(null);
+  // Latest task list for listeners registered once (the ↻ reveal below)
+  const tasksRef = useRef<BucketTask[]>([]);
+  tasksRef.current = data?.tasks ?? [];
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -492,6 +495,42 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     };
     window.addEventListener("nowspace-reveal", reveal);
     return () => window.removeEventListener("nowspace-reveal", reveal);
+  }, [boardView]);
+
+  // Arriving from the ↻ on a planned task: show that schedule, whether it
+  // still has a live copy here or only its template (the copy being in the
+  // week is exactly why it wouldn't). Opens the same popover the badge does,
+  // so stopping it, re-dating it or changing the cadence is one step from
+  // the task that prompted the thought.
+  useEffect(() => {
+    const reveal = (e: Event) => {
+      const id = (e as CustomEvent).detail?.id;
+      if (!id) return;
+      setRecurringFilter(true);
+      setStageFilter("");
+      setFilterGroup(null);
+      if (boardView) toggleBoardView();
+      const openIt = () => {
+        const el = document.querySelector(`[data-recurrence="${CSS.escape(id)}"]`);
+        if (!(el instanceof HTMLElement)) return false;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.style.transition = "box-shadow 0.3s";
+        el.style.boxShadow = "0 0 0 2px var(--accent)";
+        el.style.borderRadius = "8px";
+        setTimeout(() => { el.style.boxShadow = ""; }, 2200);
+        const liveIdx = tasksRef.current.findIndex((t) => t.recurrence_id === id);
+        if (liveIdx >= 0) setRepeatPopover(liveIdx); else setTemplatePopover(id);
+        return true;
+      };
+      setTimeout(() => {
+        if (openIt()) return;
+        // the copy may have been scheduled on another device since we loaded
+        window.dispatchEvent(new CustomEvent("bucket-changed"));
+        setTimeout(openIt, 700);
+      }, 250);
+    };
+    window.addEventListener("nowspace-reveal-recurrence", reveal);
+    return () => window.removeEventListener("nowspace-reveal-recurrence", reveal);
   }, [boardView]);
 
   if (!data) {
@@ -1959,7 +1998,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                           date until done. Hover shows the schedule; click
                           edits it. */}
                       {funnelOn && task.recurrence_id && (
-                        <span className="relative shrink-0">
+                        <span className="relative shrink-0" data-recurrence={task.recurrence_id}>
                           <button
                             onClick={(e) => { e.stopPropagation(); setRepeatPopover(originalIdx); }}
                             className="text-[8px] px-1 rounded hover:opacity-80"
@@ -2220,7 +2259,8 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                   return t.deferred && t.deferred > wake ? t.deferred : wake;
                 })();
                 return (
-                <div key={t.id} className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg text-xs"
+                <div key={t.id} data-recurrence={t.id}
+                  className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg text-xs"
                   style={{ color: "var(--text-secondary)" }}>
                   <span className="relative shrink-0">
                     <button onClick={(e) => { e.stopPropagation(); setTemplatePopover(t.id); }}

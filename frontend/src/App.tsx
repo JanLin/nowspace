@@ -258,6 +258,20 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+  // The ↻ on a planned task asks for its schedule: switch to the Bucket and
+  // let it find the row — same two-step the search uses, because the tab has
+  // to be showing before it can scroll to anything.
+  useEffect(() => {
+    const open = (e: Event) => {
+      const id = (e as CustomEvent).detail?.id;
+      if (!id) return;
+      setView("bucket");
+      setTimeout(() => window.dispatchEvent(new CustomEvent("nowspace-reveal-recurrence", { detail: { id } })), 120);
+    };
+    window.addEventListener("nowspace-open-recurrence", open);
+    return () => window.removeEventListener("nowspace-open-recurrence", open);
+  }, []);
+
   const pickSearchHit = (hit: SearchHit) => {
     setSearchOpen(false);
     setView(hit.source === "bucket" ? "bucket" : "week");
