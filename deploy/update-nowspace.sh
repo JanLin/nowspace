@@ -15,7 +15,17 @@ if [ "$LOCAL" = "$REMOTE" ]; then
 fi
 
 echo "$(date '+%F %T') updating ${LOCAL:0:7} → ${REMOTE:0:7}"
+
+# The website (site/) ships via GitHub Pages, not from here. Take the commits
+# so the clone stays at main, but skip the rebuild+restart when nothing
+# outside site/ moved — a typo fix on nowspace.org must not bounce the server
+# and rebuild every subscriber's Docker image.
+CHANGED=$(git diff --name-only "$LOCAL" "$REMOTE")
 git reset --hard origin/main
+if [ -n "$CHANGED" ] && ! echo "$CHANGED" | grep -qv '^site/'; then
+  echo "$(date '+%F %T') now at ${REMOTE:0:7} — website-only, nothing to rebuild"
+  exit 0
+fi
 
 # nvm-installed node isn't on launchd's PATH
 export NVM_DIR="$HOME/.nvm"

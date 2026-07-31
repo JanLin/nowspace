@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}} — Nowspace</title>
+<meta name="description" content="Nowspace exists so that now can be calm. Write it down, then let go — capture in seconds, trust the system, and return to your life.">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="assets/style.css">
+<script defer src="https://cloud.umami.is/script.js"
+        data-website-id="REPLACE_WITH_NOWSPACE_ORG_WEBSITE_ID"></script>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="index.html">
+      <svg viewBox="0 0 512 512" width="30" height="30" aria-hidden="true">
+        <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="14" fill="none"/>
+        <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+        <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+        <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+        <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+        <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+        <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+      </svg>
+      Nowspace
+    </a>
+    <button class="nav-toggle" aria-label="Menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+    <nav class="nav-links">
+      <a class="active" href="philosophy.html">Philosophy</a>
+      <a href="getting-started.html">Getting started</a>
+      <a href="developers.html">For AI developers</a>
+      <a href="https://github.com/JanLin/coaching-agent" rel="noopener">GitHub</a>
+      <a class="btn-nav" href="download.html">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="page-head">
+    <svg class="compass" viewBox="0 0 512 512" aria-hidden="true">
+      <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="8" fill="none"/>
+      <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+      <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+      <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+      <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+      <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+      <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+    </svg>
+    <h1>{{TITLE}}</h1>
+    <p class="sub">{{INTRO}}</p>
+  </div>
+
+  <section>
+    <div class="wrap prose">
+{{BODY}}
+
+    </div>
+  </section>
+
+  <div class="band">
+    <h2>Try the practice, not just the theory</h2>
+    <p>Nowspace is free, open, and runs on your own computer.</p>
+    <a class="btn btn-primary" href="download.html">Download Nowspace</a>
+  </div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="col">
+        <a class="brand" href="index.html">
+          <svg viewBox="0 0 512 512" width="26" height="26" aria-hidden="true">
+            <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="14" fill="none"/>
+            <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+            <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+            <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+            <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+            <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+            <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+          </svg>
+          Nowspace
+        </a>
+        <p>A calm, sovereign space for now. Your plans live in plain files on your own computer — no accounts, no cloud, no hidden hooks.</p>
+      </div>
+      <div class="links">
+        <div>
+          <h4>Nowspace</h4>
+          <a href="philosophy.html">Philosophy</a>
+          <a href="getting-started.html">Getting started</a>
+          <a href="developers.html">For AI developers</a>
+          <a href="download.html">Download</a>
+        </div>
+        <div>
+          <h4>Project</h4>
+          <a href="https://github.com/JanLin/coaching-agent" rel="noopener">GitHub</a>
+          <a href="https://github.com/JanLin/coaching-agent/releases" rel="noopener">Releases</a>
+          <a href="https://github.com/JanLin/coaching-agent/issues" rel="noopener">Report an issue</a>
+        </div>
+      </div>
+    </div>
+    <div class="legal">
+      <span>Nowspace is free to use and shared in the open — development sponsored by <a href="https://linaltec.com" rel="noopener">Linaltec AB</a>.</span>
+      <span>Cookieless analytics, nothing about your vault — <a href="privacy.html">privacy</a>.</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
