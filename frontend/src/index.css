@@ -241,6 +241,17 @@ select.bg-white,
   }
 }
 
+/* The task you just added stays selected: outlined, with its row actions
+   showing rather than waiting for a hover that a phone can't give. The
+   priority control is the point — a new task is worth ranking while you
+   still know why you added it. */
+.task-selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.task-selected .opacity-0[class*="group-hover"] {
+  opacity: 1;
+}
+
 /* Text-glyph action buttons (→ Plan, ✕): theme-aware base color.
    Tailwind hover:text-* classes still win on hover (higher specificity). */
 .glyph-action { color: var(--text-secondary); }

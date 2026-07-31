@@ -43,7 +43,45 @@ const PILLAR_ICONS: Record<string, { symbol: string; title: string }> = {
   longterm: { symbol: "\u{1F3AF}", title: "Long term goals" },
 };
 
-type ViewMode = "day" | "3day" | "5day" | "7day" | "weekend";
+type ViewMode = "day" | "2day" | "3day" | "5day" | "7day" | "weekend";
+
+/** How many day columns each view asks for. What it gets may be fewer — see
+ *  useContentWidth and the `columns` calculation. */
+const VIEW_COLUMNS: Record<ViewMode, number> = { day: 1, "2day": 2, "3day": 3, "5day": 5, "7day": 7, weekend: 2 };
+
+const VIEW_LABELS: Record<ViewMode, string> = {
+  day: "Day", "2day": "2 Day", "3day": "3 Day", "5day": "Mon-Fri", "7day": "Full week", weekend: "Weekend",
+};
+
+/** Below this a column is down to a word or two per line, and a day view
+ *  that can't show a task's text isn't showing the day. */
+const MIN_COLUMN_PX = 120;
+
+/** Usable width in the app's own pixels. Text size is applied as CSS zoom, so
+ *  the room a column actually has is the screen divided by that — which is why
+ *  turning the text up has to take a column away rather than squeeze three. */
+function useContentWidth(): number {
+  const read = () => {
+    const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ui-zoom")) || 1;
+    return window.innerWidth / zoom;
+  };
+  const [width, setWidth] = useState(read);
+  useEffect(() => {
+    const update = () => setWidth(read());
+    window.addEventListener("resize", update);
+    window.addEventListener("ui-scale-changed", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("ui-scale-changed", update);
+    };
+  }, []);
+  return width;
+}
+
+const GRID_COLS: Record<number, string> = {
+  1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3",
+  4: "grid-cols-4", 5: "grid-cols-5", 6: "grid-cols-6", 7: "grid-cols-7",
+};
 
 const MD_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
 
@@ -298,6 +336,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [weekOffset, setWeekOffset] = useState(0);
   const { funnel: funnelOn } = useAppMode();
   const [viewMode, setViewMode] = useState<ViewMode>("day");
+  const contentWidth = useContentWidth();
   const [selectedDayIdx, setSelectedDayIdx] = useState<number>(() => {
     const jsDay = new Date().getDay();
     return jsDay === 0 ? 6 : jsDay - 1;
@@ -312,20 +351,23 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [panelPrioMenu, setPanelPrioMenu] = useState<number | null>(null);
   // Carry-panel badge menu (keyed by carry index)
   const [carryPrioMenu, setCarryPrioMenu] = useState<number | null>(null);
+  // Which group header has its move-to-day picker open
+  const [groupDayMenu, setGroupDayMenu] = useState<{ dayIdx: number; group: string } | null>(null);
   // Any click outside the badge/menu dismisses the pickers (same pattern as
   // the Bucket tab) — wrappers carry .plan-pop so in-menu clicks survive
   useEffect(() => {
-    if (!priorityMenu && panelPrioMenu === null && carryPrioMenu === null) return;
+    if (!priorityMenu && panelPrioMenu === null && carryPrioMenu === null && !groupDayMenu) return;
     const close = (e: MouseEvent) => {
       if (!(e.target as Element | null)?.closest?.(".plan-pop")) {
         setPriorityMenu(null);
         setPanelPrioMenu(null);
         setCarryPrioMenu(null);
+        setGroupDayMenu(null);
       }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
-  }, [priorityMenu, panelPrioMenu, carryPrioMenu]);
+  }, [priorityMenu, panelPrioMenu, carryPrioMenu, groupDayMenu]);
   const [groupView, setGroupView] = useState(true);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -397,6 +439,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
   // Inline add state
   const [addingAt, setAddingAt] = useState<{ dayIdx: number; afterIdx: number; group?: string | null } | null>(null);
+  // The task just added stays selected — its row keeps its actions showing, so
+  // the priority it deserves is one tap away instead of a hunt back down the
+  // list. Held by text rather than index: sorting moves the row immediately.
+  const [selectedTask, setSelectedTask] = useState<{ dayIdx: number; text: string } | null>(null);
 
   // Drag state — supports both task and group dragging
   const dragRef = useRef<{ fromDay: number; fromIdx: number; group: string | null } | null>(null);
@@ -1568,8 +1614,19 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       return { ...d, tasks };
     });
     applyTaskChange(days);
-    setAddingAt({ dayIdx, afterIdx: afterIdx + 1 });
+    // Close the input and leave the new task selected, ready to be given a
+    // priority — rather than reopening the input further down the list.
+    setAddingAt(null);
+    setSelectedTask({ dayIdx, text: fullText });
+    setTimeout(() => {
+      const anchor = stripBucketMeta(stripCtxTokens(fullText));   // matches trackedTextOf
+      document.querySelector(`[data-task-anchor="${CSS.escape(`week:${dayIdx}:${anchor}`)}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    }, 60);
   };
+
+  // Selection belongs to the day you're looking at
+  useEffect(() => { setSelectedTask(null); }, [selectedDayIdx, viewMode, weekOffset]);
 
   // Log a habit completion: a checked Habit: task lands in today. The strip
   // only renders on the current week, so todayIdx is always the right target.
@@ -2143,7 +2200,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       e.dataTransfer.types.includes("daily-carry-task") || e.dataTransfer.types.includes("daily-carry-day") ||
       e.dataTransfer.types.includes("vault-note-name");
     if (!dominated) return;
-    if (dragGroupRef.current && dragGroupRef.current.fromDay !== dayIdx) return;
     e.preventDefault();
     // Keep the container-level "drop at end" fallback from overwriting the row indicator
     e.stopPropagation();
@@ -2391,7 +2447,16 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
   const handleGroupDrop = (dayIdx: number, targetGroupName: string) => {
     if (!data || !dragGroupRef.current) return;
-    if (dragGroupRef.current.fromDay !== dayIdx) return;
+    // Dropped on another day's column: the group moves day, which used to be
+    // refused outright — the only way was one task at a time.
+    if (dragGroupRef.current.fromDay !== dayIdx) {
+      const from = dragGroupRef.current.fromDay;
+      const name = dragGroupRef.current.groupName;
+      dragGroupRef.current = null;
+      setDropGroupTarget(null);
+      moveGroupToDay(from, name, dayIdx);
+      return;
+    }
     const moveGroup = dragGroupRef.current.groupName;
     if (moveGroup === targetGroupName) return;
     const days = data.days.map((d, di) => {
@@ -2406,7 +2471,14 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // --- Group drop to absolute position (start/end) ---
   const handleGroupDropToPosition = (dayIdx: number, position: 'start' | 'end') => {
     if (!data || !dragGroupRef.current) return;
-    if (dragGroupRef.current.fromDay !== dayIdx) return;
+    if (dragGroupRef.current.fromDay !== dayIdx) {
+      const from = dragGroupRef.current.fromDay;
+      const name = dragGroupRef.current.groupName;
+      dragGroupRef.current = null;
+      setDropGroupTarget(null);
+      moveGroupToDay(from, name, dayIdx);
+      return;
+    }
     const groupName = dragGroupRef.current.groupName;
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
@@ -2418,22 +2490,32 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   // --- View helpers ---
+  // Columns the screen can actually carry: the chosen view asks for so many,
+  // and each one that would come out narrower than a readable column is given
+  // up rather than squeezed. Two is the floor — one column is the Day view,
+  // and someone who picked a multi-day view wants to compare days.
+  const columns = (() => {
+    let c = VIEW_COLUMNS[viewMode];
+    while (c > 2 && contentWidth / c < MIN_COLUMN_PX) c--;
+    return c;
+  })();
+  // A view showing fewer days than it asked for becomes a window you move
+  // through the week, like 3 Day always has.
+  const windowed = viewMode !== "day" && viewMode !== "weekend" &&
+    (viewMode === "2day" || viewMode === "3day" || columns < VIEW_COLUMNS[viewMode]);
+
   const visibleDays: number[] = (() => {
-    switch (viewMode) {
-      case "day": return [selectedDayIdx];
-      case "3day": {
-        const idx = selectedDayIdx;
-        // Selected day is always the first visible, clamped so we don't exceed Sunday
-        const start = Math.min(idx, 4);  // max start is Friday (4) → Fri, Sat, Sun
-        return [start, start + 1, start + 2];
-      }
-      case "5day": return [0, 1, 2, 3, 4];
-      case "weekend": return [5, 6];
-      default: return [0, 1, 2, 3, 4, 5, 6];
-    }
+    if (viewMode === "day") return [selectedDayIdx];
+    if (viewMode === "weekend") return [5, 6];
+    if (!windowed) return viewMode === "5day" ? [0, 1, 2, 3, 4] : [0, 1, 2, 3, 4, 5, 6];
+    // Selected day leads the window, clamped so it doesn't run off the week —
+    // and Mon-Fri stays Mon-Fri even when it's down to three columns.
+    const lastDay = viewMode === "5day" ? 4 : 6;
+    const start = Math.max(0, Math.min(selectedDayIdx, lastDay - columns + 1));
+    return Array.from({ length: columns }, (_, i) => start + i);
   })();
 
-  const gridCols = viewMode === "3day" ? "grid-cols-3" : viewMode === "weekend" ? "grid-cols-2" : viewMode === "5day" ? "grid-cols-5" : "grid-cols-7";
+  const gridCols = GRID_COLS[columns] || "grid-cols-3";
 
   const getFilteredTasks = (tasks: Task[]): Task[] => {
     let filtered = tasks.filter((t) => taskVisibleInMode(t.text));
@@ -2825,8 +2907,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     const isException = pinned && taskCtx !== null && ctxSel.includes("work") && !ctxSel.includes(taskCtx);
     // Edges help whenever more than one context is on screen
     const showEdge = taskCtx !== null && (ctxSel.length === 0 || ctxSel.length > 1 || isException);
+    const isSelected = selectedTask?.dayIdx === dayIdx && selectedTask?.text === task.text;
     return (
-    <div key={`day-${taskIdx}`} data-task-anchor={`week:${dayIdx}:${trackedTextOf(task)}`}>
+    <div key={`day-${taskIdx}`} data-task-anchor={`week:${dayIdx}:${trackedTextOf(task)}`}
+      className={isSelected ? "task-selected rounded" : undefined}>
       <div
         draggable={!task.done}
         onDragStart={!task.done ? (e) => handleDragStart(dayIdx, taskIdx, group, e) : undefined}
@@ -3050,6 +3134,101 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     );
   };
 
+  /** The day's add row, at the top of the list. The bottom of a full day is a
+   *  scroll away on a phone, and a task you think of now shouldn't cost the
+   *  journey. New tasks land at the top; the priority you give it straight
+   *  after is what decides where it really sits. */
+  const renderDayAddRow = () => {
+    if (ultraFocusActive) return null;
+    const open = addingAt?.dayIdx === selectedDayIdx && addingAt?.afterIdx === -1;
+    if (open) {
+      return (
+        <div className="py-0.5 px-2">
+          <AutoFocusInput
+            placeholder={addingAt?.group ? `Add to ${addingAt.group}...` : "Add task..."}
+            onSubmit={(text) => addTask(selectedDayIdx, -1, text, addingAt?.group)}
+            onCancel={() => setAddingAt(null)}
+            className="w-full text-sm px-2 py-1.5 border border-blue-300 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400"
+          />
+        </div>
+      );
+    }
+    return (
+      <button
+        onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: -1 })}
+        className="w-full text-xs text-gray-300 hover:text-blue-400 py-1 transition-colors text-left px-2"
+      >
+        + Add task
+      </button>
+    );
+  };
+
+  /** Move a whole group to another day, in the order it already had. The ☰
+   *  handle can only drag a group around inside its own day — and on a phone
+   *  it can't drag at all, since a touch never starts a native drag. */
+  const moveGroupToDay = (fromDayIdx: number, groupName: string, toDayIdx: number) => {
+    if (!data || fromDayIdx === toDayIdx) return;
+    const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
+    // Completed tasks stay where they were done — the day they belong to is a
+    // record, not a list. Same rule the drag path has always used.
+    const goes = (t: Task) => parseGroup(t.text).group === groupName && !t.done;
+    const moving = days[fromDayIdx].tasks.filter(goes);
+    if (moving.length === 0) return;
+    days[fromDayIdx].tasks = days[fromDayIdx].tasks.filter((t) => !goes(t));
+    days[toDayIdx].tasks = [...days[toDayIdx].tasks, ...moving];
+    applyTaskChange(days);
+    setGroupDayMenu(null);
+  };
+
+  /** Day picker on a group header — the touch-friendly half of "move this
+   *  group": dragging works between columns in the multi-day views, this
+   *  works anywhere. */
+  const renderGroupDayButton = (dayIdx: number, groupName: string) => (
+    <div className="relative inline-block plan-pop">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setGroupDayMenu(groupDayMenu?.dayIdx === dayIdx && groupDayMenu?.group === groupName ? null : { dayIdx, group: groupName });
+        }}
+        className="opacity-0 group-hover/hdr:opacity-100 text-[11px] px-1 rounded transition-opacity"
+        style={{ color: "var(--text-secondary)" }}
+        title={`Move ${groupName} to another day`}
+      >
+        →
+      </button>
+      {groupDayMenu?.dayIdx === dayIdx && groupDayMenu?.group === groupName && (
+        <div className="absolute z-30 top-full left-0 mt-0.5 flex gap-0.5 p-1 rounded-lg shadow-lg"
+          style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}
+          onClick={(e) => e.stopPropagation()}>
+          {DAY_SHORT.map((d, di) => di !== dayIdx && (
+            <button key={d} onClick={(e) => { e.stopPropagation(); moveGroupToDay(dayIdx, groupName, di); }}
+              title={`Move ${groupName} to ${d}`}
+              className="px-1 py-0 rounded text-[10px] hover:bg-blue-100 hover:text-blue-700"
+              style={{ color: "var(--text-secondary)" }}>
+              {d.slice(0, 2)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  /** The ＋ on a group header: adds straight into that group, no typing the
+   *  "Group:" prefix. Same gesture as the Bucket's. */
+  const renderGroupAddButton = (groupName: string, lastIdxInGroup: number) => (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        setAddingAt({ dayIdx: selectedDayIdx, afterIdx: lastIdxInGroup, group: groupName });
+      }}
+      className="opacity-0 group-hover/hdr:opacity-100 text-[11px] px-1 rounded transition-opacity"
+      style={{ color: "var(--text-secondary)" }}
+      title={`Add task to ${groupName}`}
+    >
+      ＋
+    </button>
+  );
+
   const renderAddInput = (dayIdx: number, afterIdx: number) => {
     if (!addingAt || addingAt.dayIdx !== dayIdx || addingAt.afterIdx !== afterIdx) return null;
     return (
@@ -3156,11 +3335,14 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 bold today's date (##### Fri **17**) and it isn't rendered here */}
             {(day.heading || "").replace(/^#+\s*/, "").replace(/\*\*|__/g, "") || DAY_LABELS[day.day] || day.day}
           </span>
-          <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-medium">
+          {/* Weekday/weekend and the day's name again: at a larger text size
+              the two of them fill a phone's width and push Notes onto a
+              second line. The date to the left already says both. */}
+          <span className="hidden sm:inline-block px-2 py-0.5 bg-gray-100 rounded text-xs font-medium">
             {selectedDayIdx >= 5 ? "weekend" : "weekday"}
           </span>
           <span className="flex-1 whitespace-nowrap">
-            {filteredTasks.filter(t => !t.done).length} tasks for {DAY_LABELS[day.day] || day.day}
+            {filteredTasks.filter(t => !t.done).length} tasks
           </span>
           {viewMode === "day" && (
             <button
@@ -3209,6 +3391,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             onDragOver={(e) => { if (dragGroupRef.current) return; e.preventDefault(); e.stopPropagation(); setDropTarget({ day: selectedDayIdx, idx: day.tasks.length, zone: "end" }); }}
             onDrop={(e) => { e.stopPropagation(); handleDrop(selectedDayIdx, day.tasks.length, e); }}
           >
+            {renderDayAddRow()}
             {sortedTasks.map((task, fi) => {
               const originalIdx = day.tasks.indexOf(task);
               // Raw index of the next *displayed* row, for below-midpoint drops
@@ -3225,21 +3408,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             {dropTarget?.day === selectedDayIdx && dropTarget?.idx === day.tasks.length && (
               <div className="h-0.5 bg-blue-400 rounded" />
             )}
-            {!ultraFocusActive && <button
-              onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: day.tasks.length })}
-              className="w-full text-xs text-gray-300 hover:text-blue-400 py-1 transition-colors text-left px-2"
-            >
-              + Add task
-            </button>}
-            {addingAt?.dayIdx === selectedDayIdx && addingAt?.afterIdx === day.tasks.length && (
-              <div className="py-0.5 px-2">
-                <AutoFocusInput
-                  onSubmit={(text) => addTask(selectedDayIdx, day.tasks.length - 1, text)}
-                  onCancel={() => setAddingAt(null)}
-                  className="w-full text-sm px-2 py-1.5 border border-blue-300 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400"
-                />
-              </div>
-            )}
           </div>
           );
         })()}
@@ -3251,6 +3419,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             onDragOver={(e) => { if (!dragGroupRef.current) { e.preventDefault(); e.stopPropagation(); } }}
             onDrop={(e) => { e.stopPropagation(); if (!dragGroupRef.current) handleDrop(selectedDayIdx, day.tasks.length, e); }}
           >
+            {renderDayAddRow()}
             {/* Top-of-list drop zone — drop here to place above first group */}
             <div
               onDragOver={(e) => {
@@ -3349,6 +3518,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                       <span className="text-xs text-gray-400">
                         ({activeInSection}{doneInSection > 0 && <span className="text-green-500"> +{doneInSection}✓</span>})
                       </span>
+                      {renderGroupAddButton(section.name, section.items[section.items.length - 1]?.originalIdx ?? -1)}
+                      {renderGroupDayButton(selectedDayIdx, section.name)}
                     </div>
                   ) : null}
                   {/* Tasks within section — hidden when collapsed */}
@@ -3397,21 +3568,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               }`}
             />
             {/* Add task button */}
-            {!ultraFocusActive && <button
-              onClick={() => setAddingAt({ dayIdx: selectedDayIdx, afterIdx: day.tasks.length })}
-              className="w-full text-xs text-gray-300 hover:text-blue-400 py-1 transition-colors text-left px-2"
-            >
-              + Add task
-            </button>}
-            {addingAt?.dayIdx === selectedDayIdx && addingAt?.afterIdx === day.tasks.length && (
-              <div className="py-0.5 px-2">
-                <AutoFocusInput
-                  onSubmit={(text) => addTask(selectedDayIdx, day.tasks.length - 1, text)}
-                  onCancel={() => setAddingAt(null)}
-                  className="w-full text-sm px-2 py-1.5 border border-blue-300 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400"
-                />
-              </div>
-            )}
           </div>
         )}
 
@@ -3464,11 +3620,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         {/* On phones the 5/7-day grids scroll horizontally with readable columns
             instead of crushing; 2-3 columns still fit natively. */}
         <div className="overflow-x-auto"
-          onTouchStart={viewMode === "3day" ? onDayTouchStart : undefined}
-          onTouchEnd={viewMode === "3day" ? onDayTouchEnd : undefined}>
+          onTouchStart={windowed ? onDayTouchStart : undefined}
+          onTouchEnd={windowed ? onDayTouchEnd : undefined}>
         <div
-          key={viewMode === "3day" ? `grid-${visibleDays[0]}` : "grid"}
-          className={`grid ${gridCols} gap-2 ${viewMode === "3day" ? slideClass : ""} ${viewMode === "5day" ? "min-w-[560px] sm:min-w-0" : viewMode === "7day" ? "min-w-[784px] sm:min-w-0" : ""}`}>
+          key={windowed ? `grid-${visibleDays[0]}` : "grid"}
+          className={`grid ${gridCols} gap-2 ${windowed ? slideClass : ""} ${!windowed && viewMode === "5day" ? "min-w-[560px] sm:min-w-0" : !windowed && viewMode === "7day" ? "min-w-[784px] sm:min-w-0" : ""}`}>
           {visibleDays.map((dayIdx) => {
             const day = data.days[dayIdx];
             const isToday = dayIdx === todayIdx;
@@ -3605,6 +3761,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                               <span className="text-gray-300 font-normal">
                                 ({activeInSection}{doneInSection > 0 ? `+${doneInSection}✓` : ""})
                               </span>
+                              {renderGroupDayButton(dayIdx, section.name)}
                             </div>
                           ) : null}
                           {!isCollapsed && (
@@ -3801,7 +3958,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
               {/* View cluster — layout modes */}
               <Cluster kind="view" label="View" open={openCluster === "view"} onToggle={() => toggleCluster("view")}
-                summary={viewMode === "day" ? "Day" : viewMode === "3day" ? "3 Day" : viewMode === "5day" ? "Mon-Fri" : viewMode === "7day" ? "Full week" : "Weekend"}>
+                summary={columns < VIEW_COLUMNS[viewMode]
+                  ? `${VIEW_LABELS[viewMode]} · ${columns}`   // narrowed to fit the text size
+                  : VIEW_LABELS[viewMode]}>
               <button
                 onClick={() => setViewMode("day")}
                 className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
@@ -3811,16 +3970,16 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               >
                 Day
               </button>
-              {(["3day", "5day", "7day", "weekend"] as ViewMode[]).map((mode) => (
+              {(["2day", "3day", "5day", "7day", "weekend"] as ViewMode[]).map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setViewMode(mode)}
                   className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
                     viewMode === mode ? "bg-blue-100 text-blue-700" : "hover:opacity-80"
-                  } ${mode === "7day" || mode === "weekend" ? "hidden sm:inline-block" : ""}`}
+                  } ${VIEW_COLUMNS[mode] > 3 ? "hidden sm:inline-block" : ""}`}
                   style={viewMode !== mode ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
                 >
-                  {mode === "3day" ? "3 Day" : mode === "5day" ? "Mon-Fri" : mode === "7day" ? "Full week" : "Weekend"}
+                  {VIEW_LABELS[mode]}
                 </button>
               ))}
               </Cluster>
@@ -3837,12 +3996,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             </div>
           </div>
 
-          {/* Day navigation bar — shown in Day and 3-Day views */}
-          {(viewMode === "day" || viewMode === "3day") && (
+          {/* Day navigation bar — shown for one day, or a window through the week */}
+          {(viewMode === "day" || windowed) && (
             <div className="flex items-center gap-2 max-w-lg mx-auto">
               <button
                 onClick={() => navigateDay(-1)}
-                disabled={loading || (viewMode === "3day" && selectedDayIdx <= 0)}
+                disabled={loading || (windowed && selectedDayIdx <= 0)}
                 className="px-1 sm:px-2 py-1 text-gray-400 hover:text-gray-700 text-lg font-medium transition-colors disabled:opacity-20"
                 title="Previous day"
               >
@@ -3851,7 +4010,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               <div className="flex gap-1 flex-1 justify-center">
                 {data.days.map((d, i) => {
                   const isSelected = i === selectedDayIdx;
-                  const isVisible = viewMode === "3day" && visibleDays.includes(i);
+                  const isVisible = windowed && visibleDays.includes(i);
                   const isToday = i === todayIdx;
                   const shortName = DAY_SHORT[i];
                   return (
@@ -3915,7 +4074,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               </div>
               <button
                 onClick={() => navigateDay(1)}
-                disabled={loading || (viewMode === "3day" && selectedDayIdx >= 6)}
+                disabled={loading || (windowed && selectedDayIdx >= 6)}
                 className="px-1 sm:px-2 py-1 text-gray-400 hover:text-gray-700 text-lg font-medium transition-colors disabled:opacity-20"
                 title="Next day"
               >
