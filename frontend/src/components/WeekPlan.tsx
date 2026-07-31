@@ -501,7 +501,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [bucketHighlight, setBucketHighlight] = useState(false);
   const [bucketOpen, setBucketOpen] = useState(false);
   const [bucketTasks, setBucketTasks] = useState<import("../api").BucketTask[]>([]);
-  const [bucketExpandedGroups, setBucketExpandedGroups] = useState<Set<string>>(new Set());
+  // Collapsed rather than expanded: the panel is for finding something to
+  // schedule, and a list of group names with the tasks hidden behind them
+  // means opening every one to see what's there. Groups start open; what
+  // you fold away stays folded.
+  const [bucketCollapsedGroups, setBucketCollapsedGroups] = useState<Set<string>>(new Set());
   // Horizon lens for the bucket sheet. Opens on "n" — planning this week
   // means this week's shelf; nw/m/– are one tap away, never hidden.
   const [bucketHz, setBucketHz] = useState<"" | "n" | "nw" | "m" | "none">("n");
@@ -2923,14 +2927,27 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             {renderLinkedText(displayText)}
           </span>
         )}
-        {/* ↻ recurring designation — a quiet fact, no overdue styling ever */}
-        {/~r[0-9a-f]{6}\b/i.test(task.text) && (
-          <span className="shrink-0 text-[9px] px-1 rounded"
-            style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}
-            title="A recurring task — one copy at a time; misses go to its template, never to you">
-            ↻
-          </span>
-        )}
+        {/* ↻ recurring designation — a quiet fact, no overdue styling ever.
+            Clicking it opens the schedule itself in the Bucket: from a copy
+            sitting in the week you can't otherwise see what it repeats on,
+            or stop it, without going to look for it. */}
+        {(() => {
+          const rec = task.text.match(/~r([0-9a-f]{6})\b/i);
+          if (!rec) return null;
+          return (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent("nowspace-open-recurrence", { detail: { id: rec[1].toLowerCase() } }));
+              }}
+              className="shrink-0 text-[9px] px-1 rounded hover:opacity-80"
+              style={{ background: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}
+              title="Repeats — one copy at a time; misses go to its schedule, never to you. Click to open the schedule in the Bucket, to change or stop it."
+            >
+              ↻
+            </button>
+          );
+        })()}
         {task.pillars?.length > 0 && (
           <span className="shrink-0" title={task.pillars.map((p) => PILLAR_ICONS[p]?.title || p).join(", ")}>
             {task.pillars.map((p) => PILLAR_ICONS[p]?.symbol || p).join("")}
@@ -3204,10 +3221,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // not a hidden pile.
   const bucketHzCounts = bucketTasks.reduce((acc, task) => {
     if (!taskVisibleInMode(task.text)) return acc;
-    // Ready items are schedulable; recurring copies are also LISTED even
-    // when unsized (captured) — with a one-tap size instead of weekdays.
-    const st = task.stage || "captured";
-    if (st !== "ready" && !(task.recurrence_id && st !== "discarded")) return acc;
+    // Ready only — this panel schedules, and nothing else is schedulable.
+    // An unsized recurring copy is sized in the Bucket tab, where sizing
+    // belongs; the size is never shown in Planning, so offering it here
+    // was asking for a decision in the wrong room.
+    if ((task.stage || "captured") !== "ready") return acc;
     // A recurring copy's due date counts as its horizon (n = this week)
     const hz = (task.horizon || dueHorizon(task.due_date) || "none") as "n" | "nw" | "m" | "none";
     acc[hz] = (acc[hz] || 0) + 1;
@@ -4687,12 +4705,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               if (!taskVisibleInMode(task.text)) return;
               // The Bucket–Timing contract only exists while the funnel is
               // on; in Basic every bucket item is schedulable, so the sheet
-              // would otherwise be permanently empty. Recurring copies are
-              // listed even when unsized — not schedulable yet, but a one-
-              // tap size makes them so right here.
-              if (funnelOn && (task.stage || "captured") !== "ready") {
-                if (!(task.recurrence_id && (task.stage || "captured") !== "discarded")) { unboundCount++; return; }
-              }
+              // would otherwise be permanently empty.
+              if (funnelOn && (task.stage || "captured") !== "ready") { unboundCount++; return; }
               // Horizon lens — filters what's listed, never what's schedulable.
               // A recurring copy's due date counts as its horizon.
               if (bucketHz && (task.horizon || dueHorizon(task.due_date) || "none") !== bucketHz) return;
@@ -4707,7 +4721,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             const sections = [...byGroup.values()];
 
             const toggleBucketGroup = (name: string) => {
-              setBucketExpandedGroups((prev) => {
+              setBucketCollapsedGroups((prev) => {
                 const next = new Set(prev);
                 if (next.has(name)) next.delete(name); else next.add(name);
                 return next;
@@ -4715,37 +4729,20 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             };
 
             const renderBucketItem = (task: import("../api").BucketTask, idx: number, label: string) => {
-              // An unsized recurring copy is listed but not yet schedulable
-              // (only Ready is). One tap on s/m/l right here makes it Ready.
-              const needsSize = funnelOn && (task.stage || "captured") !== "ready";
               return (
               <div
                 key={idx}
-                draggable={!needsSize}
-                onDragStart={needsSize ? undefined : (e) => {
+                draggable
+                onDragStart={(e) => {
                   e.dataTransfer.setData("bucket-task", JSON.stringify({ bucketIdx: idx }));
                   e.dataTransfer.effectAllowed = "move";
                   bucketDragRef.current = { bucketIdx: idx };
                 }}
                 onDragEnd={() => { bucketDragRef.current = null; }}
-                className={`flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs group/bt transition-colors ${needsSize ? "" : "cursor-grab active:cursor-grabbing"}`}
+                className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs group/bt transition-colors cursor-grab active:cursor-grabbing"
               >
-                {needsSize && (
-                  <span className="flex gap-0.5 shrink-0">
-                    {(["s", "m", "l"] as const).map((sz) => (
-                      <button key={sz}
-                        onClick={(e) => { e.stopPropagation(); panelUpdateBucketTask(idx, { estimate: sz, stage: "ready", priority: task.priority || "C" }); }}
-                        className="px-1 rounded text-[10px] font-mono hover:bg-emerald-100 hover:text-emerald-700"
-                        style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
-                        title={`Size it ${sz} — one tap makes it Ready and schedulable`}>
-                        {sz}
-                      </button>
-                    ))}
-                  </span>
-                )}
                 {/* Badge opens the same picker as the Planning and Bucket
                     tabs: priority, horizon (n/nw/m), or file into a weekday */}
-                {!needsSize && (
                 <span className="plan-pop relative shrink-0">
                   <button
                     onClick={(e) => { e.stopPropagation(); setPanelPrioMenu(panelPrioMenu === idx ? null : idx); }}
@@ -4753,7 +4750,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     style={!task.priority ? { border: "1px solid var(--border)" } : undefined}
                     title="Priority, horizon (n / nw / m), or pick a weekday"
                   >
-                    {(task.horizon || "") + (task.priority || "-")}
+                    {/* A recurring copy carries its horizon in its due date
+                        rather than an n/nw/m token, and the lens above
+                        already counts it that way — so show the same thing
+                        here, or the badge disagrees with the chip that
+                        listed it. */}
+                    {(task.horizon || dueHorizon(task.due_date) || "") + (task.priority || "-")}
                   </button>
                   {panelPrioMenu === idx && (
                     <div className="absolute left-0 top-full mt-0.5 z-30 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
@@ -4800,7 +4802,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     </div>
                   )}
                 </span>
-                )}
                 {/* ↻ recurring designation — quiet, with the copy's date */}
                 {task.recurrence_id && (
                   <span className="shrink-0 text-[8px] px-1 rounded"
@@ -4814,7 +4815,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
                   {label}
                 </span>
-                {!needsSize && (
                 <button
                   onClick={() => pullFromBucket(idx, carryTargetIdx)}
                   className="text-[10px] text-purple-400 hover:text-purple-700 opacity-100 md:opacity-0 md:group-hover/bt:opacity-100 shrink-0 transition-opacity"
@@ -4822,7 +4822,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 >
                   → {carryTargetLabel}
                 </button>
-                )}
               </div>
               );
             };
@@ -4851,7 +4850,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 return section.items.map(({ task, idx, label }) => renderBucketItem(task, idx, label));
               }
               const displayName = section.name || "Un-grouped";
-              const isExpanded = bucketExpandedGroups.has(section.name);
+              const isExpanded = !bucketCollapsedGroups.has(section.name);
               return (
                 <div key={`bg-${si}-${displayName}`} className="mb-0.5">
                   <button
