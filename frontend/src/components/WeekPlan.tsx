@@ -501,7 +501,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [bucketHighlight, setBucketHighlight] = useState(false);
   const [bucketOpen, setBucketOpen] = useState(false);
   const [bucketTasks, setBucketTasks] = useState<import("../api").BucketTask[]>([]);
-  const [bucketExpandedGroups, setBucketExpandedGroups] = useState<Set<string>>(new Set());
+  // Collapsed rather than expanded: the panel is for finding something to
+  // schedule, and a list of group names with the tasks hidden behind them
+  // means opening every one to see what's there. Groups start open; what
+  // you fold away stays folded.
+  const [bucketCollapsedGroups, setBucketCollapsedGroups] = useState<Set<string>>(new Set());
   // Horizon lens for the bucket sheet. Opens on "n" — planning this week
   // means this week's shelf; nw/m/– are one tap away, never hidden.
   const [bucketHz, setBucketHz] = useState<"" | "n" | "nw" | "m" | "none">("n");
@@ -4707,7 +4711,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             const sections = [...byGroup.values()];
 
             const toggleBucketGroup = (name: string) => {
-              setBucketExpandedGroups((prev) => {
+              setBucketCollapsedGroups((prev) => {
                 const next = new Set(prev);
                 if (next.has(name)) next.delete(name); else next.add(name);
                 return next;
@@ -4851,7 +4855,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 return section.items.map(({ task, idx, label }) => renderBucketItem(task, idx, label));
               }
               const displayName = section.name || "Un-grouped";
-              const isExpanded = bucketExpandedGroups.has(section.name);
+              const isExpanded = !bucketCollapsedGroups.has(section.name);
               return (
                 <div key={`bg-${si}-${displayName}`} className="mb-0.5">
                   <button
