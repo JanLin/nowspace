@@ -172,6 +172,24 @@ body {
   max-height: calc(100dvh - 260px);
 }
 
+/* The Notes tab editor card. Sized from the same dynamic viewport as the
+   shell, and divided by the zoom for the same reason: a card even slightly
+   taller than main makes main scroll, and the first thing over the top is
+   the editor toolbar — the bold button among it. JS trims this further
+   while a phone keyboard is up. */
+.note-editor-box {
+  height: calc(100vh - 7.5rem);
+  height: calc(100dvh / var(--ui-zoom, 1) - 7.5rem);
+}
+
+/* Belt and braces: should the card ever overflow anyway, the toolbar stays
+   put instead of scrolling out of reach. */
+.w-md-editor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
 /* Compact markdown rendering in scratchpad */
 .scratchpad-preview .wmde-markdown {
   font-size: 12px;

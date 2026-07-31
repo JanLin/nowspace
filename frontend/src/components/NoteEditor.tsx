@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import MDEditor from "@uiw/react-md-editor";
 import { api } from "../api";
 import { findOpenAPs, markHarvested, defaultSections, canonicalGroup } from "../actionPoints";
+import { caretOffsetTop, visibleViewportBottom } from "../caretView";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -413,12 +414,171 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
     setShowWiki(false);
   };
 
+  /* ── Keeping the caret and the toolbar where you can see them ──
+     MDEditor's textarea is overflow:hidden and grows to the full height of
+     the note: the scrolling is done by .w-md-editor-area above it, so the
+     browser's own caret-following does nothing and the line being typed
+     drops under the fold. And the card is sized from the viewport, so any
+     overshoot makes <main> scroll — carrying the toolbar, bold button and
+     all, off the top. Both are handled by hand here. */
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const fitEditorToViewport = useCallback(() => {
+    const card = cardRef.current;
+    const main = card?.closest("main");
+    if (!card || !main || !embedded) return;
+    const rect = card.getBoundingClientRect();
+    // A card that isn't being displayed measures as nothing; sizing from that
+    // would write a height that only makes sense while it's invisible.
+    if (rect.height === 0) return;
+    // Measure unscrolled. A scrolled container shortens the distance from the
+    // card's top to the bottom of the screen, and feeding that back in settles
+    // at exactly the wrong height — the one where it can still scroll. Once
+    // the card fits, zero is the only scroll position main has anyway.
+    if (main.scrollTop !== 0) main.scrollTop = 0;
+    const top = card.getBoundingClientRect().top;
+
+    // Rects come back in viewport pixels, which are zoomed; scrollHeight and
+    // a max-height written back are in the element's own, unzoomed ones.
+    // Text size is per device, so this ratio is real (see uiScale).
+    const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ui-zoom")) || 1;
+    const avail = Math.round((Math.min(visibleViewportBottom(), main.getBoundingClientRect().bottom) - top) / zoom);
+    if (avail <= 160) { card.style.maxHeight = ""; return; }
+    card.style.maxHeight = `${avail}px`;
+    // Whatever the wrapper adds around the card still counts against main, so
+    // ask main rather than trusting the arithmetic: any leftover is exactly
+    // how far the toolbar could still be scrolled. Reading scrollHeight here
+    // settles the layout first, so this sees the height just written.
+    // Trimmed off the height it actually took, not off the figure offered:
+    // the CSS height caps it below that, and subtracting from the offer
+    // leaves the overflow in place.
+    const over = main.scrollHeight - main.clientHeight;
+    if (over > 0) {
+      // Rounded down, with a pixel to spare: at zoom levels that don't divide
+      // evenly a rounded-up trim leaves a sliver of scroll behind, and a
+      // sliver is enough to move the toolbar. Not cumulative — every pass
+      // re-offers the full height and trims that afresh.
+      const now = card.getBoundingClientRect().height / zoom;
+      card.style.maxHeight = `${Math.floor(now) - Math.ceil(over / zoom) - 1}px`;
+    }
+  }, [embedded]);
+
+  const keepCaretVisible = useCallback(() => {
+    const root = editorRef.current;
+    const ta = root?.querySelector<HTMLTextAreaElement>("textarea");
+    const area = root?.querySelector<HTMLElement>(".w-md-editor-area");
+    if (!ta || !area || document.activeElement !== ta) return;
+    const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+    const caretTop = () => ta.getBoundingClientRect().top + caretOffsetTop(ta);
+    const r = area.getBoundingClientRect();
+    const top = caretTop();
+    // Only when the caret is actually outside the band — and back up when
+    // it's above it, so arrowing up follows too.
+    if (top + lineHeight + 8 > r.bottom) area.scrollTop += top + lineHeight + 8 - r.bottom;
+    else if (top - 8 < r.top) area.scrollTop -= r.top - top + 8;
+    // On a phone the keyboard covers the bottom of the card; visualViewport
+    // is what knows where the visible part ends.
+    const below = caretTop() + lineHeight + 8 - visibleViewportBottom();
+    if (below > 0) {
+      const main = ta.closest("main");
+      const room = main ? main.scrollHeight - main.clientHeight - main.scrollTop : 0;
+      if (main && room > 0) main.scrollTop += Math.min(below, room);
+    }
+  }, []);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const refit = () => { fitEditorToViewport(); keepCaretVisible(); };
+    // At mount the card is measured before the layout has settled, so fit
+    // again once it has; an observer then keeps it honest through window
+    // resizes and a phone keyboard opening.
+    const raf = requestAnimationFrame(refit);
+    const settle = setTimeout(refit, 300);
+    // Watch the card as well as the page: the correction below is measured
+    // from a card that has only just taken its height, and one pass at mount
+    // reads it too early. Re-measuring on its own resize converges, because
+    // a correct fit leaves the height unchanged and the observer goes quiet.
+    const main = cardRef.current?.closest("main");
+    const ro = new ResizeObserver(refit);
+    if (main) ro.observe(main);
+    if (cardRef.current) ro.observe(cardRef.current);
+    window.addEventListener("resize", refit);
+    vv?.addEventListener("resize", refit);
+    vv?.addEventListener("scroll", refit);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(settle);
+      ro?.disconnect();
+      window.removeEventListener("resize", refit);
+      vv?.removeEventListener("resize", refit);
+      vv?.removeEventListener("scroll", refit);
+    };
+  }, [fitEditorToViewport, keepCaretVisible, loading]);
+
+  // After the DOM has the new text: the textarea grows with the note, and a
+  // chase run before that commit measures the old, shorter box and decides
+  // the caret is fine when it has just dropped out of sight.
+  useEffect(() => { keepCaretVisible(); }, [content, keepCaretVisible]);
+
+  /* ── Bold / italic / link ─────────────────────────────────────
+     MDEditor binds these to its textarea alone, and its toolbar buttons act
+     on that textarea's LAST selection — so a phrase picked out in the
+     preview half gets marked up somewhere else entirely, which is what
+     "bold doesn't work" turns out to be. Ours runs from the editor as a
+     whole, maps a preview selection back to the source when it can name it
+     unambiguously, and leaves the text alone rather than marking the wrong
+     words. execCommand keeps the native undo stack intact. */
+  const applyWrap = (textarea: HTMLTextAreaElement, marker: string) => {
+    const val = textarea.value;
+    let start = textarea.selectionStart;
+    let end = textarea.selectionEnd;
+
+    // Selection made in the rendered half: find that text in the source
+    const domSel = window.getSelection();
+    const inPreview = domSel && domSel.rangeCount > 0 && !domSel.isCollapsed &&
+      editorRef.current?.querySelector(".w-md-editor-preview")?.contains(domSel.anchorNode);
+    if (inPreview) {
+      const picked = domSel!.toString();
+      const first = val.indexOf(picked);
+      if (first < 0 || val.indexOf(picked, first + 1) >= 0) return; // absent or ambiguous
+      start = first;
+      end = first + picked.length;
+    } else if (start === end) {
+      // No selection: take the word under the caret, else just drop markers
+      const left = val.slice(0, start).search(/[^\s]*$/);
+      const right = start + (val.slice(start).match(/^[^\s]*/)?.[0].length ?? 0);
+      start = left; end = right;
+    }
+
+    const selected = val.slice(start, end);
+    const wrapped = selected.startsWith(marker) && selected.endsWith(marker) && selected.length > marker.length * 2;
+    const next = wrapped ? selected.slice(marker.length, -marker.length) : `${marker}${selected}${marker}`;
+
+    textarea.focus();
+    textarea.setSelectionRange(start, end);
+    if (!document.execCommand("insertText", false, next)) {
+      handleChange(val.slice(0, start) + next + val.slice(end));
+    }
+    const inner = wrapped ? start : start + marker.length;
+    setTimeout(() => textarea.setSelectionRange(inner, inner + (wrapped ? next.length : selected.length)), 0);
+  };
+
   // Handle bullet continuation, empty-bullet exit, and tab indent
   // Attached via useEffect in capture phase so it fires before MDEditor's own handlers
   const handleEditorKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   handleEditorKeyDownRef.current = (e: KeyboardEvent) => {
     const textarea = editorRef.current?.querySelector("textarea");
-    if (!textarea || document.activeElement !== textarea) return;
+    if (!textarea) return;
+
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "b" || e.key === "i")) {
+      e.preventDefault();
+      e.stopPropagation();
+      applyWrap(textarea, e.key === "b" ? "**" : "*");
+      requestAnimationFrame(keepCaretVisible);
+      return;
+    }
+
+    if (document.activeElement !== textarea) return;
 
     const val = textarea.value;
     const cursor = textarea.selectionStart;
@@ -490,14 +650,41 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
     }
   };
 
-  // Attach keydown in capture phase on the textarea so it fires before MDEditor
+  // Capture phase, so it fires before MDEditor's own handlers. On the
+  // document rather than the editor because a selection made in the preview
+  // half leaves focus on <body> — the keystroke would never reach the
+  // editor's own listener, which is half of why ⌘B looked dead. Gated on the
+  // editor holding the focus or the selection, so it stays out of the way
+  // everywhere else.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const el = editorRef.current;
+      if (!el) return;
+      const sel = window.getSelection();
+      const mine = el.contains(document.activeElement) ||
+        (!!sel && sel.rangeCount > 0 && el.contains(sel.anchorNode));
+      if (!mine) return;
+      handleEditorKeyDownRef.current(e);
+    };
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+  }, [loading]); // re-attach after loading completes (textarea mounts)
+
+  // Moves that don't change the text — arrow keys, clicking into the note —
+  // get no content effect, so chase on those too.
   useEffect(() => {
     const el = editorRef.current;
     if (!el) return;
-    const handler = (e: KeyboardEvent) => handleEditorKeyDownRef.current(e);
-    el.addEventListener("keydown", handler, true); // capture phase
-    return () => el.removeEventListener("keydown", handler, true);
-  }, [loading]); // re-attach after loading completes (textarea mounts)
+    const chase = () => requestAnimationFrame(keepCaretVisible);
+    el.addEventListener("keyup", chase);
+    el.addEventListener("click", chase);
+    el.addEventListener("focusin", chase);
+    return () => {
+      el.removeEventListener("keyup", chase);
+      el.removeEventListener("click", chase);
+      el.removeEventListener("focusin", chase);
+    };
+  }, [keepCaretVisible, loading]);
 
   // Custom preview: render wiki links in paragraphs and list items
   const previewOptions = {
@@ -559,8 +746,9 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
       onClick={embedded ? undefined : onClose}
     >
       <div
+        ref={cardRef}
         className={embedded
-          ? "bg-white w-full max-w-4xl rounded-xl shadow border border-gray-200 flex flex-col overflow-hidden h-[calc(100vh-7.5rem)]"
+          ? "bg-white w-full max-w-4xl rounded-xl shadow border border-gray-200 flex flex-col overflow-hidden note-editor-box"
           : "bg-white w-full max-w-4xl m-4 rounded-xl shadow-2xl flex flex-col overflow-hidden"}
         onClick={(e) => e.stopPropagation()}
       >
