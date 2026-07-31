@@ -1607,10 +1607,24 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     const newTask: Task = {
       text: fullText, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
     };
+    // A task whose group already exists in the day joins it, wherever the
+    // adding happened. Groups are contiguous runs, so inserting a
+    // "Rotary: …" at the top of a day that already has a Rotary section
+    // just makes a second Rotary heading — which is what "add it to the
+    // group" was asking not to happen.
+    const targetGroup = parseGroup(fullText).group;
+    let insertAt = afterIdx + 1;
+    if (targetGroup) {
+      let lastOfGroup = -1;
+      data.days[dayIdx].tasks.forEach((t, i) => {
+        if (parseGroup(t.text).group === targetGroup) lastOfGroup = i;
+      });
+      if (lastOfGroup >= 0) insertAt = lastOfGroup + 1;
+    }
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
       const tasks = [...d.tasks];
-      tasks.splice(afterIdx + 1, 0, newTask);
+      tasks.splice(insertAt, 0, newTask);
       return { ...d, tasks };
     });
     applyTaskChange(days);

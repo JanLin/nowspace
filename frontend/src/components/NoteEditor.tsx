@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import MDEditor from "@uiw/react-md-editor";
 import { api } from "../api";
 import { findOpenAPs, markHarvested, defaultSections, canonicalGroup } from "../actionPoints";
-import { caretOffsetTop, visibleViewportBottom } from "../caretView";
+import { caretOffsetTop, caretRectFromOverlay, visibleViewportBottom } from "../caretView";
 
 const VAULT_NAME = "Home";
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -422,6 +422,7 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
      overshoot makes <main> scroll — carrying the toolbar, bold button and
      all, off the top. Both are handled by hand here. */
   const cardRef = useRef<HTMLDivElement>(null);
+  const composingRef = useRef(false);
 
   const fitEditorToViewport = useCallback(() => {
     const card = cardRef.current;
@@ -468,17 +469,35 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
     const ta = root?.querySelector<HTMLTextAreaElement>("textarea");
     const area = root?.querySelector<HTMLElement>(".w-md-editor-area");
     if (!ta || !area || document.activeElement !== ta) return;
+    // Mid-word on a phone keyboard the text isn't committed yet and the
+    // caret reads where it was, not where it looks — chasing that is what
+    // throws you off the end of the line you're typing.
+    if (composingRef.current) return;
     const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 18;
-    const caretTop = () => ta.getBoundingClientRect().top + caretOffsetTop(ta);
+    const taBox = ta.getBoundingClientRect();
+    const caretTop = () => {
+      // The rendered overlay knows exactly where the caret is; the mirror
+      // has to reconstruct the wrapping, and any disagreement compounds
+      // down a long note until it points off the screen.
+      const exact = caretRectFromOverlay(root!, ta.selectionStart);
+      if (exact) return exact.top;
+      const guess = taBox.top + caretOffsetTop(ta);
+      // A measurement outside the text box itself is wrong by definition —
+      // better to leave the view alone than to jump somewhere arbitrary.
+      return guess >= taBox.top - lineHeight && guess <= taBox.bottom + lineHeight ? guess : NaN;
+    };
     const r = area.getBoundingClientRect();
     const top = caretTop();
+    if (Number.isNaN(top)) return;
     // Only when the caret is actually outside the band — and back up when
     // it's above it, so arrowing up follows too.
     if (top + lineHeight + 8 > r.bottom) area.scrollTop += top + lineHeight + 8 - r.bottom;
     else if (top - 8 < r.top) area.scrollTop -= r.top - top + 8;
     // On a phone the keyboard covers the bottom of the card; visualViewport
     // is what knows where the visible part ends.
-    const below = caretTop() + lineHeight + 8 - visibleViewportBottom();
+    const after = caretTop();
+    if (Number.isNaN(after)) return;
+    const below = after + lineHeight + 8 - visibleViewportBottom();
     if (below > 0) {
       const main = ta.closest("main");
       const room = main ? main.scrollHeight - main.clientHeight - main.scrollTop : 0;
@@ -676,13 +695,19 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
     const el = editorRef.current;
     if (!el) return;
     const chase = () => requestAnimationFrame(keepCaretVisible);
+    const startCompose = () => { composingRef.current = true; };
+    const endCompose = () => { composingRef.current = false; chase(); };
     el.addEventListener("keyup", chase);
     el.addEventListener("click", chase);
     el.addEventListener("focusin", chase);
+    el.addEventListener("compositionstart", startCompose);
+    el.addEventListener("compositionend", endCompose);
     return () => {
       el.removeEventListener("keyup", chase);
       el.removeEventListener("click", chase);
       el.removeEventListener("focusin", chase);
+      el.removeEventListener("compositionstart", startCompose);
+      el.removeEventListener("compositionend", endCompose);
     };
   }, [keepCaretVisible, loading]);
 
