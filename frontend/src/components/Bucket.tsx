@@ -1935,7 +1935,10 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                             ? "An A shouldn't wait — plan it this week or downgrade it"
                             : "Click to set priority and horizon (n = this week, nw = next week, m = next month)"}
                         >
-                          {(task.horizon || "") + (task.priority || "-")}
+                          {/* Same rule the board and the filters use: a
+                              recurring copy's horizon comes from its due
+                              date, so the badge says so too. */}
+                          {(task.horizon || dueHorizon(task.due_date) || (isMonthHorizon(task.text) ? "m" : "")) + (task.priority || "-")}
                         </button>
                         {prioMenu === originalIdx && prioHorizonMenu(task, originalIdx, true)}
                       </span>

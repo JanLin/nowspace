@@ -4734,6 +4734,17 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 onDragEnd={() => { bucketDragRef.current = null; }}
                 className={`flex items-center gap-1.5 py-1 px-2 rounded hover:bg-white text-xs group/bt transition-colors ${needsSize ? "" : "cursor-grab active:cursor-grabbing"}`}
               >
+                {/* Same badge as its neighbours, but flat: it says where the
+                    item sits (n / nw / m, priority) without offering the
+                    picker's weekday row — nothing unsized is schedulable,
+                    and a control that has to refuse is worse than none. */}
+                {needsSize && (
+                  <span className="shrink-0 px-1 rounded text-[10px] font-bold"
+                    style={{ border: "1px solid var(--border)", color: "var(--text-tertiary)" }}
+                    title="No size yet — it can't be scheduled until it has one. The s/m/l beside it does that in a tap.">
+                    {(task.horizon || dueHorizon(task.due_date) || "") + (task.priority || "-")}
+                  </span>
+                )}
                 {needsSize && (
                   <span className="flex gap-0.5 shrink-0">
                     {(["s", "m", "l"] as const).map((sz) => (
@@ -4757,7 +4768,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     style={!task.priority ? { border: "1px solid var(--border)" } : undefined}
                     title="Priority, horizon (n / nw / m), or pick a weekday"
                   >
-                    {(task.horizon || "") + (task.priority || "-")}
+                    {/* A recurring copy carries its horizon in its due date
+                        rather than an n/nw/m token, and the lens above
+                        already counts it that way — so show the same thing
+                        here, or the badge disagrees with the chip that
+                        listed it. */}
+                    {(task.horizon || dueHorizon(task.due_date) || "") + (task.priority || "-")}
                   </button>
                   {panelPrioMenu === idx && (
                     <div className="absolute left-0 top-full mt-0.5 z-30 rounded shadow-md p-1 space-y-1" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
