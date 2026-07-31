@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nowspace for AI developers — calm agent management</title>
+<meta name="description" content="Managing AI agents is stressful. Nowspace gives that work structure: plain-markdown plans your agents can read and write, and handover notes anyone — human or agent — can pick up.">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="assets/style.css">
+<script defer src="https://cloud.umami.is/script.js"
+        data-website-id="REPLACE_WITH_NOWSPACE_ORG_WEBSITE_ID"></script>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="index.html">
+      <svg viewBox="0 0 512 512" width="30" height="30" aria-hidden="true">
+        <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="14" fill="none"/>
+        <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+        <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+        <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+        <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+        <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+        <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+      </svg>
+      Nowspace
+    </a>
+    <button class="nav-toggle" aria-label="Menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+    <nav class="nav-links">
+      <a href="philosophy.html">Philosophy</a>
+      <a href="getting-started.html">Getting started</a>
+      <a class="active" href="developers.html">For AI developers</a>
+      <a href="https://github.com/JanLin/coaching-agent" rel="noopener">GitHub</a>
+      <a class="btn-nav" href="download.html">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="page-head">
+    <svg class="compass" viewBox="0 0 512 512" aria-hidden="true">
+      <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="8" fill="none"/>
+      <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+      <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+      <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+      <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+      <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+      <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+    </svg>
+    <h1>For AI developers</h1>
+    <p class="sub">Running agents multiplies the threads you have to hold in your head. Nowspace was built to take that weight off — a structured, calm way to track agent work, review output, and hand things over cleanly.</p>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <div class="kicker">The problem</div>
+      <h2>Agents don't reduce your workload. They change its shape.</h2>
+      <p class="lede">One developer can now run five parallel streams of work — but every stream still needs direction, review, and follow-up. The result is a new kind of stress: half-finished threads everywhere, context scattered across terminals and chats, and nothing you could hand to a colleague (or to tomorrow's you) without an hour of explaining.</p>
+      <div class="grid">
+        <div class="card">
+          <span class="icon">🌀</span>
+          <h3>Too many open loops</h3>
+          <p>Each agent run is another loop your mind keeps rehearsing. Unfinished, unreviewed, unrecorded — that's the recipe for 3 a.m. wake-ups.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🗂️</span>
+          <h3>Context lives nowhere</h3>
+          <p>Decisions and results end up buried in chat scrollback. When a thread resumes next week, the context is gone and you rebuild it from memory.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🤝</span>
+          <h3>Handover is painful</h3>
+          <p>Passing work to a teammate — or to another agent — means reconstructing state by hand. There's no shared, durable record of where things stand.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt">
+    <div class="wrap">
+      <div class="kicker">The approach</div>
+      <h2>Plain files are the interface everyone shares</h2>
+      <p class="lede">Nowspace's substrate is plain markdown in your own Obsidian vault — and that turns out to be exactly what agent work needs. Anything that can read a file can read your plan. Including your agents.</p>
+      <div class="split">
+        <div>
+          <ul class="checklist">
+            <li><strong>One plan, every thread.</strong> Each agent stream is a task group in your day. Priorities (A/B/C) tell you what to review first; the hourglass marks what's blocked waiting on a run.</li>
+            <li><strong>Agent output lands as linked notes.</strong> Agents write their results into the vault as markdown; the plan holds pointers to them. You review on your schedule, not theirs.</li>
+            <li><strong>Handover is just... the file.</strong> Because state lives in structured notes rather than your head, handing a thread to a colleague — or feeding it to the next agent — is passing a link, not writing an essay.</li>
+            <li><strong>Separated contexts, no leaks.</strong> One context per engagement. Client detail never lives in the plan — the plan holds pointers into separated contexts, so nothing crosses a boundary that shouldn't.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="shot" style="margin-top:0"><img src="assets/app-and-vault.png" alt="The same plan in the Nowspace app and as plain markdown on disk — the substrate agents read and write"></div>
+          <p class="caption">The vault is the substrate: the app view and the markdown file are the same plan. Agent output lands here as linked notes for review.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="kicker">And for you, not just your agents</div>
+      <h2>The human side keeps you sane</h2>
+      <p class="lede">The same tools that make the philosophy work day to day apply doubly when you're orchestrating agents: the focus horn and pomodoro for one review at a time, ultra-focus to silence the other streams, the white elephant to break down the intimidating thread, and horizons instead of deadlines — so a day with your A-reviews done is a good day, whatever the agents got up to.</p>
+      <div class="callout">
+        <strong>Sovereign here matters more, not less.</strong> Agent workflows touch client code and confidential context. With Nowspace everything stays in files on your machine — no third-party board, no cloud sync you didn't choose, no hidden hooks. You control access. <a href="index.html#sovereign">How Nowspace stays sovereign →</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="band">
+    <svg class="compass" viewBox="0 0 512 512" aria-hidden="true">
+      <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="8" fill="none"/>
+      <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+      <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+      <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+      <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+      <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+      <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+    </svg>
+    <h2>Put the threads down. Keep the thread.</h2>
+    <p>Free and open — and if it doesn't fit your workflow, improvements are welcome on GitHub, time permitting.</p>
+    <div class="cta-row" style="display:flex; gap:14px; justify-content:center; flex-wrap:wrap">
+      <a class="btn btn-primary" href="download.html">Download Nowspace</a>
+      <a class="btn btn-ghost" href="https://github.com/JanLin/coaching-agent" rel="noopener">View on GitHub</a>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="col">
+        <a class="brand" href="index.html">
+          <svg viewBox="0 0 512 512" width="26" height="26" aria-hidden="true">
+            <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="14" fill="none"/>
+            <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+            <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+            <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+            <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+            <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+            <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+          </svg>
+          Nowspace
+        </a>
+        <p>A calm, sovereign space for now. Your plans live in plain files on your own computer — no accounts, no cloud, no hidden hooks.</p>
+      </div>
+      <div class="links">
+        <div>
+          <h4>Nowspace</h4>
+          <a href="philosophy.html">Philosophy</a>
+          <a href="getting-started.html">Getting started</a>
+      <a href="developers.html">For AI developers</a>
+          <a href="download.html">Download</a>
+        </div>
+        <div>
+          <h4>Project</h4>
+          <a href="https://github.com/JanLin/coaching-agent" rel="noopener">GitHub</a>
+          <a href="https://github.com/JanLin/coaching-agent/releases" rel="noopener">Releases</a>
+          <a href="https://github.com/JanLin/coaching-agent/issues" rel="noopener">Report an issue</a>
+        </div>
+      </div>
+    </div>
+    <div class="legal">
+      <span>Nowspace is free to use and shared in the open — development sponsored by <a href="https://linaltec.com" rel="noopener">Linaltec AB</a>.</span>
+      <span>Cookieless analytics, nothing about your vault — <a href="privacy.html">privacy</a>.</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

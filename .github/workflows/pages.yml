@@ -1,0 +1,48 @@
+name: Website
+
+# Publishes site/ to nowspace.org via GitHub Pages. Only site/ and the
+# philosophy source trigger it — the app's own deploy is a separate path
+# (deploy/update-nowspace.sh on the mini), and neither should fire for the
+# other's commits.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/philosophy.md"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A queued run is always newer than a running one; let it win.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # philosophy.html is generated, never committed — it cannot drift from
+      # docs/philosophy.md because it does not exist until this runs.
+      - run: python3 site/build.py
+      # the template and the build script are sources, not pages — publishing
+      # them would serve raw {{TITLE}} placeholders at nowspace.org
+      - run: rm -rf site/templates site/build.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

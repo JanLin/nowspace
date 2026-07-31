@@ -401,3 +401,31 @@ For development, settings live in `config.yaml` (copy from `config.yaml.example`
 ## Feedback and Issues
 
 Found a bug or have a suggestion? [Open an issue](https://github.com/JanLin/coaching-agent/issues).
+Thinking of contributing code? Read [CONTRIBUTING.md](CONTRIBUTING.md) first —
+Nowspace has binding non-goals, and it's better to know them before you build.
+
+## Support
+
+Nowspace is provided as-is under the AGPL, with no warranty and no support
+commitment. Issues and pull requests are read when time allows — there is no
+undertaking to respond, to fix, or to merge.
+
+Support, hosting and service levels are available under separate commercial
+agreement with Linaltec AB.
+
+## Licence
+
+Nowspace is free software under the
+[GNU Affero General Public License v3.0](LICENSE). Use it, study it, change it,
+share it. If you run a modified version as a network service, the AGPL asks you
+to make your source available to its users — so improvements come back to
+everyone instead of disappearing into a closed product.
+
+A commercial licence is available for anyone who needs different terms.
+
+## Website
+
+[nowspace.org](https://nowspace.org) is built from `site/` in this repository
+and published by the `Website` workflow. `site/philosophy.html` is generated
+from `docs/philosophy.md` by `site/build.py` — edit the markdown, never the
+HTML.

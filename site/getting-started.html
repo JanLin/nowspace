@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Getting started with Nowspace — your first day</title>
+<meta name="description" content="Set up Nowspace in two steps, learn the day view, the task icons and the context fences, or run it with Docker. No account, no configuration to speak of.">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="assets/style.css">
+<script defer src="https://cloud.umami.is/script.js"
+        data-website-id="REPLACE_WITH_NOWSPACE_ORG_WEBSITE_ID"></script>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="index.html">
+      <svg viewBox="0 0 512 512" width="30" height="30" aria-hidden="true">
+        <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="14" fill="none"/>
+        <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+        <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+        <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+        <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+        <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+        <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+      </svg>
+      Nowspace
+    </a>
+    <button class="nav-toggle" aria-label="Menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+    <nav class="nav-links">
+      <a href="philosophy.html">Philosophy</a>
+      <a class="active" href="getting-started.html">Getting started</a>
+      <a href="developers.html">For AI developers</a>
+      <a href="https://github.com/JanLin/coaching-agent" rel="noopener">GitHub</a>
+      <a class="btn-nav" href="download.html">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="page-head">
+    <svg class="compass" viewBox="0 0 512 512" aria-hidden="true">
+      <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="8" fill="none"/>
+      <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+      <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+      <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+      <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+      <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+      <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+    </svg>
+    <h1>Getting started</h1>
+    <p class="sub">Two steps to a working setup, then the handful of things worth knowing on your first day. There is no account to create and almost nothing to configure — Nowspace reads files you already own.</p>
+  </div>
+
+  <!-- What you need -->
+  <section>
+    <div class="wrap">
+      <div class="kicker">Before you start</div>
+      <h2>What you need</h2>
+      <p class="lede">One thing: a folder of markdown files with PARA structure — an <a href="https://obsidian.md" rel="noopener">Obsidian</a> vault is the usual home, though Nowspace only cares about the folders and files, not about Obsidian itself.</p>
+      <div class="split">
+        <div>
+          <p>Nowspace looks for these folders and creates the two plan files itself if they aren't there yet:</p>
+<pre><code>YourVault/
+  0-Inbox/
+    Plan Week.md          &lt;-- your weekly plan
+    Plan Week Bucket.md   &lt;-- parked tasks
+  1-Projects/
+  2-Areas/
+  3-Resources/
+  4-Archive/</code></pre>
+        </div>
+        <div>
+          <p>Don't have a vault yet? Make an empty folder with those five directories and point Nowspace at it. You can open the same folder in Obsidian later — or never. The files are plain markdown either way, and everything Nowspace writes stays readable in any text editor.</p>
+          <p style="color:var(--text-soft)">If you already keep a vault, use it. Nowspace adds two files to <code>0-Inbox/</code> and otherwise leaves your notes alone.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- First launch -->
+  <section class="alt">
+    <div class="wrap">
+      <div class="kicker">First launch</div>
+      <h2>Up and running in two steps</h2>
+      <ol class="steps" style="margin-top:36px">
+        <li><strong>Open the app.</strong> On first launch it opens the <strong>Settings</strong> tab automatically.</li>
+        <li><strong>Point it at your vault.</strong> Browse to your vault folder — the app auto-detects the PARA structure and switches to the <strong>Plan</strong> tab with your week loaded.</li>
+      </ol>
+      <div class="callout">
+        <strong>That's it — there's no account step.</strong> Nowspace has no server of its own, no sign-up, no telemetry and no hidden hooks. Your plan is markdown in your vault, and the <a href="https://github.com/JanLin/coaching-agent" rel="noopener">source code</a> is open so you can verify that yourself.
+      </div>
+    </div>
+  </section>
+
+  <!-- macOS gatekeeper -->
+  <section>
+    <div class="wrap">
+      <div class="kicker">macOS only</div>
+      <h2>If macOS says the app is damaged</h2>
+      <p class="lede">Nothing is damaged. Nowspace isn't notarized with Apple — that costs a Developer ID and this is a free .org project — and "damaged and can't be opened" is simply the wording Gatekeeper uses for unsigned apps it has quarantined.</p>
+      <p>Copy <code>Nowspace.app</code> to <code>/Applications</code>, then clear the quarantine flag once per install or update:</p>
+<pre><code>xattr -cr /Applications/Nowspace.app</code></pre>
+      <p style="color:var(--text-soft)">You only need this on macOS, and only once per version. Windows and Linux builds install normally.</p>
+    </div>
+  </section>
+
+  <!-- First day -->
+  <section class="alt">
+    <div class="wrap">
+      <div class="kicker">Your first day</div>
+      <h2>The five things worth knowing</h2>
+      <p class="lede">Nowspace is deliberately small. Learn these and you have essentially all of it — the rest is your own markdown.</p>
+      <div class="grid">
+        <div class="card">
+          <span class="icon">📝</span>
+          <h3>Capture without thinking</h3>
+          <p>Add a task and move on. No required fields, no category to pick, no questions asked — the whole value of an inbox is the trust that lets you let go of a thought. Sorting happens later.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🪣</span>
+          <h3>The bucket holds "later"</h3>
+          <p>Anything without a home goes in the bucket and stays there quietly. Pull it into a day when you actually want it, by dragging. Nothing nags you from the bucket.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🎺</span>
+          <h3>Trumpet, elephant, hourglass</h3>
+          <p>Hover a task for its icons. The trumpet makes it your focus and offers a 15 or 30 minute pomodoro. The elephant breaks a daunting task into small steps. The hourglass marks it blocked and waiting on someone else.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🧭</span>
+          <h3>Priorities, not dates</h3>
+          <p>Tasks carry A/B/C/D rather than deadlines — A must happen today, B should, C can, D is optional. A day with three finished A-tasks is a good day, whatever else happened.</p>
+        </div>
+        <div class="card">
+          <span class="icon">📌</span>
+          <h3>Contexts keep work at work</h3>
+          <p>Optionally split tasks into work, volunteer and personal, then show only work during work hours. The rare private errand that genuinely must happen today gets pinned — a deliberate exception rather than an open gate.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🔍</span>
+          <h3>Notes sit beside the plan</h3>
+          <p>A scratchpad with wiki-links, plus a reference browser onto folders you nominate. The day's thinking lives next to the day's tasks instead of in another window.</p>
+        </div>
+      </div>
+      <div style="margin-top:36px">
+        <a class="btn btn-ghost" href="philosophy.html">Why it works this way →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Docker -->
+  <section>
+    <div class="wrap">
+      <div class="kicker">Alternative</div>
+      <h2>Run with Docker</h2>
+      <p class="lede">Prefer a web app? Run Nowspace in a container without installing Python or Node.js — your vault folder is mounted in, and changes sync straight back to your files on disk.</p>
+<pre><code>git clone git@github.com:JanLin/coaching-agent.git
+cd coaching-agent
+cp .env.example .env
+# Edit .env — set VAULT_PATH
+docker compose up -d</code></pre>
+      <p style="color:var(--text-soft)">Then open <code>http://localhost:8000</code>. Full details, including an always-on-Mac plus phone setup over Tailscale, are in the <a href="https://github.com/JanLin/coaching-agent#readme" rel="noopener">README</a>.</p>
+    </div>
+  </section>
+
+  <div class="band">
+    <h2>Ready when you are</h2>
+    <p>Free, open, and yours. Install it in minutes and point it at your vault.</p>
+    <a class="btn btn-primary" href="download.html">Download Nowspace</a>
+  </div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="col">
+        <a class="brand" href="index.html">
+          <svg viewBox="0 0 512 512" width="26" height="26" aria-hidden="true">
+            <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="14" fill="none"/>
+            <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+            <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+            <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+            <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+            <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+            <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+          </svg>
+          Nowspace
+        </a>
+        <p>A calm, sovereign space for now. Your plans live in plain files on your own computer — no accounts, no cloud, no hidden hooks.</p>
+      </div>
+      <div class="links">
+        <div>
+          <h4>Nowspace</h4>
+          <a href="philosophy.html">Philosophy</a>
+          <a href="getting-started.html">Getting started</a>
+          <a href="developers.html">For AI developers</a>
+          <a href="download.html">Download</a>
+        </div>
+        <div>
+          <h4>Project</h4>
+          <a href="https://github.com/JanLin/coaching-agent" rel="noopener">GitHub</a>
+          <a href="https://github.com/JanLin/coaching-agent/releases" rel="noopener">Releases</a>
+          <a href="https://github.com/JanLin/coaching-agent/issues" rel="noopener">Report an issue</a>
+        </div>
+      </div>
+    </div>
+    <div class="legal">
+      <span>Nowspace is free to use and shared in the open — development sponsored by <a href="https://linaltec.com" rel="noopener">Linaltec AB</a>.</span>
+      <span>Cookieless analytics, nothing about your vault — <a href="privacy.html">privacy</a>.</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

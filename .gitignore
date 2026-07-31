@@ -16,3 +16,7 @@ frontend/src-tauri/gen/
 build/
 dist/
 *.spec
+
+# Website: generated from docs/philosophy.md by site/build.py
+site/philosophy.html
+.pytest_cache/

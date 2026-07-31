@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Nowspace App Icon — Compass Rose (Bold, larger) -->
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#0f172a"/>
+
+  <!-- Outer ring - thicker -->
+  <circle cx="256" cy="256" r="195" stroke="#475569" stroke-width="8" fill="none"/>
+
+  <!-- Cardinal points - bold, fill more of the space -->
+  <!-- North (emphasized - bright white) -->
+  <polygon points="256,61 228,228 284,228" fill="#f1f5f9"/>
+  <!-- South -->
+  <polygon points="256,451 228,284 284,284" fill="#94a3b8"/>
+  <!-- East -->
+  <polygon points="451,256 284,228 284,284" fill="#94a3b8"/>
+  <!-- West -->
+  <polygon points="61,256 228,228 228,284" fill="#94a3b8"/>
+
+  <!-- Center — bold blue dot -->
+  <circle cx="256" cy="256" r="32" fill="#3b82f6"/>
+  <circle cx="256" cy="256" r="15" fill="#0f172a"/>
+</svg>
