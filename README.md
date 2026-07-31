@@ -429,3 +429,12 @@ A commercial licence is available for anyone who needs different terms.
 and published by the `Website` workflow. `site/philosophy.html` is generated
 from `docs/philosophy.md` by `site/build.py` — edit the markdown, never the
 HTML.
+
+To preview it locally, from the repository root:
+
+```bash
+python3 site/build.py && cd site && python3 -m http.server 4173
+```
+
+See [site/README.md](site/README.md) for the layout, the editing rules and
+what still needs wiring up.

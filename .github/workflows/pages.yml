@@ -37,9 +37,10 @@ jobs:
       # philosophy.html is generated, never committed — it cannot drift from
       # docs/philosophy.md because it does not exist until this runs.
       - run: python3 site/build.py
-      # the template and the build script are sources, not pages — publishing
-      # them would serve raw {{TITLE}} placeholders at nowspace.org
-      - run: rm -rf site/templates site/build.py
+      # templates, the build script and the developer README are sources, not
+      # pages — publishing them would serve raw {{TITLE}} placeholders and
+      # internal notes at nowspace.org
+      - run: rm -rf site/templates site/build.py site/README.md
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
