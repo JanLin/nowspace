@@ -252,6 +252,16 @@ select.bg-white,
   opacity: 1;
 }
 
+/* The repeat schedule, centred on a phone. vw and vh are the viewport in CSS
+   pixels, and the text size renders those pixels larger — so a plain
+   100vw box comes out wider than the screen it's meant to fit inside.
+   Dividing by the zoom is what keeps the panel on the glass. */
+.repeat-popover-centred {
+  max-width: calc((100vw - 1.5rem) / var(--ui-zoom, 1));
+  max-height: calc((100vh - 2rem) / var(--ui-zoom, 1));
+  max-height: calc((100dvh - 2rem) / var(--ui-zoom, 1));
+}
+
 /* Text-glyph action buttons (→ Plan, ✕): theme-aware base color.
    Tailwind hover:text-* classes still win on hover (higher specificity). */
 .glyph-action { color: var(--text-secondary); }
