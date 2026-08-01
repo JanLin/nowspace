@@ -126,43 +126,11 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
   // measuring is exact, which matters because the caret chase keeps the caret
   // inside this box — a box overhanging the keyboard means a caret under it.
   // Phones only, and only while editing; blur puts the CSS back in charge.
-  const fitPanelToKeyboard = () => {
-    const panel = document.getElementById("day-notes-panel");
-    if (!panel) return;
-    if (window.innerWidth >= 768) { panel.style.maxHeight = ""; return; }
-    const vv = window.visualViewport;
-    const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-    const avail = visibleBottom - panel.getBoundingClientRect().top - 8;
-    panel.style.maxHeight = avail > 140 ? `${Math.round(avail)}px` : "";
-  };
-
-  // The keyboard opening or closing changes what's visible, so refit while the
-  // note has focus (this is also when Android reports the viewport change).
-  useEffect(() => {
-    if (!focused) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const refit = () => { fitPanelToKeyboard(); keepCaretVisibleRef.current?.(); };
-    vv.addEventListener("resize", refit);
-    return () => vv.removeEventListener("resize", refit);
-  }, [focused]);
-
-  // On phones, park the note under the pinned toolbar when editing starts, so
-  // the day's tasks aren't eating half the screen while writing.
-  const bringPanelUp = () => {
-    if (window.innerWidth >= 768) return;
-    const panel = document.getElementById("day-notes-panel");
-    const main = panel?.closest("main");
-    if (!panel || !main) return;
-    // Against the top of the page area, not the toolbar: the toolbar stops
-    // sticking while you type (it scrolls away to make room), so measuring
-    // from it aimed at a moving target — off-screen above, its bottom is
-    // negative and this scrolled far too far. Both directions, so a panel
-    // that starts above the fold comes back down to meet it.
-    const delta = panel.getBoundingClientRect().top - main.getBoundingClientRect().top;
-    if (Math.abs(delta) > 1) main.scrollTop += delta;
-  };
-
+  // The panel's height and position belong to WeekPlan now: it owns that
+  // element and refits it on every viewport change. Two components setting
+  // geometry on one box is what let an Android keyboard land the note
+  // somewhere different each time. What stays here is the caret chase,
+  // which is about the textarea's own scrolling.
   // Keep the CARET visible — never the box. Scroll the panel (and, if the
   // keyboard still covers it, the page) only when the caret is actually
   // outside the visible band, and scroll back up when it's above it.
@@ -281,8 +249,6 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
       if (panel) panel.scrollTop = scroll;
       // Then make room on phones and put the caret in view — after the
       // restore, or this would be the thing that gets undone
-      bringPanelUp();
-      fitPanelToKeyboard();
       keepCaretVisible();
     });
   }, [focused]);
@@ -321,7 +287,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           autoCorrect="off"
           spellCheck={false}
           onChange={handleChange}
-          onFocus={() => { setFocused(true); bringPanelUp(); fitPanelToKeyboard(); keepCaretVisible(); }}
+          onFocus={() => { setFocused(true); keepCaretVisible(); }}
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."

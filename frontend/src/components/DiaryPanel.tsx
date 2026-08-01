@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 
 /* Minimal diary editor: one markdown file per day ("<date> diary.md") in the
@@ -57,39 +57,28 @@ export default function DiaryPanel({ date, folder }: { date: string; folder: str
   // Flush pending edits when the diary closes or the day changes
   useEffect(() => () => { clearTimeout(timer.current); void save(); }, [path]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* On a phone the keyboard takes half the screen and this box is 50vh of
-     the other half, so the line being typed ends up underneath it. Sized to
-     what's actually visible instead — visualViewport is what knows, since
-     the keyboard sits outside it — and left to scroll itself, which is all
-     a plain textarea needs to keep its own caret in view. Full height again
-     on a wide screen, and whenever the keyboard goes away. */
+  /* No viewport maths here: WeekPlan sizes the panel to what the keyboard
+     leaves visible, and the box below fills it. One owner for the geometry
+     — measuring it from two places is what put this window mid-screen on
+     Android with the keyboard over its bottom half. */
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const fitToKeyboard = useCallback(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    if (window.matchMedia("(min-width: 768px)").matches) { ta.style.height = ""; return; }
-    const vv = window.visualViewport;
-    const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-    const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ui-zoom")) || 1;
-    const avail = (visibleBottom - ta.getBoundingClientRect().top - 12) / zoom;
-    ta.style.height = avail > 120 ? `${Math.round(avail)}px` : "";
-  }, []);
 
+  /* Open at the END of the day's entry. autoFocus puts the caret at the
+     start, which is the wrong end of a diary: you come back to it to add to
+     what's there, not to write above it. Once per date — after that the
+     caret is yours. */
+  const landedOn = useRef<string>("");
   useEffect(() => {
-    fitToKeyboard();
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", fitToKeyboard);
-    vv?.addEventListener("scroll", fitToKeyboard);
-    window.addEventListener("resize", fitToKeyboard);
-    return () => {
-      vv?.removeEventListener("resize", fitToKeyboard);
-      vv?.removeEventListener("scroll", fitToKeyboard);
-      window.removeEventListener("resize", fitToKeyboard);
-    };
-  }, [fitToKeyboard, content === null]);
+    const ta = taRef.current;
+    if (!ta || content === null || landedOn.current === date) return;
+    landedOn.current = date;
+    const end = ta.value.length;
+    ta.setSelectionRange(end, end);
+    ta.scrollTop = ta.scrollHeight;
+  }, [content, date]);
 
   return (
-    <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+    <div className="rounded-lg p-3 space-y-2 max-md:h-full max-md:flex max-md:flex-col max-md:min-h-0" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>📔 Diary — {date}</h3>
         <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
@@ -112,8 +101,7 @@ export default function DiaryPanel({ date, folder }: { date: string; folder: str
           onBlur={save}
           placeholder="Write today's diary…"
           autoFocus
-          onFocus={fitToKeyboard}
-          className="w-full min-h-[50vh] text-sm p-2.5 rounded resize-y outline-none focus:ring-1 focus:ring-purple-400 leading-relaxed"
+          className="w-full md:min-h-[50vh] max-md:flex-1 max-md:min-h-0 text-sm p-2.5 rounded resize-y outline-none focus:ring-1 focus:ring-purple-400 leading-relaxed"
           style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
         />
       )}
