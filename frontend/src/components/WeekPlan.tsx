@@ -3384,7 +3384,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       <div key={`day-${selectedDayIdx}`} className={`flex flex-col md:flex-row max-w-5xl mx-auto ${slideClass}`} ref={splitterContainer}
         onTouchStart={onDayTouchStart} onTouchEnd={onDayTouchEnd}>
       {/* Left column — Tasks */}
-      <div className={`space-y-2 ${showNotesPanel ? "min-w-0 w-full md:w-[var(--tasks-w)]" : "w-full max-w-lg mx-auto"}`}
+      {/* max-w-2xl, not lg: the cap is there so a task doesn't run the width
+          of a 27" display, but 32rem was tighter than it needed to be — with
+          the notes closed the list had no more room than with them open, so
+          hiding them bought nothing. 42rem still reads as a column. */}
+      <div className={`space-y-2 ${showNotesPanel ? "min-w-0 w-full md:w-[var(--tasks-w)]" : "w-full max-w-2xl mx-auto"}`}
         style={showNotesPanel ? ({ "--tasks-w": `${100 - notesPanelPct}%` } as React.CSSProperties) : undefined}
         onDragOver={(e) => {
           const types = e.dataTransfer.types;
