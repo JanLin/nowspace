@@ -534,6 +534,12 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                     >
                       {name}
                     </button>
+                    {onInsertLink && (
+                      <button onClick={() => onInsertLink(name)} title={`Add a [[link]] to ${name} into the note you're writing`}
+                        className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+                        +
+                      </button>
+                    )}
                     <button
                       onClick={() => togglePin(path)}
                       className="text-yellow-400 hover:text-yellow-600 text-[10px] opacity-0 group-hover/pin:opacity-100 shrink-0"
@@ -565,6 +571,12 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                   <span className="text-[9px] text-gray-400 shrink-0">
                     {relativeTime(new Date(r.timestamp).toISOString())}
                   </span>
+                  {onInsertLink && (
+                    <button onClick={() => onInsertLink(r.name)} title={`Add a [[link]] to ${r.name} into the note you're writing`}
+                      className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+                      +
+                    </button>
+                  )}
                   {!isPinned(r.path) && (
                     <button
                       onClick={() => togglePin(r.path)}

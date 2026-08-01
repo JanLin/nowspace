@@ -333,6 +333,16 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [data, setData] = useState<WeekPlanResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // A link added while the notes panel is closed lands somewhere you can't
+  // see. Saying so briefly is the difference between "it went in" and "did
+  // that do anything?" — it is not a notification about work, and nothing
+  // counts it.
+  const [linkAdded, setLinkAdded] = useState("");
+  useEffect(() => {
+    if (!linkAdded) return;
+    const t = setTimeout(() => setLinkAdded(""), 2600);
+    return () => clearTimeout(t);
+  }, [linkAdded]);
   const [weekOffset, setWeekOffset] = useState(0);
   const { funnel: funnelOn } = useAppMode();
   const [viewMode, setViewMode] = useState<ViewMode>("day");
@@ -5337,6 +5347,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       </div>
     )}
     {/* Vault browser side panel */}
+    {linkAdded && (
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-lg shadow-lg text-xs"
+        style={{ backgroundColor: "var(--card)", border: "1px solid var(--card-border)", color: "var(--text-secondary)" }}>
+        Added <strong style={{ color: "var(--text)" }}>[[{linkAdded}]]</strong> to the day's notes
+      </div>
+    )}
     {vaultBrowserOpen && (
       <div className={sheetClass("md:w-80")} style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <SheetGrip />
@@ -5347,16 +5363,22 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           /* Only the day's notes panel can act on these, so ask it by event
              rather than threading callbacks through the week layout */
           onInsertLink={(name) => {
-            // Open the day note first if it isn't showing: only the mounted
-            // panel listens, so adding a link to a closed note used to do
-            // nothing at all and say nothing about it.
-            if (!showNotesPanel) {
-              setDiaryOpen(false);
-              setShowNotesPanel(true);
-              setTimeout(() => window.dispatchEvent(new CustomEvent("vault-insert-link", { detail: { name } })), 150);
+            // Adding a link doesn't open anything — not the note being
+            // linked, not the notes panel. It lands in the day's notes and
+            // stays there to be clicked when you want it.
+            if (showNotesPanel && !diaryOpen) {
+              window.dispatchEvent(new CustomEvent("vault-insert-link", { detail: { name } }));
               return;
             }
-            window.dispatchEvent(new CustomEvent("vault-insert-link", { detail: { name } }));
+            // Panel closed (or showing the diary): nothing is mounted to
+            // take the link, so append it to the day's notes on the server.
+            // append rather than read-modify-write — the note may be open
+            // and unsaved on another device, and this must not flatten it.
+            const dayName = data?.days[selectedDayIdx]?.day;
+            if (!dayName) return;
+            api.appendNote(dayName, `[[${name}]]`, "", false, weekOffset)
+              .then(() => setLinkAdded(name))
+              .catch(() => setError(`Couldn't add a link to ${name}`));
           }}
           onScanAPs={(path, name) => window.dispatchEvent(new CustomEvent("vault-scan-aps", { detail: { path, name } }))}
         />
