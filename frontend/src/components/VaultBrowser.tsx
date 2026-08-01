@@ -467,6 +467,13 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
             const folder = h.path.split("/").slice(0, -1).join("/");
             return (
             <div key={h.path} className="group/hit flex items-center gap-1">
+              {onInsertLink && (
+                <button onClick={() => onInsertLink(h.name)} title={`Add a [[link]] to ${h.name} into the note you're writing`}
+                  className="text-[11px] leading-none px-1 rounded font-bold shrink-0 self-start mt-1 hover:text-blue-600 hover:bg-blue-50"
+                  style={{ color: "var(--text-tertiary)" }}>
+                  +
+                </button>
+              )}
               <div className="flex-1 min-w-0">
                 <button onClick={() => openNote(h.path, h.name)}
                   className="w-full text-left text-[11px] pt-1 px-1 rounded hover:bg-blue-50 transition-colors truncate"
@@ -481,13 +488,6 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                   {folder || "vault root"}
                 </button>
               </div>
-              {onInsertLink && (
-                <button onClick={() => onInsertLink(h.name)} title="Add a [[link]] to this note into the note you're writing"
-                  className="text-[11px] leading-none px-1 rounded font-bold shrink-0 hover:text-blue-600 hover:bg-blue-50"
-                  style={{ color: "var(--text-tertiary)" }}>
-                  +
-                </button>
-              )}
             </div>
             );
           })}
@@ -527,6 +527,12 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                 const name = path.includes("/") ? path.split("/").pop()!.replace(/\.md$/, "") : path.replace(/\.md$/, "");
                 return (
                   <div key={path} className="group/pin flex items-center gap-1">
+                    {onInsertLink && (
+                      <button onClick={() => onInsertLink(name)} title={`Add a [[link]] to ${name} into the note you're writing`}
+                        className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+                        +
+                      </button>
+                    )}
                     <button
                       onClick={() => openNote(path, name)}
                       className="flex-1 text-left text-[11px] py-0.5 px-1 rounded hover:bg-blue-50 truncate transition-colors"
@@ -534,12 +540,6 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                     >
                       {name}
                     </button>
-                    {onInsertLink && (
-                      <button onClick={() => onInsertLink(name)} title={`Add a [[link]] to ${name} into the note you're writing`}
-                        className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
-                        +
-                      </button>
-                    )}
                     <button
                       onClick={() => togglePin(path)}
                       className="text-yellow-400 hover:text-yellow-600 text-[10px] opacity-0 group-hover/pin:opacity-100 shrink-0"
@@ -561,6 +561,12 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
             <div className="space-y-0.5">
               {recents.slice(0, 5).map(r => (
                 <div key={r.path} className="group/recent flex items-center gap-1">
+                  {onInsertLink && (
+                    <button onClick={() => onInsertLink(r.name)} title={`Add a [[link]] to ${r.name} into the note you're writing`}
+                      className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+                      +
+                    </button>
+                  )}
                   <button
                     onClick={() => openNote(r.path, r.name)}
                     className="flex-1 text-left text-[11px] py-0.5 px-1 rounded hover:bg-blue-50 truncate transition-colors"
@@ -571,12 +577,6 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                   <span className="text-[9px] text-gray-400 shrink-0">
                     {relativeTime(new Date(r.timestamp).toISOString())}
                   </span>
-                  {onInsertLink && (
-                    <button onClick={() => onInsertLink(r.name)} title={`Add a [[link]] to ${r.name} into the note you're writing`}
-                      className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
-                      +
-                    </button>
-                  )}
                   {!isPinned(r.path) && (
                     <button
                       onClick={() => togglePin(r.path)}
@@ -913,6 +913,16 @@ function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, i
       draggable
       onDragStart={e => onDragStart(e, file.path)}
     >
+      {/* Leading the row, and always visible: it used to appear on hover,
+          which on a phone means never. On the left it lines up into a
+          column of "put this one into the note", with the name itself
+          still opening the note. */}
+      {onInsertLink && (
+        <button onClick={onInsertLink} title="Add a [[link]] to this note into the note you're writing"
+          className="text-[11px] leading-none shrink-0 px-1 rounded font-bold text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+          +
+        </button>
+      )}
       <button
         onClick={onOpen}
         className="flex-1 text-left truncate transition-colors"
@@ -921,15 +931,6 @@ function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, i
         {file.name}
       </button>
       <span className="text-[9px] text-gray-400 shrink-0">{relativeTime(file.modified)}</span>
-      {/* Always visible: this used to appear on hover, which on a phone
-          means never — the way to link a note into what you're writing was
-          effectively hidden. */}
-      {onInsertLink && (
-        <button onClick={onInsertLink} title="Add a [[link]] to this note into the note you're writing"
-          className="text-[11px] leading-none shrink-0 px-1 rounded font-bold text-gray-400 hover:text-blue-600 hover:bg-blue-50">
-          +
-        </button>
-      )}
       {onScanAPs && (
         <button onClick={onScanAPs} title="Scan this note for action points"
           className="text-[10px] shrink-0 opacity-0 group-hover/file:opacity-100 transition-opacity text-gray-400 hover:text-amber-500">
