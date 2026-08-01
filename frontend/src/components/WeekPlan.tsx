@@ -3357,8 +3357,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               onClick={() => {
                 const opening = !showNotesPanel;
                 setShowNotesPanel(opening);
-                // On phones the notes sit below the tasks — take the user there
+                // On phones the notes sit below the tasks — take the user there,
+                // and fold the floating buttons away off the note. The 🪣 in the
+                // status bar puts them back, which is why that bar stays.
                 if (opening && stacked) {
+                  setShowBottomBar(false);
                   setTimeout(() => document.getElementById("day-notes-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
                 }
               }}
@@ -3377,6 +3380,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 if (opening) {
                   setShowNotesPanel(true);
                   if (stacked) {
+                    setShowBottomBar(false);
                     setTimeout(() => document.getElementById("day-notes-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
                   }
                 }
@@ -4427,7 +4431,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
     {/* Bucket & Carry icons — above status bar, togglable */}
     {data && showBottomBar && (
-      <div className={`fixed bottom-8 z-40 flex items-end gap-2 right-6 ${writingRoom ? "hidden" : notesEditing ? "max-sm:hidden" : ""} ${
+      <div className={`fixed bottom-8 z-40 flex items-end gap-2 right-6 ${notesEditing ? "max-sm:hidden" : ""} ${
         vaultBrowserOpen ? "md:right-[max(21.5rem,calc(50vw-14.5rem))]"
           : (bucketOpen || carryForwardOpen || dailyCarryOpen) ? "md:right-[max(19.5rem,calc(50vw-16.5rem))]" : ""
       }`}>
@@ -4545,7 +4549,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
     {/* Status bar — always at very bottom */}
     {data && (
-      <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1 ${writingRoom ? "hidden" : notesEditing ? "max-sm:hidden" : ""}`} style={{ backgroundColor: "color-mix(in srgb, var(--bg) 95%, transparent)", borderColor: "var(--border)" }}>
+      /* Always present: this bar carries the 🪣 toggle that brings the
+         floating buttons back, so hiding it leaves no way to reach the
+         vault panel — or anything else out there — while writing. */
+      <div className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1" style={{ backgroundColor: "color-mix(in srgb, var(--bg) 95%, transparent)", borderColor: "var(--border)" }}>
         {/* flex-wrap: on phones the running-timer pill drops to its own row
             instead of pushing the stop button off the right edge */}
         <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-x-2 gap-y-1">
