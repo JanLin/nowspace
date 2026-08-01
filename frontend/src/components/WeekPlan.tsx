@@ -2921,7 +2921,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         onDragEnd={handleDragEnd}
         onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx, group }); }}
         style={showEdge ? { boxShadow: `inset 2px 0 0 ${ctxEdgeColor(taskCtx!)}` } : undefined}
-        className={`group flex max-sm:flex-wrap items-center gap-2 py-1 px-2 rounded text-sm select-none ${
+        className={`group flex flex-wrap items-center gap-2 py-1 px-2 rounded text-sm select-none ${
           dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
             ? "border-t-2 border-blue-400"
             : "border-t-2 border-transparent"
@@ -3006,10 +3006,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             {task.pillars.map((p) => PILLAR_ICONS[p]?.symbol || p).join("")}
           </span>
         )}
-        {/* Action icons — on phones this wrapper becomes a full-width second
-            row under the title (the icon count was squeezing the text);
-            sm:contents dissolves it so larger screens keep the inline row */}
-        <div className="flex items-center gap-2 w-full justify-end sm:contents">
+        {/* Action icons live on their own row under the title, at every
+            width. Inline they take the width the task text wants, and a
+            breakpoint can't help: a day column in the 3-day grid is narrow
+            on the widest screen there is. A task reads as a sentence; the
+            things you can do to it read as a row beneath. */}
+        <div className="flex items-center gap-2 w-full justify-end">
         {/* Wait hourglass toggle — only show when not already waiting */}
         {!task.done && !task.waiting && (
           <button

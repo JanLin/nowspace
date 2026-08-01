@@ -1949,7 +1949,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       onDrop={(e) => { e.preventDefault(); handleDrop(originalIdx, section.name, e); }}
                       onDragEnd={handleDragEnd}
                       onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ afterIdx: originalIdx, group: section.name || undefined }); }}
-                      className={`group flex max-sm:flex-wrap items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${
+                      className={`group flex flex-wrap items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${
                         dropTarget === originalIdx ? "border-t-2 border-blue-400" : "border-t-2 border-transparent"
                       }`}>
 
@@ -2035,10 +2035,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         </span>
                       )}
 
-                      {/* Action icons — a full-width second row on phones
-                          (the title was getting squeezed); sm:contents
-                          dissolves the wrapper on larger screens */}
-                      <div className="flex items-center gap-1.5 w-full justify-end sm:contents">
+                      {/* Action icons on their own row under the task, at
+                          every width — inline they take the width the task
+                          text wants, and the Bucket's list is narrow even on
+                          a wide screen. */}
+                      <div className="flex items-center gap-1.5 w-full justify-end">
                       {/* ⏳ Waiting toggle */}
                       {!task.waiting && (
                         <button onClick={(e) => { e.stopPropagation(); toggleWaiting(originalIdx); }}
