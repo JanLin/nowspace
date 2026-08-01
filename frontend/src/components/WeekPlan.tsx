@@ -1070,7 +1070,15 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       });
       refreshBucket();
       window.dispatchEvent(new CustomEvent("bucket-changed"));
-      if (canonical) setBucketExpandedGroups((prev) => new Set(prev).add(canonical));
+      // Make sure the group you just added to is showing. The state is the
+      // COLLAPSED set now (0.5.6 opened groups by default), so expanding
+      // means removing it — the old call was to a setter that no longer
+      // exists, which threw and reported a failed add that had succeeded.
+      if (canonical) setBucketCollapsedGroups((prev) => {
+        const next = new Set(prev);
+        next.delete(canonical);
+        return next;
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to add to bucket");
     }
