@@ -2044,17 +2044,16 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         </span>
                       )}
 
-                      {/* Wait stays on the line at every width — used
-                          constantly, and the same glyph reports the state
-                          once it's set. The rest are offers, and offers can
-                          wait behind the ⋯ when the row hasn't the room. */}
+                      {/* Nothing inline is an offer: the line reports facts
+                          (waiting, linked, steps, repeats) and every action
+                          lives in the strip or behind the ⋯. */}
+                      {(() => {
+                        const actions = (<>
                       {!task.waiting && (
                         <button onClick={(e) => { e.stopPropagation(); toggleWaiting(originalIdx); }}
                           className="text-xs opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
                           title="Mark as waiting">⏳</button>
                       )}
-                      {(() => {
-                        const actions = (<>
 
                       {/* 🐘 Break down */}
                       <button onClick={(e) => { e.stopPropagation(); hasSubtasks ? toggleExpandSubtasks(originalIdx) : startBreakdown(originalIdx); }}

@@ -3045,10 +3045,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             {task.pillars.map((p) => PILLAR_ICONS[p]?.symbol || p).join("")}
           </span>
         )}
-        {/* Wait stays on the line at every width: it's the one used
-            constantly, and the same glyph reports the state once it's set.
-            Everything else is an offer rather than a fact, and offers can
-            wait behind the ⋯ when the row hasn't the room. */}
+        {/* Nothing inline is an offer: what stays on the line reports a
+            fact (waiting, linked, has steps, repeats), and everything you
+            could DO to the task lives in the strip or behind the ⋯. The
+            waiting hourglass above is the state; this is the offer. */}
+        {(() => {
+          const actions = (<>
         {!task.done && !task.waiting && (
           <button
             onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}
@@ -3058,8 +3060,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             ⏳
           </button>
         )}
-        {(() => {
-          const actions = (<>
         {/* Start time tracking (auto-pauses whatever was running) */}
         {!task.done && (
           <button
