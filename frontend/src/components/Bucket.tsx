@@ -36,7 +36,6 @@ import {
   stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, setMonthHorizon, dueHorizon,
   BUCKET_META_RE, bucketAnchorKey,
 } from "../contexts";
-import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 const MD_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
@@ -292,8 +291,6 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       names.forEach((n) => (expanded ? next.add(n) : next.delete(n)));
       return persistExpanded(next);
     });
-  const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
-  const vaultBrowserStateRef = useRef<VaultBrowserState | null>(null);
   const dragRef = useRef<{ fromIdx: number } | null>(null);
   // A whole group being dragged by its ≡ handle — checked before dragRef, so
   // dropping on a group header reorders groups instead of refiling one task
@@ -1420,7 +1417,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   /* ── render ──────────────────────────────────────────── */
 
   return (
-    <div className={`space-y-3 pb-12 ${vaultBrowserOpen ? "" : "max-w-3xl mx-auto"}`}>
+    <div className="space-y-3 pb-12 max-w-3xl mx-auto">
       {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
       {/* Negative top: <main> carries py-2/sm:py-4, and a sticky child pins at
@@ -1736,7 +1733,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
 
       {/* Tasks + side panels: flex layout */}
       <div className={`flex gap-0 items-start ${boardView ? "hidden" : ""}`}>
-      <div className={`space-y-2 ${vaultBrowserOpen ? "flex-1 min-w-0" : "max-w-2xl w-full"}`}>
+      <div className="space-y-2 max-w-2xl w-full">
         {/* Week focus line — set in the weekly review */}
         {funnel?.week_focus && (
           <p className="text-[11px] italic px-1" style={{ color: "var(--text-tertiary)" }}>
@@ -2319,16 +2316,6 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
         )}
       </div>
 
-      {/* Vault browser side panel */}
-      {vaultBrowserOpen && (
-        <div className="hidden md:block w-80 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-80px)] sticky top-[80px] self-start relative" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
-          <VaultBrowser
-            onClose={() => setVaultBrowserOpen(false)}
-            stateRef={vaultBrowserStateRef}
-            onOpenNote={onOpenNote}
-          />
-        </div>
-      )}
       </div>{/* end flex container */}
 
       {/* NoteFilePicker popup — outside the list container, which is
@@ -2350,21 +2337,9 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       )}
 
 
-      {/* Floating vault browser icon */}
-      <div className="fixed bottom-12 right-4 z-30 flex flex-col gap-1.5">
-        <div
-          onClick={() => setVaultBrowserOpen(!vaultBrowserOpen)}
-          className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer shadow-lg transition-all text-sm ${
-            vaultBrowserOpen
-              ? "bg-teal-600 text-white ring-2 ring-teal-400"
-              : "hover:scale-110"
-          }`}
-          style={!vaultBrowserOpen ? { backgroundColor: "var(--bg-secondary)", color: "var(--text-secondary)", border: "1px solid var(--border)" } : undefined}
-          title="Vault Browser"
-        >
-          📂
-        </div>
-      </div>
+      /* No vault panel here: nothing in the Bucket is being written into,
+         so browsing had no verb — the 🔗 on a task is what relates a task to
+         a note, and reading notes belongs to the Notes tab. */
 
       {/* Funnel dialogs — every stage transition passes through its gate */}
       {stageDialog?.kind === "bind" && tasks[stageDialog.idx] && (

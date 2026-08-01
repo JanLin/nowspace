@@ -534,6 +534,11 @@ export default function App() {
                     onClose={() => setVaultOpen(false)}
                     stateRef={notesVaultStateRef}
                     onOpenNote={showNote}
+                    /* Only when a note is actually open to receive it —
+                       otherwise the + would be a button that does nothing */
+                    onInsertLink={activeNote
+                      ? (name) => window.dispatchEvent(new CustomEvent("note-insert-link", { detail: { name } }))
+                      : undefined}
                     focusFolder={vaultFocus}
                   />
                 </div>

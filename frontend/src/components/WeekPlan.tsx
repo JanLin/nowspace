@@ -5346,7 +5346,18 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           onOpenNote={onOpenNote}
           /* Only the day's notes panel can act on these, so ask it by event
              rather than threading callbacks through the week layout */
-          onInsertLink={(name) => window.dispatchEvent(new CustomEvent("vault-insert-link", { detail: { name } }))}
+          onInsertLink={(name) => {
+            // Open the day note first if it isn't showing: only the mounted
+            // panel listens, so adding a link to a closed note used to do
+            // nothing at all and say nothing about it.
+            if (!showNotesPanel) {
+              setDiaryOpen(false);
+              setShowNotesPanel(true);
+              setTimeout(() => window.dispatchEvent(new CustomEvent("vault-insert-link", { detail: { name } })), 150);
+              return;
+            }
+            window.dispatchEvent(new CustomEvent("vault-insert-link", { detail: { name } }));
+          }}
           onScanAPs={(path, name) => window.dispatchEvent(new CustomEvent("vault-scan-aps", { detail: { path, name } }))}
         />
       </div>

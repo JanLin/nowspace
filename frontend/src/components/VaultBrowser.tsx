@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "../api";
+import { loadRecents, addToRecents, type RecentNote } from "../vaultRecents";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -10,11 +11,6 @@ interface VaultFile {
   modified: string;
 }
 
-interface RecentNote {
-  path: string;
-  name: string;
-  timestamp: number;
-}
 
 export interface VaultBrowserState {
   expandedFolders: Set<string>;
@@ -50,25 +46,6 @@ function relativeTime(isoDate: string): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
   return `${Math.floor(days / 30)}mo ago`;
-}
-
-const RECENTS_KEY = "vault-browser-recents";
-const MAX_RECENTS = 8;
-
-function loadRecents(): RecentNote[] {
-  try {
-    return JSON.parse(localStorage.getItem(RECENTS_KEY) || "[]");
-  } catch { return []; }
-}
-
-function saveRecents(recents: RecentNote[]) {
-  localStorage.setItem(RECENTS_KEY, JSON.stringify(recents.slice(0, MAX_RECENTS)));
-}
-
-function addToRecents(path: string, name: string) {
-  const recents = loadRecents().filter(r => r.path !== path);
-  recents.unshift({ path, name, timestamp: Date.now() });
-  saveRecents(recents);
 }
 
 // ─── Main Component ─────────────────────────────────────────────────
@@ -505,9 +482,10 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                 </button>
               </div>
               {onInsertLink && (
-                <button onClick={() => onInsertLink(h.name)} title="Insert a [[link]] into the note you're writing"
-                  className="text-[10px] px-1 opacity-0 group-hover/hit:opacity-100 shrink-0" style={{ color: "var(--text-secondary)" }}>
-                  🔗
+                <button onClick={() => onInsertLink(h.name)} title="Add a [[link]] to this note into the note you're writing"
+                  className="text-[11px] leading-none px-1 rounded font-bold shrink-0 hover:text-blue-600 hover:bg-blue-50"
+                  style={{ color: "var(--text-tertiary)" }}>
+                  +
                 </button>
               )}
             </div>
@@ -931,10 +909,13 @@ function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, i
         {file.name}
       </button>
       <span className="text-[9px] text-gray-400 shrink-0">{relativeTime(file.modified)}</span>
+      {/* Always visible: this used to appear on hover, which on a phone
+          means never — the way to link a note into what you're writing was
+          effectively hidden. */}
       {onInsertLink && (
-        <button onClick={onInsertLink} title="Insert a [[link]] into the note you're writing"
-          className="text-[10px] shrink-0 opacity-0 group-hover/file:opacity-100 transition-opacity text-gray-400 hover:text-blue-500">
-          🔗
+        <button onClick={onInsertLink} title="Add a [[link]] to this note into the note you're writing"
+          className="text-[11px] leading-none shrink-0 px-1 rounded font-bold text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+          +
         </button>
       )}
       {onScanAPs && (
