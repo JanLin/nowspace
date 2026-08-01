@@ -627,6 +627,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                 return (
                   <FolderRow
                     key={f.path}
+                    onInsertLink={onInsertLink}
                     file={f}
                     refName={refName}
                     isDropTarget={dropTarget === f.path}
@@ -708,6 +709,8 @@ interface FolderRowProps {
   expandedFolders: Set<string>;
   subFilesMap: Map<string, VaultFile[]>;
   refNameInput: { folderPath: string; name: string } | null;
+  /** Passed straight through to the files nested under this folder */
+  onInsertLink?: (name: string) => void;
   onNavigateTo: (path: string) => void;
   onToggleExpand: (path: string) => void;
   onStarClick: (folderPath: string) => void;
@@ -724,7 +727,7 @@ interface FolderRowProps {
   onTogglePin: (path: string) => void;
 }
 
-function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, refNameInput, onNavigateTo, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, onDeleteFile, isPinned, onTogglePin }: FolderRowProps) {
+function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, refNameInput, onNavigateTo, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, onDeleteFile, isPinned, onTogglePin, onInsertLink }: FolderRowProps) {
   const isEditingRef = refNameInput?.folderPath === file.path;
   const isExpanded = expandedFolders.has(file.path);
 
@@ -805,6 +808,7 @@ function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, 
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
+          onInsertLink={onInsertLink}
         />
       )}
     </div>
@@ -823,9 +827,13 @@ interface SubTreeProps {
   onDragOver: (e: React.DragEvent, path: string) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, path: string) => void;
+  /** Same + as every other row — files nested in an expanded folder are
+      rendered here rather than by FileRow, and were the one place it was
+      still missing. */
+  onInsertLink?: (name: string) => void;
 }
 
-function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleExpand, onOpenFile, isPinned, onTogglePin, onDragOver, onDragLeave, onDrop }: SubTreeProps) {
+function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleExpand, onOpenFile, isPinned, onTogglePin, onDragOver, onDragLeave, onDrop, onInsertLink }: SubTreeProps) {
   return (
     <div className="ml-3 border-l border-gray-200 pl-1">
       {files.length === 0 && (
@@ -867,6 +875,13 @@ function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleEx
       ))}
       {files.filter(f => f.type === "file").map(f => (
         <div key={f.path} className="group/subfile flex items-center gap-1 py-0.5 px-1 text-[10px] rounded hover:bg-gray-50">
+          {onInsertLink && (
+            <button onClick={() => onInsertLink(f.name.replace(/\.md$/, ""))}
+              title={`Add a [[link]] to ${f.name.replace(/\.md$/, "")} into the note you're writing`}
+              className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+              +
+            </button>
+          )}
           <button
             onClick={() => onOpenFile(f.path, f.name)}
             className="flex-1 text-left truncate transition-colors"
