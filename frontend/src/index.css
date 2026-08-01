@@ -167,9 +167,15 @@ body {
   height: calc(100dvh / var(--ui-zoom, 1));
 }
 
-.notes-panel-box {
-  max-height: calc(100vh - 260px);
-  max-height: calc(100dvh - 260px);
+/* The desktop column only. On a phone the panel's height is set in JS from
+   what the keyboard actually leaves visible, and this cap — a guess at 260px
+   of chrome — was silently winning over it, leaving the box 200px short of
+   the fold. */
+@media (min-width: 768px) {
+  .notes-panel-box {
+    max-height: calc(100vh - 260px);
+    max-height: calc(100dvh - 260px);
+  }
 }
 
 /* The Notes tab editor card. Sized from the same dynamic viewport as the

@@ -10,6 +10,7 @@ import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
 import { markDone as markAPDone } from "../actionPoints";
 import { resolveLink, longPressProps } from "../links";
+import { visibleViewportBottom } from "../caretView";
 import { useAppMode } from "../appMode";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
@@ -2602,21 +2603,66 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // and the floating buttons are exactly the space the note wants. Opening
   // notes or diary suspends both — suspends, not overrides: your pin setting
   // and the toolbar come back the moment the panel closes.
-  // Put the note's top AT the top of the page area, not merely "in view":
-  // scrollIntoView stops as soon as the box is visible, and can't go further
-  // than the content allows — which is why opening the notes left them
-  // halfway down with the tasks still taking the screen. The spacer below
-  // the panel is what gives the page somewhere to scroll to.
-  const scrollNotesToTop = () => {
+  /** One owner for the note panel's geometry, applied for as long as it's
+   *  open rather than once when it opens.
+   *
+   *  Two things make a single scroll-on-open a guess. An Android keyboard
+   *  RESIZES the layout (interactive-widget=resizes-content in index.html),
+   *  so every open and close moves everything; and the browser does its own
+   *  scrolling of the focused field, which lands after ours. A desktop
+   *  window narrowed by hand does neither, which is why it looked right
+   *  there and wrong on the phone.
+   *
+   *  So: put the panel's top at the top of the page area, and make it
+   *  exactly as tall as what's visible — then do it again on every viewport
+   *  change. Height, not max-height: the bottom edge has to sit on the
+   *  keyboard, not below it. */
+  const fitNotesPanel = () => {
     const panel = document.getElementById("day-notes-panel");
     const main = panel?.closest("main");
     if (!panel || !main) return;
+    if (!stacked) { panel.style.height = ""; return; }
     const delta = panel.getBoundingClientRect().top - main.getBoundingClientRect().top;
     // Assigned, not animated: a smooth scroll is silently dropped in some
-    // engines (and by reduced-motion), and this has to land — the whole
-    // point is that the note is at the top, ready to type into.
+    // engines (and by reduced-motion), and this has to land.
     if (Math.abs(delta) > 1) main.scrollTop += delta;
+    const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ui-zoom")) || 1;
+    const avail = (visibleViewportBottom() - panel.getBoundingClientRect().top - 4) / zoom;
+    panel.style.height = avail > 120 ? `${Math.round(avail)}px` : "";
   };
+
+  useEffect(() => {
+    if (!showNotesPanel || !stacked) {
+      const panel = document.getElementById("day-notes-panel");
+      if (panel) panel.style.height = "";
+      return;
+    }
+    // Several passes after opening: the keyboard animates in, and Diary
+    // focuses itself, so the layout is still moving for a few hundred ms.
+    const timers = [0, 120, 350, 800].map((ms) => setTimeout(fitNotesPanel, ms));
+    // Three signals for one event, because which of them fires depends on the
+    // phone: Android resizes the layout (window resize), iOS shrinks only the
+    // visual viewport, and focus is what summons the keyboard in the first
+    // place — refitting twice costs nothing, missing it costs the bottom of
+    // the note.
+    const later = () => { setTimeout(fitNotesPanel, 60); setTimeout(fitNotesPanel, 350); };
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", fitNotesPanel);
+    vv?.addEventListener("scroll", fitNotesPanel);
+    window.addEventListener("resize", fitNotesPanel);
+    document.addEventListener("focusin", later);
+    document.addEventListener("focusout", later);
+    return () => {
+      timers.forEach(clearTimeout);
+      vv?.removeEventListener("resize", fitNotesPanel);
+      vv?.removeEventListener("scroll", fitNotesPanel);
+      window.removeEventListener("resize", fitNotesPanel);
+      document.removeEventListener("focusin", later);
+      document.removeEventListener("focusout", later);
+      const panel = document.getElementById("day-notes-panel");
+      if (panel) panel.style.height = "";
+    };
+  }, [showNotesPanel, stacked, diaryOpen, selectedDayIdx, weekOffset]);
 
   const writingRoom = stacked && (typing || showNotesPanel);
   const pinned = pinFilters && !writingRoom;
@@ -3438,7 +3484,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 // status bar puts them back, which is why that bar stays.
                 if (opening && stacked) {
                   setShowBottomBar(false);
-                  setTimeout(scrollNotesToTop, 90);
+                  setTimeout(fitNotesPanel, 90);
                 }
               }}
               className={`text-xs px-2 py-0.5 rounded transition-colors ${showNotesPanel ? "bg-blue-100 text-blue-700" : "hover:opacity-80"}`}
@@ -3457,7 +3503,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   setShowNotesPanel(true);
                   if (stacked) {
                     setShowBottomBar(false);
-                    setTimeout(scrollNotesToTop, 90);
+                    setTimeout(fitNotesPanel, 90);
                   }
                 }
               }}
@@ -3677,7 +3723,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       {/* Right column — Notes Panel. Sticky + viewport-fitted so its own
           scrollbar reaches the bottom without scrolling the page. */}
       {showNotesPanel && (
-        <div id="day-notes-panel" className="notes-panel-box min-w-0 md:pl-2 overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)]"
+        <div id="day-notes-panel" className="notes-panel-box min-w-0 md:pl-2 overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)] max-md:flex max-md:flex-col max-md:overflow-hidden"
           style={{ "--notes-w": `${notesPanelPct}%` } as React.CSSProperties}>
           {diaryOpen && diaryFolder ? (
             <DiaryPanel key={`diary-${weekOffset}-${selectedDayIdx}`} date={viewedDateISO(weekOffset, selectedDayIdx)} folder={diaryFolder} />
