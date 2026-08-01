@@ -135,7 +135,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<VaultFile[]>([]);
   const [searching, setSearching] = useState(false);
-  const searchDebounce = useRef<ReturnType<typeof setTimeout>>();
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const runSearch = (q: string) => {
     setQuery(q);
@@ -645,7 +645,6 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                     onOpenFile={openNote}
-                    onDeleteFile={(path) => setConfirmDelete(path)}
                     isPinned={isPinned}
                     onTogglePin={togglePin}
                   />
@@ -722,12 +721,11 @@ interface FolderRowProps {
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, path: string) => void;
   onOpenFile: (path: string, name: string) => void;
-  onDeleteFile: (path: string) => void;
   isPinned: (path: string) => boolean;
   onTogglePin: (path: string) => void;
 }
 
-function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, refNameInput, onNavigateTo, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, onDeleteFile, isPinned, onTogglePin, onInsertLink }: FolderRowProps) {
+function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, refNameInput, onNavigateTo, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, isPinned, onTogglePin, onInsertLink }: FolderRowProps) {
   const isEditingRef = refNameInput?.folderPath === file.path;
   const isExpanded = expandedFolders.has(file.path);
 

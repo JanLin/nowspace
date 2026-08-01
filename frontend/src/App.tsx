@@ -40,7 +40,7 @@ export default function App() {
   const lastSeen = useRef<Map<string, number>>(new Map());
   const seenTick = useRef(0);
   const notesLoaded = useRef(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Debounced strip write. Tab churn is a workspace gesture, not a record —
   // one write per settled state keeps the synced settings file quiet.

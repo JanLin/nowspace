@@ -23,7 +23,7 @@ function WikiSuggestions({
   onSelect: (name: string) => void;
 }) {
   const [results, setResults] = useState<{ name: string; path: string }[]>([]);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (query.length < 2) { setResults([]); return; }
@@ -148,7 +148,7 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
   const [wikiPos, setWikiPos] = useState({ top: 0, left: 0 });
   const [showWiki, setShowWiki] = useState(false);
 
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const editorRef = useRef<HTMLDivElement>(null);
   const serverContentRef = useRef("");
 
@@ -373,7 +373,7 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
   }, [navigateTo]);
 
   // Detect [[ in editor textarea for wiki autocomplete
-  const handleEditorKeyUp = (e: React.KeyboardEvent) => {
+  const handleEditorKeyUp = () => {
     const textarea = editorRef.current?.querySelector("textarea");
     if (!textarea) return;
     const val = textarea.value;

@@ -407,7 +407,9 @@ export const api = {
     request<{ links: Record<string, string> }>("/api/vault/reference-links"),
 
   vaultFolder: (path: string = "1-Projects") =>
-    request<{ path: string; files: { name: string; path: string; type: string; modified: string }[] }>(
+    // "file" | "folder" is all the route ever returns (routers/vault.py) —
+    // saying `string` made every consumer widen or cast.
+    request<{ path: string; files: { name: string; path: string; type: "file" | "folder"; modified: string }[] }>(
       `/api/vault/folder?path=${encodeURIComponent(path)}`
     ),
 
@@ -507,7 +509,9 @@ export const api = {
       app?: AppSettings;
     }>("/api/settings"),
 
-  saveAppSettings: (updates: { mode?: "basic" | "advanced"; handoff?: boolean }) =>
+  // funnel is a real field on the route (routers/settings.py) — the type
+  // just didn't list it, so the call that sets it never type-checked.
+  saveAppSettings: (updates: { mode?: "basic" | "advanced"; handoff?: boolean; funnel?: boolean }) =>
     request<{ status: string; app: AppSettings }>("/api/settings/app", {
       method: "POST",
       body: JSON.stringify(updates),
@@ -613,7 +617,9 @@ export const api = {
     }>("/plan/recurrence"),
 
   saveRecurrence: (templates: RecurrenceTemplate[], expected_mtime?: number | null) =>
-    request<{ status: string; count: number; mtime: number }>("/plan/recurrence/save", {
+    // The route returns the saved templates too (routers/recurrence.py) and
+    // Bucket reads them back — the type just never said so.
+    request<{ status: string; count: number; mtime: number; templates: RecurrenceTemplate[] }>("/plan/recurrence/save", {
       method: "POST",
       body: JSON.stringify({ templates, expected_mtime: expected_mtime ?? null }),
     }),

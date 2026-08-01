@@ -67,7 +67,7 @@ confirmation before implementing — do not quietly comply:
 ## Process
 
 - Run `python3 -m pytest backend/tests -q` (44+ tests) and
-  `cd frontend && npx tsc --noEmit` before committing. The **canary
+  `cd frontend && npx tsc -p tsconfig.app.json --noEmit` before committing. The **canary
   harness** in `backend/tests/test_handoff.py` failing means an area
   boundary leaked — never weaken that test to make a change pass.
 - Never develop against the real vault: use the staging setup (separate
