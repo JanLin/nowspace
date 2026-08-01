@@ -207,10 +207,13 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     const panel = document.getElementById("day-notes-panel");
     const main = panel?.closest("main");
     if (!panel || !main) return;
-    const toolbar = main.querySelector<HTMLElement>("[data-plan-toolbar]");
-    const anchorTop = toolbar ? toolbar.getBoundingClientRect().bottom : main.getBoundingClientRect().top;
-    const delta = panel.getBoundingClientRect().top - anchorTop;
-    if (delta > 1) main.scrollTop += delta;
+    // Against the top of the page area, not the toolbar: the toolbar stops
+    // sticking while you type (it scrolls away to make room), so measuring
+    // from it aimed at a moving target — off-screen above, its bottom is
+    // negative and this scrolled far too far. Both directions, so a panel
+    // that starts above the fold comes back down to meet it.
+    const delta = panel.getBoundingClientRect().top - main.getBoundingClientRect().top;
+    if (Math.abs(delta) > 1) main.scrollTop += delta;
   };
 
   // Keep the CARET visible — never the box. Scroll the panel (and, if the

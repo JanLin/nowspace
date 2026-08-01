@@ -870,8 +870,17 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const onChange = () => setStacked(isStacked());
+    // Ask again now that there's a laid-out window to ask about. The guard
+    // above treats an unmeasurable viewport as roomy, and a media query that
+    // was already true never fires a change — so without this, the answer
+    // taken during the first render is the answer forever.
+    onChange();
     mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
+    window.addEventListener("resize", onChange);
+    return () => {
+      mq.removeEventListener("change", onChange);
+      window.removeEventListener("resize", onChange);
+    };
   }, []);
   // Open beside the tasks on a wide screen; stacked under the day it would
   // push the tasks off the bottom before being asked for, so it starts shut.
@@ -2585,6 +2594,22 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // and the floating buttons are exactly the space the note wants. Opening
   // notes or diary suspends both — suspends, not overrides: your pin setting
   // and the toolbar come back the moment the panel closes.
+  // Put the note's top AT the top of the page area, not merely "in view":
+  // scrollIntoView stops as soon as the box is visible, and can't go further
+  // than the content allows — which is why opening the notes left them
+  // halfway down with the tasks still taking the screen. The spacer below
+  // the panel is what gives the page somewhere to scroll to.
+  const scrollNotesToTop = () => {
+    const panel = document.getElementById("day-notes-panel");
+    const main = panel?.closest("main");
+    if (!panel || !main) return;
+    const delta = panel.getBoundingClientRect().top - main.getBoundingClientRect().top;
+    // Assigned, not animated: a smooth scroll is silently dropped in some
+    // engines (and by reduced-motion), and this has to land — the whole
+    // point is that the note is at the top, ready to type into.
+    if (Math.abs(delta) > 1) main.scrollTop += delta;
+  };
+
   const writingRoom = stacked && (typing || showNotesPanel);
   const pinned = pinFilters && !writingRoom;
 
@@ -3372,7 +3397,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 // status bar puts them back, which is why that bar stays.
                 if (opening && stacked) {
                   setShowBottomBar(false);
-                  setTimeout(() => document.getElementById("day-notes-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+                  setTimeout(scrollNotesToTop, 90);
                 }
               }}
               className={`text-xs px-2 py-0.5 rounded transition-colors ${showNotesPanel ? "bg-blue-100 text-blue-700" : "hover:opacity-80"}`}
@@ -3391,7 +3416,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   setShowNotesPanel(true);
                   if (stacked) {
                     setShowBottomBar(false);
-                    setTimeout(() => document.getElementById("day-notes-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+                    setTimeout(scrollNotesToTop, 90);
                   }
                 }
               }}
@@ -3625,6 +3650,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           )}
         </div>
       )}
+      {/* Somewhere to scroll to. Stacked under the day, the notes are the
+          last thing on the page, so the page runs out of scroll before their
+          top reaches the top — this reserves the room. Only while they're
+          open, and never on a wide screen where they sit alongside. */}
+      {showNotesPanel && stacked && <div aria-hidden className="h-[70dvh] shrink-0" />}
       </div>
     );
   };
