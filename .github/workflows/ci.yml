@@ -36,5 +36,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit
+      # -p tsconfig.app.json, not bare tsc: the root tsconfig is Vite's
+      # project-reference stub ("files": []), so plain `tsc --noEmit` has no
+      # inputs and passes on anything — this step was green for months while
+      # checking nothing.
+      - run: npx tsc -p tsconfig.app.json --noEmit
       - run: npx vite build

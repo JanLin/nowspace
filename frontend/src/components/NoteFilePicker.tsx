@@ -2,14 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { api, type TaskLink } from "../api";
 import { loadRecents, addToRecents } from "../vaultRecents";
 
-const VAULT_NAME = "Home";
 // Unmapped groups default to the inbox — new notes get captured there and
 // sorted later, instead of polluting 1-Projects (PARA capture convention).
 const DEFAULT_FOLDER = "0-Inbox";
-
-function obsidianUri(path: string): string {
-  return `obsidian://open?vault=${encodeURIComponent(VAULT_NAME)}&file=${encodeURIComponent(path.replace(/\.md$/, ""))}`;
-}
 
 interface NoteFile {
   name: string;
@@ -80,7 +75,7 @@ export default function NoteFilePicker({
   }, []);
   const popupRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Close on click outside
   useEffect(() => {

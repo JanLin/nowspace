@@ -27,7 +27,6 @@ const PRIORITY_BADGE: Record<string, string> = {
 
 const PRIORITIES = ["A", "B", "C", "D"] as const;
 
-const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const DAY_LABELS: Record<string, string> = {
@@ -213,10 +212,6 @@ function moveGroupToPosition(tasks: Task[], groupName: string, position: 'start'
   const result: Task[] = [];
   for (const g of groupOrder) result.push(...(grouped.get(g) || []));
   return result;
-}
-
-function categoryLabel(sourceFile: string): string {
-  return sourceFile.replace(/\.md$/i, "").replace(/[-_]/g, " ");
 }
 
 /** Auto-focus input when it appears */
@@ -534,7 +529,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [carryLoading, setCarryLoading] = useState(false);
   const [carryExpandedGroups, setCarryExpandedGroups] = useState<Set<string>>(new Set());
   const [dailyCarryOpen, setDailyCarryOpen] = useState(false);
-  const dailyCarryRef = useRef<HTMLDivElement>(null);
   const carryDragRef = useRef<{ carryIdx: number } | null>(null);
   const carryGroupDragRef = useRef<{ groupName: string } | null>(null);
   // Day-nav buttons double as drop targets (carry/bucket → that day)
@@ -559,7 +553,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   );
   // "Carry all" destination — follows the viewed day, still user-overridable
   const [carryDaySel, setCarryDaySel] = useState("monday");
-  const [carryHighlight, setCarryHighlight] = useState(false);
+  const [carryHighlight] = useState(false);
 
   // Vault browser
   const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
@@ -588,7 +582,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const undoStack = useRef<UndoEntry[]>([]);
   const redoStack = useRef<UndoEntry[]>([]);
   const MAX_UNDO = 40;
-  const [undoCount, setUndoCount] = useState(0); // triggers re-render for indicator
+  const [, setUndoCount] = useState(0); // triggers re-render for indicator
 
   const pushUndo = (type: UndoEntry["type"] = "tasks") => {
     if (!data) return;
@@ -919,7 +913,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   } | null>(null);
 
   // Get current day name for notes
-  const currentDayName = data?.days[selectedDayIdx]?.day || "monday";
 
   const openCarryForward = async () => {
     setCarryLoading(true);
@@ -1677,6 +1670,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       fullText = `${fullText} ${ctxTokenOf(ctxSel[0], ctxTags)}`;
     }
     const newTask: Task = {
+      links: [], clean_text: "",
       text: fullText, done: false, source_file: "Plan Week.md", context: "", tags: [], priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
     };
     // A task whose group already exists in the day joins it, wherever the
@@ -1720,6 +1714,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (!data || weekOffset !== 0) return;
     const label = variant || habit.name;
     const newTask: Task = {
+      links: [], clean_text: "",
       text: `Habit: ${label}`, done: true, source_file: "Plan Week.md", context: "", tags: [],
       priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
     };
@@ -2406,6 +2401,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           // Create new standalone task from subtask text, with target group prefix if applicable
           const newText = targetGroup ? `${targetGroup}: ${promoted.text}` : promoted.text;
           const newTask: Task = {
+            links: [], clean_text: "",
             text: newText, done: promoted.done, source_file: "Plan Week.md", context: "", tags: [],
             priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
           };
@@ -2602,8 +2598,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   })();
 
   const gridCols = GRID_COLS[columns] || "grid-cols-3";
-  // Phone-shaped, zoom included: at 140% a 375px screen has 268 to give.
-  const narrow = contentWidth < 768;
   // Writing space on a phone: the notes sit under the day, so a pinned bar
   // and the floating buttons are exactly the space the note wants. Opening
   // notes or diary suspends both — suspends, not overrides: your pin setting
@@ -2689,6 +2683,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     const group = targetGroup !== undefined ? targetGroup : parentGroup;
     const newText = group ? `${group}: ${promoted.text}` : promoted.text;
     const newTask: Task = {
+      links: [], clean_text: "",
       text: newText, done: promoted.done, source_file: "Plan Week.md", context: "", tags: [],
       priority: "B", pillars: [], subtasks: [], focused: false, waiting: false,
     };
@@ -3540,7 +3535,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     ? "h-3 bg-blue-400" : dropTarget || dropGroupTarget ? "h-4" : "h-1"
               }`}
             />
-            {groups.map((section, sectionIdx) => {
+            {groups.map((section) => {
               const firstOrigIdx = section.items[0]?.originalIdx ?? 0;
               const sectionKey = section.name ? `${section.name}-${firstOrigIdx}` : `ungrouped-${firstOrigIdx}`;
               const isCollapsed = section.name ? collapsedGroups.has(section.name) : false;
@@ -4953,8 +4948,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     ↻{task.due_date ? ` ${new Date(`${task.due_date}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}
                   </span>
                 )}
+                {/* No "from" in the tooltip: this is a bucket item, which
+                    came from the bucket. from_day belongs to carry-forward
+                    tasks — copied across, it rendered "— from undefined". */}
                 <span className={`flex-1 truncate ${task.focused ? "font-bold" : ""}`} style={{ color: "var(--text)" }}
-                  title={`${label} — from ${DAY_LABELS[task.from_day] || task.from_day}`}>
+                  title={label}>
                   {task.waiting && <span className="text-amber-500 mr-1">⏳</span>}
                   {label}
                 </span>
@@ -5433,7 +5431,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           setNotePicker(null);
           onOpenNote(path, name);
         }}
-        onAddLink={(name, path) => {
+        onAddLink={(name) => {
           addLinkToTask(notePicker.dayIdx, notePicker.taskIdx, name);
         }}
         onRemoveLink={(name) => {

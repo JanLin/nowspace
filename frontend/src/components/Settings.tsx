@@ -520,7 +520,10 @@ export default function Settings({
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Help</span>
             {onOpenGuide && (
-              <button onClick={onOpenGuide}
+              /* () => : React hands the click event to the first argument,
+                 so this was calling onOpenGuide(MouseEvent) — the guide got
+                 an event object where it expected a section name. */
+              <button onClick={() => onOpenGuide()}
                 className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
                 style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
                 📖 The guide
@@ -835,7 +838,7 @@ export default function Settings({
             <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 items-center">
               {([["name", "name"], ["root", "2-Areas/Customer"], ["agent_binding", "binding label"],
                  ["proposals_path", "proposals folder"], ["transcripts_path", "transcripts folder"]] as const).map(([field, ph]) => (
-                <input key={field} type="text" value={(a as Record<string, string>)[field] || ""} placeholder={ph}
+                <input key={field} type="text" value={a[field] ?? ""} placeholder={ph}
                   onChange={(e) => {
                     setAreasSaved(false);
                     setAgentAreas((prev) => prev.map((x, j) => (j === i ? { ...x, [field]: e.target.value } : x)));

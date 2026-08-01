@@ -11,45 +11,6 @@ function obsidianUri(path: string): string {
   return `obsidian://open?vault=${encodeURIComponent(VAULT_NAME)}&file=${encodeURIComponent(path.replace(/\.md$/, ""))}`;
 }
 
-/* ── Wiki link chip rendering ─────────────────────────────── */
-
-function renderNoteContent(text: string, onOpenNote?: (name: string) => void) {
-  const parts: React.ReactNode[] = [];
-  let lastIdx = 0;
-  const re = new RegExp(WIKI_LINK_RE);
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text)) !== null) {
-    if (match.index > lastIdx) parts.push(<span key={`t-${match.index}`}>{text.slice(lastIdx, match.index)}</span>);
-    const name = match[1].trim();
-    const display = match[2]?.trim() || name;
-    parts.push(
-      <a
-        key={`wl-${match.index}`}
-        href="#"
-        onClick={(e) => {
-          e.preventDefault();
-          if (onOpenNote) {
-            onOpenNote(name);
-          } else {
-            api.vaultSearch(name, 1).then((res) => {
-              if (res.results.length > 0) {
-                window.open(obsidianUri(res.results[0].path), "_blank");
-              }
-            });
-          }
-        }}
-        className="inline-flex items-center gap-0.5 px-1.5 py-0 bg-blue-50 text-blue-700 rounded text-[11px] font-medium hover:bg-blue-100 transition-colors"
-        title={onOpenNote ? `Open ${name}` : `Open ${name} in Obsidian`}
-      >
-        {display}
-      </a>
-    );
-    lastIdx = re.lastIndex;
-  }
-  if (lastIdx < text.length) parts.push(<span key="end">{text.slice(lastIdx)}</span>);
-  if (parts.length === 0) return <>{text}</>;
-  return <>{parts}</>;
-}
 
 /* ── Wiki link click handler (for MDEditor.Markdown output) ── */
 
@@ -81,20 +42,6 @@ function WikiLinkHandler({ onOpenNote }: { onOpenNote?: (path: string, name: str
   return null;
 }
 
-/* ── Relative time helper ─────────────────────────────────── */
-
-function relativeTime(isoDate: string): string {
-  if (!isoDate) return "";
-  const diff = Date.now() - new Date(isoDate).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return `${Math.floor(days / 30)}mo ago`;
-}
 
 /* ── Scratchpad ───────────────────────────────────────────── */
 
@@ -113,7 +60,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
   const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cursorPosRef = useRef<number>(0);
 
   const fetchNotes = useCallback(async () => {
@@ -458,14 +405,6 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
   );
 }
 
-/* ── Reference Folder ─────────────────────────────────────── */
-
-interface VaultFile {
-  name: string;
-  path: string;
-  type: string;
-  modified: string;
-}
 
 
 /* ── Action-point harvest (quiet hint) ────────────────────── */

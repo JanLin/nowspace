@@ -33,12 +33,11 @@ import {
   contextOfGroupName, withGroupInContext,
   stripCtxTokens, stripGroupCtxTag, ctxFeatureEnabled,
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
-  stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, setMonthHorizon, dueHorizon,
+  stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, dueHorizon,
   BUCKET_META_RE, bucketAnchorKey,
 } from "../contexts";
 
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
-const MD_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
 
 /* ── helpers ────────────────────────────────────────────────── */
 
@@ -133,8 +132,11 @@ export function renderWikiText(text: string, onOpenNote?: (path: string, name: s
 
 /* ── Auto-focus input ──────────────────────────────────────── */
 
-function AutoFocusInput({ onSubmit, onCancel, placeholder, className }: {
+function AutoFocusInput({ onSubmit, onCancel, placeholder, className, style }: {
+  // style: four callers pass one for the themed background; it was being
+  // dropped on the floor, so those inputs rendered unthemed.
   onSubmit: (v: string) => void; onCancel: () => void; placeholder?: string; className?: string;
+  style?: React.CSSProperties;
 }) {
   // Uncontrolled: Samsung/GBoard IME composition desyncs when React writes
   // `value` per keystroke (backspace gets swallowed) — the DOM owns the text
@@ -144,7 +146,7 @@ function AutoFocusInput({ onSubmit, onCancel, placeholder, className }: {
   return (
     <input ref={ref} type="text" defaultValue="" autoComplete="off" autoCorrect="off" spellCheck={false}
       onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) submit(); if (e.key === "Escape") onCancel(); }}
-      onBlur={submit} placeholder={placeholder} className={className} />
+      onBlur={submit} placeholder={placeholder} className={className} style={style} />
   );
 }
 
@@ -317,7 +319,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   const undoStack = useRef<UndoEntry[]>([]);
   const redoStack = useRef<UndoEntry[]>([]);
   const MAX_UNDO = 40;
-  const [undoCount, setUndoCount] = useState(0);
+  const [, setUndoCount] = useState(0);
 
   const pushUndo = () => {
     if (!data) return;
@@ -1160,7 +1162,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     const { fromIdx } = dragRef.current;
     const next = [...tasks];
     const task = { ...next[fromIdx] };
-    const { group: srcGroup, label } = parseGroup(task.text);
+    const { label } = parseGroup(task.text);
 
     // Update group prefix
     task.text = groupName ? `${groupName}: ${label}` : label;
@@ -1294,7 +1296,6 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
 
   /* ── GTD board: actions + duplicate sweep ─────────────── */
 
-  const todayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
 
   // Weeks a task has sat in the bucket (from its ~wYYWW entry stamp)
   const bucketAgeWeeks = (text: string): number | null => {

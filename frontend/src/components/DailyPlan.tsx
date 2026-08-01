@@ -303,6 +303,7 @@ export default function DailyPlan({
   const addTask = (afterIdx: number, text: string) => {
     if (!plan) return;
     const newTask: Task = {
+      links: [], clean_text: "",
       text,
       done: false,
       source_file: "Plan Week.md",

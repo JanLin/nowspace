@@ -11,7 +11,7 @@ export default function DiaryPanel({ date, folder }: { date: string; folder: str
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const lastSaved = useRef("");
   const contentRef = useRef("");
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
