@@ -858,7 +858,24 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Open beside the tasks on a wide screen; on a phone it covers the week
   // when asked for, so it starts closed — a notes box under the day pushed
   // the tasks off the screen before you'd even asked for it.
-  const [showNotesPanel, setShowNotesPanel] = useState(() => (window.innerWidth || 1024) >= 768);
+  // Stacked layout = the notes sit under the day rather than beside it, and
+  // that's a media query (md:), so ask the same question the CSS does. The
+  // zoom-aware width used for day columns would disagree here: zoomed on a
+  // desktop the notes are still beside the tasks.
+  // A viewport that measures as nothing isn't a phone, it's a window that
+  // hasn't been laid out yet — assume the roomy layout and let the listener
+  // correct it, rather than booting a desktop into the phone one.
+  const isStacked = () => window.innerWidth > 0 && window.matchMedia("(max-width: 767px)").matches;
+  const [stacked, setStacked] = useState(isStacked);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const onChange = () => setStacked(isStacked());
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  // Open beside the tasks on a wide screen; stacked under the day it would
+  // push the tasks off the bottom before being asked for, so it starts shut.
+  const [showNotesPanel, setShowNotesPanel] = useState(() => !isStacked());
   // Mobile: toolbar clusters collapse to chips; one open at a time
   const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | null>(null);
   const toggleCluster = (k: "tag" | "view" | "filter") => setOpenCluster((prev) => (prev === k ? null : k));
@@ -2556,7 +2573,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const gridCols = GRID_COLS[columns] || "grid-cols-3";
   // Phone-shaped, zoom included: at 140% a 375px screen has 268 to give.
   const narrow = contentWidth < 768;
-  const pinned = pinFilters && !(typing && narrow);
+  // Writing space on a phone: the notes sit under the day, so a pinned bar
+  // and the floating buttons are exactly the space the note wants. Opening
+  // notes or diary suspends both — suspends, not overrides: your pin setting
+  // and the toolbar come back the moment the panel closes.
+  const writingRoom = stacked && (typing || showNotesPanel);
+  const pinned = pinFilters && !writingRoom;
 
   const getFilteredTasks = (tasks: Task[]): Task[] => {
     let filtered = tasks.filter((t) => taskVisibleInMode(t.text));
@@ -3333,9 +3355,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           {viewMode === "day" && (
             <button
               onClick={() => {
-                // No scrolling to it any more: on a phone it opens as a
-                // sheet over the week, already where you're looking.
-                setShowNotesPanel(!showNotesPanel);
+                const opening = !showNotesPanel;
+                setShowNotesPanel(opening);
+                // On phones the notes sit below the tasks — take the user there
+                if (opening && stacked) {
+                  setTimeout(() => document.getElementById("day-notes-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+                }
               }}
               className={`text-xs px-2 py-0.5 rounded transition-colors ${showNotesPanel ? "bg-blue-100 text-blue-700" : "hover:opacity-80"}`}
               style={!showNotesPanel ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
@@ -3349,7 +3374,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               onClick={() => {
                 const opening = !diaryOpen;
                 setDiaryOpen(opening);
-                if (opening) setShowNotesPanel(true);
+                if (opening) {
+                  setShowNotesPanel(true);
+                  if (stacked) {
+                    setTimeout(() => document.getElementById("day-notes-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+                  }
+                }
               }}
               className={`text-xs px-2 py-0.5 rounded transition-colors ${diaryOpen ? "bg-purple-100 text-purple-700" : "hover:opacity-80"}`}
               style={!diaryOpen ? { backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" } : undefined}
@@ -3567,43 +3597,18 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       {/* Right column — Notes Panel. Sticky + viewport-fitted so its own
           scrollbar reaches the bottom without scrolling the page. */}
       {showNotesPanel && (
-        /* On a phone the notes are a sheet over the week, filling what the
-           screen actually shows — the panel used to sit under the day, so
-           writing meant scrolling the whole week away first and scrolling
-           back to see the tasks. Beside the tasks on anything wider. */
-        <div id="day-notes-panel"
-          className={narrow
-            ? "fixed inset-0 z-50 flex flex-col overflow-hidden px-2 pt-2"
-            : "notes-panel-box min-w-0 md:pl-2 overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)]"}
-          style={narrow
-            ? { backgroundColor: "var(--bg)" }
-            : ({ "--notes-w": `${notesPanelPct}%` } as React.CSSProperties)}>
-          {narrow && (
-            /* The panel names itself just below — this row is only the way
-               back to the week. */
-            <div className="flex justify-end shrink-0">
-              <button
-                onClick={() => { setDiaryOpen(false); setShowNotesPanel(false); }}
-                className="text-lg px-2 leading-none"
-                style={{ color: "var(--text-tertiary)" }}
-                title="Back to the week"
-              >
-                &times;
-              </button>
-            </div>
+        <div id="day-notes-panel" className="notes-panel-box min-w-0 md:pl-2 overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)]"
+          style={{ "--notes-w": `${notesPanelPct}%` } as React.CSSProperties}>
+          {diaryOpen && diaryFolder ? (
+            <DiaryPanel key={`diary-${weekOffset}-${selectedDayIdx}`} date={viewedDateISO(weekOffset, selectedDayIdx)} folder={diaryFolder} />
+          ) : (
+            <NotesPanel
+              dayName={day.day}
+              weekOffset={weekOffset}
+              isArchive={isArchive}
+              onOpenNote={onOpenNote}
+            />
           )}
-          <div className={narrow ? "flex-1 min-h-0 overflow-y-auto" : undefined}>
-            {diaryOpen && diaryFolder ? (
-              <DiaryPanel key={`diary-${weekOffset}-${selectedDayIdx}`} date={viewedDateISO(weekOffset, selectedDayIdx)} folder={diaryFolder} />
-            ) : (
-              <NotesPanel
-                dayName={day.day}
-                weekOffset={weekOffset}
-                isArchive={isArchive}
-                onOpenNote={onOpenNote}
-              />
-            )}
-          </div>
         </div>
       )}
       </div>
@@ -4422,7 +4427,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
     {/* Bucket & Carry icons — above status bar, togglable */}
     {data && showBottomBar && (
-      <div className={`fixed bottom-8 z-40 flex items-end gap-2 right-6 ${notesEditing || typing ? "max-sm:hidden" : ""} ${
+      <div className={`fixed bottom-8 z-40 flex items-end gap-2 right-6 ${writingRoom ? "hidden" : notesEditing ? "max-sm:hidden" : ""} ${
         vaultBrowserOpen ? "md:right-[max(21.5rem,calc(50vw-14.5rem))]"
           : (bucketOpen || carryForwardOpen || dailyCarryOpen) ? "md:right-[max(19.5rem,calc(50vw-16.5rem))]" : ""
       }`}>
@@ -4540,7 +4545,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
     {/* Status bar — always at very bottom */}
     {data && (
-      <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1 ${notesEditing || typing ? "max-sm:hidden" : ""}`} style={{ backgroundColor: "color-mix(in srgb, var(--bg) 95%, transparent)", borderColor: "var(--border)" }}>
+      <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur border-t px-4 py-1 ${writingRoom ? "hidden" : notesEditing ? "max-sm:hidden" : ""}`} style={{ backgroundColor: "color-mix(in srgb, var(--bg) 95%, transparent)", borderColor: "var(--border)" }}>
         {/* flex-wrap: on phones the running-timer pill drops to its own row
             instead of pushing the stop button off the right edge */}
         <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-x-2 gap-y-1">
