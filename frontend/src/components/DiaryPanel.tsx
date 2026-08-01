@@ -63,6 +63,20 @@ export default function DiaryPanel({ date, folder }: { date: string; folder: str
      Android with the keyboard over its bottom half. */
   const taRef = useRef<HTMLTextAreaElement>(null);
 
+  /* Open at the END of the day's entry. autoFocus puts the caret at the
+     start, which is the wrong end of a diary: you come back to it to add to
+     what's there, not to write above it. Once per date — after that the
+     caret is yours. */
+  const landedOn = useRef<string>("");
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta || content === null || landedOn.current === date) return;
+    landedOn.current = date;
+    const end = ta.value.length;
+    ta.setSelectionRange(end, end);
+    ta.scrollTop = ta.scrollHeight;
+  }, [content, date]);
+
   return (
     <div className="rounded-lg p-3 space-y-2 max-md:h-full max-md:flex max-md:flex-col max-md:min-h-0" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
       <div className="flex items-center justify-between">
