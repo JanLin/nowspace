@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "../api";
+import { loadRecents, addToRecents, type RecentNote } from "../vaultRecents";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -10,11 +11,6 @@ interface VaultFile {
   modified: string;
 }
 
-interface RecentNote {
-  path: string;
-  name: string;
-  timestamp: number;
-}
 
 export interface VaultBrowserState {
   expandedFolders: Set<string>;
@@ -50,25 +46,6 @@ function relativeTime(isoDate: string): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
   return `${Math.floor(days / 30)}mo ago`;
-}
-
-const RECENTS_KEY = "vault-browser-recents";
-const MAX_RECENTS = 8;
-
-function loadRecents(): RecentNote[] {
-  try {
-    return JSON.parse(localStorage.getItem(RECENTS_KEY) || "[]");
-  } catch { return []; }
-}
-
-function saveRecents(recents: RecentNote[]) {
-  localStorage.setItem(RECENTS_KEY, JSON.stringify(recents.slice(0, MAX_RECENTS)));
-}
-
-function addToRecents(path: string, name: string) {
-  const recents = loadRecents().filter(r => r.path !== path);
-  recents.unshift({ path, name, timestamp: Date.now() });
-  saveRecents(recents);
 }
 
 // ─── Main Component ─────────────────────────────────────────────────
@@ -490,6 +467,13 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
             const folder = h.path.split("/").slice(0, -1).join("/");
             return (
             <div key={h.path} className="group/hit flex items-center gap-1">
+              {onInsertLink && (
+                <button onClick={() => onInsertLink(h.name)} title={`Add a [[link]] to ${h.name} into the note you're writing`}
+                  className="text-[11px] leading-none px-1 rounded font-bold shrink-0 self-start mt-1 hover:text-blue-600 hover:bg-blue-50"
+                  style={{ color: "var(--text-tertiary)" }}>
+                  +
+                </button>
+              )}
               <div className="flex-1 min-w-0">
                 <button onClick={() => openNote(h.path, h.name)}
                   className="w-full text-left text-[11px] pt-1 px-1 rounded hover:bg-blue-50 transition-colors truncate"
@@ -504,12 +488,6 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                   {folder || "vault root"}
                 </button>
               </div>
-              {onInsertLink && (
-                <button onClick={() => onInsertLink(h.name)} title="Insert a [[link]] into the note you're writing"
-                  className="text-[10px] px-1 opacity-0 group-hover/hit:opacity-100 shrink-0" style={{ color: "var(--text-secondary)" }}>
-                  🔗
-                </button>
-              )}
             </div>
             );
           })}
@@ -549,6 +527,12 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                 const name = path.includes("/") ? path.split("/").pop()!.replace(/\.md$/, "") : path.replace(/\.md$/, "");
                 return (
                   <div key={path} className="group/pin flex items-center gap-1">
+                    {onInsertLink && (
+                      <button onClick={() => onInsertLink(name)} title={`Add a [[link]] to ${name} into the note you're writing`}
+                        className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+                        +
+                      </button>
+                    )}
                     <button
                       onClick={() => openNote(path, name)}
                       className="flex-1 text-left text-[11px] py-0.5 px-1 rounded hover:bg-blue-50 truncate transition-colors"
@@ -577,6 +561,12 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
             <div className="space-y-0.5">
               {recents.slice(0, 5).map(r => (
                 <div key={r.path} className="group/recent flex items-center gap-1">
+                  {onInsertLink && (
+                    <button onClick={() => onInsertLink(r.name)} title={`Add a [[link]] to ${r.name} into the note you're writing`}
+                      className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+                      +
+                    </button>
+                  )}
                   <button
                     onClick={() => openNote(r.path, r.name)}
                     className="flex-1 text-left text-[11px] py-0.5 px-1 rounded hover:bg-blue-50 truncate transition-colors"
@@ -637,6 +627,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                 return (
                   <FolderRow
                     key={f.path}
+                    onInsertLink={onInsertLink}
                     file={f}
                     refName={refName}
                     isDropTarget={dropTarget === f.path}
@@ -718,6 +709,8 @@ interface FolderRowProps {
   expandedFolders: Set<string>;
   subFilesMap: Map<string, VaultFile[]>;
   refNameInput: { folderPath: string; name: string } | null;
+  /** Passed straight through to the files nested under this folder */
+  onInsertLink?: (name: string) => void;
   onNavigateTo: (path: string) => void;
   onToggleExpand: (path: string) => void;
   onStarClick: (folderPath: string) => void;
@@ -734,7 +727,7 @@ interface FolderRowProps {
   onTogglePin: (path: string) => void;
 }
 
-function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, refNameInput, onNavigateTo, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, onDeleteFile, isPinned, onTogglePin }: FolderRowProps) {
+function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, refNameInput, onNavigateTo, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, onDeleteFile, isPinned, onTogglePin, onInsertLink }: FolderRowProps) {
   const isEditingRef = refNameInput?.folderPath === file.path;
   const isExpanded = expandedFolders.has(file.path);
 
@@ -815,6 +808,7 @@ function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, 
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
+          onInsertLink={onInsertLink}
         />
       )}
     </div>
@@ -833,9 +827,13 @@ interface SubTreeProps {
   onDragOver: (e: React.DragEvent, path: string) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, path: string) => void;
+  /** Same + as every other row — files nested in an expanded folder are
+      rendered here rather than by FileRow, and were the one place it was
+      still missing. */
+  onInsertLink?: (name: string) => void;
 }
 
-function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleExpand, onOpenFile, isPinned, onTogglePin, onDragOver, onDragLeave, onDrop }: SubTreeProps) {
+function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleExpand, onOpenFile, isPinned, onTogglePin, onDragOver, onDragLeave, onDrop, onInsertLink }: SubTreeProps) {
   return (
     <div className="ml-3 border-l border-gray-200 pl-1">
       {files.length === 0 && (
@@ -877,6 +875,13 @@ function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleEx
       ))}
       {files.filter(f => f.type === "file").map(f => (
         <div key={f.path} className="group/subfile flex items-center gap-1 py-0.5 px-1 text-[10px] rounded hover:bg-gray-50">
+          {onInsertLink && (
+            <button onClick={() => onInsertLink(f.name.replace(/\.md$/, ""))}
+              title={`Add a [[link]] to ${f.name.replace(/\.md$/, "")} into the note you're writing`}
+              className="text-[11px] leading-none px-1 rounded font-bold shrink-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+              +
+            </button>
+          )}
           <button
             onClick={() => onOpenFile(f.path, f.name)}
             className="flex-1 text-left truncate transition-colors"
@@ -923,6 +928,16 @@ function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, i
       draggable
       onDragStart={e => onDragStart(e, file.path)}
     >
+      {/* Leading the row, and always visible: it used to appear on hover,
+          which on a phone means never. On the left it lines up into a
+          column of "put this one into the note", with the name itself
+          still opening the note. */}
+      {onInsertLink && (
+        <button onClick={onInsertLink} title="Add a [[link]] to this note into the note you're writing"
+          className="text-[11px] leading-none shrink-0 px-1 rounded font-bold text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+          +
+        </button>
+      )}
       <button
         onClick={onOpen}
         className="flex-1 text-left truncate transition-colors"
@@ -931,12 +946,6 @@ function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, i
         {file.name}
       </button>
       <span className="text-[9px] text-gray-400 shrink-0">{relativeTime(file.modified)}</span>
-      {onInsertLink && (
-        <button onClick={onInsertLink} title="Insert a [[link]] into the note you're writing"
-          className="text-[10px] shrink-0 opacity-0 group-hover/file:opacity-100 transition-opacity text-gray-400 hover:text-blue-500">
-          🔗
-        </button>
-      )}
       {onScanAPs && (
         <button onClick={onScanAPs} title="Scan this note for action points"
           className="text-[10px] shrink-0 opacity-0 group-hover/file:opacity-100 transition-opacity text-gray-400 hover:text-amber-500">

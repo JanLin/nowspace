@@ -333,6 +333,16 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [data, setData] = useState<WeekPlanResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // A link added while the notes panel is closed lands somewhere you can't
+  // see. Saying so briefly is the difference between "it went in" and "did
+  // that do anything?" — it is not a notification about work, and nothing
+  // counts it.
+  const [linkAdded, setLinkAdded] = useState("");
+  useEffect(() => {
+    if (!linkAdded) return;
+    const t = setTimeout(() => setLinkAdded(""), 2600);
+    return () => clearTimeout(t);
+  }, [linkAdded]);
   const [weekOffset, setWeekOffset] = useState(0);
   const { funnel: funnelOn } = useAppMode();
   const [viewMode, setViewMode] = useState<ViewMode>("day");
@@ -353,21 +363,25 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const [carryPrioMenu, setCarryPrioMenu] = useState<number | null>(null);
   // Which group header has its move-to-day picker open
   const [groupDayMenu, setGroupDayMenu] = useState<{ dayIdx: number; group: string } | null>(null);
+  // Which task has its ⋯ actions open (narrow rows only — wide ones show the
+  // strip and never need it)
+  const [actionMenu, setActionMenu] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
   // Any click outside the badge/menu dismisses the pickers (same pattern as
   // the Bucket tab) — wrappers carry .plan-pop so in-menu clicks survive
   useEffect(() => {
-    if (!priorityMenu && panelPrioMenu === null && carryPrioMenu === null && !groupDayMenu) return;
+    if (!priorityMenu && panelPrioMenu === null && carryPrioMenu === null && !groupDayMenu && !actionMenu) return;
     const close = (e: MouseEvent) => {
       if (!(e.target as Element | null)?.closest?.(".plan-pop")) {
         setPriorityMenu(null);
         setPanelPrioMenu(null);
         setCarryPrioMenu(null);
         setGroupDayMenu(null);
+        setActionMenu(null);
       }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
-  }, [priorityMenu, panelPrioMenu, carryPrioMenu, groupDayMenu]);
+  }, [priorityMenu, panelPrioMenu, carryPrioMenu, groupDayMenu, actionMenu]);
   const [groupView, setGroupView] = useState(true);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -2946,7 +2960,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         onDragEnd={handleDragEnd}
         onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ dayIdx, afterIdx: taskIdx, group }); }}
         style={showEdge ? { boxShadow: `inset 2px 0 0 ${ctxEdgeColor(taskCtx!)}` } : undefined}
-        className={`group flex flex-wrap items-center gap-2 py-1 px-2 rounded text-sm select-none ${
+        className={`group @container flex items-center gap-2 py-1 px-2 rounded text-sm select-none ${
           dropTarget?.day === dayIdx && dropTarget?.idx === taskIdx && (dropTarget?.zone ?? "task") === "task"
             ? "border-t-2 border-blue-400"
             : "border-t-2 border-transparent"
@@ -3031,13 +3045,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             {task.pillars.map((p) => PILLAR_ICONS[p]?.symbol || p).join("")}
           </span>
         )}
-        {/* Action icons live on their own row under the title, at every
-            width. Inline they take the width the task text wants, and a
-            breakpoint can't help: a day column in the 3-day grid is narrow
-            on the widest screen there is. A task reads as a sentence; the
-            things you can do to it read as a row beneath. */}
-        <div className="flex items-center gap-2 w-full justify-end">
-        {/* Wait hourglass toggle — only show when not already waiting */}
+        {/* Nothing inline is an offer: what stays on the line reports a
+            fact (waiting, linked, has steps, repeats), and everything you
+            could DO to the task lives in the strip or behind the ⋯. The
+            waiting hourglass above is the state; this is the offer. */}
+        {(() => {
+          const actions = (<>
         {!task.done && !task.waiting && (
           <button
             onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}
@@ -3170,7 +3183,36 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         >
           &times;
         </button>
-        </div>{/* end phone action row */}
+          </>);
+          const menuOpen = actionMenu?.dayIdx === dayIdx && actionMenu?.taskIdx === taskIdx;
+          return (
+            <>
+              {/* Laid out inline once the row is wide enough to carry them.
+                  28rem: the strip needs ~190px, and a task wants ~260px to
+                  read as a sentence. Measured on the ROW, not the window —
+                  a day column in the 3-day grid is 379px on the widest
+                  screen there is, and the Day view caps its list at
+                  max-w-lg however big the display. */}
+              <div className="hidden @[28rem]:flex items-center gap-2 shrink-0">{actions}</div>
+              <div className="@[28rem]:hidden relative plan-pop shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setActionMenu(menuOpen ? null : { dayIdx, taskIdx }); }}
+                  className={`px-1 leading-none rounded transition-opacity ${menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-40 hover:!opacity-100"}`}
+                  style={{ color: "var(--text-secondary)" }}
+                  title="What you can do with this task"
+                >
+                  ⋯
+                </button>
+                {menuOpen && (
+                  <div className="row-actions-menu absolute right-0 top-full mt-1 z-30 flex items-center gap-3 px-2.5 py-1.5 rounded-lg shadow-xl"
+                    style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}>
+                    {actions}
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
       </div>
     </div>
     );
@@ -5337,6 +5379,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       </div>
     )}
     {/* Vault browser side panel */}
+    {linkAdded && (
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-lg shadow-lg text-xs"
+        style={{ backgroundColor: "var(--card)", border: "1px solid var(--card-border)", color: "var(--text-secondary)" }}>
+        Added <strong style={{ color: "var(--text)" }}>[[{linkAdded}]]</strong> to the day's notes
+      </div>
+    )}
     {vaultBrowserOpen && (
       <div className={sheetClass("md:w-80")} style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <SheetGrip />
@@ -5346,7 +5394,24 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           onOpenNote={onOpenNote}
           /* Only the day's notes panel can act on these, so ask it by event
              rather than threading callbacks through the week layout */
-          onInsertLink={(name) => window.dispatchEvent(new CustomEvent("vault-insert-link", { detail: { name } }))}
+          onInsertLink={(name) => {
+            // Adding a link doesn't open anything — not the note being
+            // linked, not the notes panel. It lands in the day's notes and
+            // stays there to be clicked when you want it.
+            if (showNotesPanel && !diaryOpen) {
+              window.dispatchEvent(new CustomEvent("vault-insert-link", { detail: { name } }));
+              return;
+            }
+            // Panel closed (or showing the diary): nothing is mounted to
+            // take the link, so append it to the day's notes on the server.
+            // append rather than read-modify-write — the note may be open
+            // and unsaved on another device, and this must not flatten it.
+            const dayName = data?.days[selectedDayIdx]?.day;
+            if (!dayName) return;
+            api.appendNote(dayName, `[[${name}]]`, "", false, weekOffset)
+              .then(() => setLinkAdded(name))
+              .catch(() => setError(`Couldn't add a link to ${name}`));
+          }}
           onScanAPs={(path, name) => window.dispatchEvent(new CustomEvent("vault-scan-aps", { detail: { path, name } }))}
         />
       </div>

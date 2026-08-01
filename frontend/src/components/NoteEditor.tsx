@@ -394,6 +394,33 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
     setShowWiki(false);
   };
 
+  /* The vault panel's + asks the open note to take a link. Scoped to its
+     own event rather than the day note's: both editors are mounted at once
+     (tabs stay alive when hidden), so a shared event would write into two
+     notes at the same time. Inserts at the caret, appends when the note
+     hasn't been touched — the panel is across the screen, and having to
+     click into the text first would defeat the point. */
+  useEffect(() => {
+    const onInsert = (e: Event) => {
+      const name = (e as CustomEvent).detail?.name;
+      if (!name) return;
+      const textarea = editorRef.current?.querySelector("textarea");
+      if (!textarea) return;
+      const link = `[[${name}]]`;
+      const val = textarea.value;
+      const atCaret = document.activeElement === textarea;
+      const pos = atCaret ? textarea.selectionStart : val.length;
+      const before = val.slice(0, pos);
+      const sep = before.length > 0 && !before.endsWith("\n") && !before.endsWith(" ") ? (atCaret ? " " : "\n") : "";
+      const next = before + sep + link + val.slice(pos);
+      handleChange(next);
+      const caret = pos + sep.length + link.length;
+      setTimeout(() => { textarea.focus(); textarea.setSelectionRange(caret, caret); }, 0);
+    };
+    window.addEventListener("note-insert-link", onInsert);
+    return () => window.removeEventListener("note-insert-link", onInsert);
+  });
+
   const handleWikiSelect = (name: string) => {
     const textarea = editorRef.current?.querySelector("textarea");
     if (!textarea) return;

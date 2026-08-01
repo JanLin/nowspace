@@ -36,7 +36,6 @@ import {
   stripBucketMeta, bucketEnteredWeek, bucketAgeKey, isMonthHorizon, setMonthHorizon, dueHorizon,
   BUCKET_META_RE, bucketAnchorKey,
 } from "../contexts";
-import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 const MD_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
@@ -259,6 +258,18 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [prioMenu]);
+  // Which task has its ⋯ actions open (narrow rows only)
+  const [actionMenu, setActionMenu] = useState<number | null>(null);
+  // The ⋯ actions close the same way the priority menu does — the wrapper
+  // carries .plan-pop so clicks inside it survive.
+  useEffect(() => {
+    if (actionMenu === null) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.(".plan-pop")) setActionMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [actionMenu]);
   const [horizonFilter, setHorizonFilter] = useState<"" | "n" | "nw" | "m" | "none">("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
   const [groupPicker, setGroupPicker] = useState<number | null>(null);
@@ -292,8 +303,6 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       names.forEach((n) => (expanded ? next.add(n) : next.delete(n)));
       return persistExpanded(next);
     });
-  const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
-  const vaultBrowserStateRef = useRef<VaultBrowserState | null>(null);
   const dragRef = useRef<{ fromIdx: number } | null>(null);
   // A whole group being dragged by its ≡ handle — checked before dragRef, so
   // dropping on a group header reorders groups instead of refiling one task
@@ -1420,7 +1429,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
   /* ── render ──────────────────────────────────────────── */
 
   return (
-    <div className={`space-y-3 pb-12 ${vaultBrowserOpen ? "" : "max-w-3xl mx-auto"}`}>
+    <div className="space-y-3 pb-12 max-w-3xl mx-auto">
       {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
 
       {/* Negative top: <main> carries py-2/sm:py-4, and a sticky child pins at
@@ -1736,7 +1745,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
 
       {/* Tasks + side panels: flex layout */}
       <div className={`flex gap-0 items-start ${boardView ? "hidden" : ""}`}>
-      <div className={`space-y-2 ${vaultBrowserOpen ? "flex-1 min-w-0" : "max-w-2xl w-full"}`}>
+      <div className="space-y-2 max-w-2xl w-full">
         {/* Week focus line — set in the weekly review */}
         {funnel?.week_focus && (
           <p className="text-[11px] italic px-1" style={{ color: "var(--text-tertiary)" }}>
@@ -1949,7 +1958,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       onDrop={(e) => { e.preventDefault(); handleDrop(originalIdx, section.name, e); }}
                       onDragEnd={handleDragEnd}
                       onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ afterIdx: originalIdx, group: section.name || undefined }); }}
-                      className={`group flex flex-wrap items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${
+                      className={`group @container flex items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${
                         dropTarget === originalIdx ? "border-t-2 border-blue-400" : "border-t-2 border-transparent"
                       }`}>
 
@@ -2035,12 +2044,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         </span>
                       )}
 
-                      {/* Action icons on their own row under the task, at
-                          every width — inline they take the width the task
-                          text wants, and the Bucket's list is narrow even on
-                          a wide screen. */}
-                      <div className="flex items-center gap-1.5 w-full justify-end">
-                      {/* ⏳ Waiting toggle */}
+                      {/* Nothing inline is an offer: the line reports facts
+                          (waiting, linked, steps, repeats) and every action
+                          lives in the strip or behind the ⋯. */}
+                      {(() => {
+                        const actions = (<>
                       {!task.waiting && (
                         <button onClick={(e) => { e.stopPropagation(); toggleWaiting(originalIdx); }}
                           className="text-xs opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
@@ -2108,7 +2116,33 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       {/* Delete */}
                       <button onClick={(e) => { e.stopPropagation(); deleteTask(originalIdx); }}
                         className="text-xs glyph-action hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
-                      </div>{/* end phone action row */}
+                        </>);
+                        const menuOpen = actionMenu === originalIdx;
+                        return (
+                          <>
+                            {/* Inline once the row can carry them; the
+                                Bucket's list is narrow even on a wide
+                                screen, so this is measured on the row. */}
+                            <div className="hidden @[28rem]:flex items-center gap-1.5 shrink-0">{actions}</div>
+                            <div className="@[28rem]:hidden relative plan-pop shrink-0">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setActionMenu(menuOpen ? null : originalIdx); }}
+                                className={`px-1 leading-none rounded transition-opacity ${menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-40 hover:!opacity-100"}`}
+                                style={{ color: "var(--text-secondary)" }}
+                                title="What you can do with this task"
+                              >
+                                ⋯
+                              </button>
+                              {menuOpen && (
+                                <div className="row-actions-menu absolute right-0 top-full mt-1 z-30 flex items-center gap-3 px-2.5 py-1.5 rounded-lg shadow-xl"
+                                  style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}>
+                                  {actions}
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {/* Subtasks */}
@@ -2319,16 +2353,6 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
         )}
       </div>
 
-      {/* Vault browser side panel */}
-      {vaultBrowserOpen && (
-        <div className="hidden md:block w-80 shrink-0 border-l overflow-y-auto max-h-[calc(100vh-80px)] sticky top-[80px] self-start relative" style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
-          <VaultBrowser
-            onClose={() => setVaultBrowserOpen(false)}
-            stateRef={vaultBrowserStateRef}
-            onOpenNote={onOpenNote}
-          />
-        </div>
-      )}
       </div>{/* end flex container */}
 
       {/* NoteFilePicker popup — outside the list container, which is
@@ -2350,21 +2374,9 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       )}
 
 
-      {/* Floating vault browser icon */}
-      <div className="fixed bottom-12 right-4 z-30 flex flex-col gap-1.5">
-        <div
-          onClick={() => setVaultBrowserOpen(!vaultBrowserOpen)}
-          className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer shadow-lg transition-all text-sm ${
-            vaultBrowserOpen
-              ? "bg-teal-600 text-white ring-2 ring-teal-400"
-              : "hover:scale-110"
-          }`}
-          style={!vaultBrowserOpen ? { backgroundColor: "var(--bg-secondary)", color: "var(--text-secondary)", border: "1px solid var(--border)" } : undefined}
-          title="Vault Browser"
-        >
-          📂
-        </div>
-      </div>
+      /* No vault panel here: nothing in the Bucket is being written into,
+         so browsing had no verb — the 🔗 on a task is what relates a task to
+         a note, and reading notes belongs to the Notes tab. */
 
       {/* Funnel dialogs — every stage transition passes through its gate */}
       {stageDialog?.kind === "bind" && tasks[stageDialog.idx] && (

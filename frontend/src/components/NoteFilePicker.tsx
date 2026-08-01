@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { api, type TaskLink } from "../api";
+import { loadRecents, addToRecents } from "../vaultRecents";
 
 const VAULT_NAME = "Home";
 // Unmapped groups default to the inbox — new notes get captured there and
@@ -68,6 +69,15 @@ export default function NoteFilePicker({
   // Links whose note we looked for and could not find — flagged in place so
   // a stale link is visibly fixable instead of silently creating a note.
   const [notFound, setNotFound] = useState<Set<string>>(new Set());
+  // The two things the vault panel offers and this didn't: where you've just
+  // been, and the folders you've starred. Both are how you actually find a
+  // note — browsing from the group folder only helps when the note is filed
+  // where you expect.
+  const [recents] = useState(loadRecents);
+  const [referenceLinks, setReferenceLinks] = useState<Record<string, string>>({});
+  useEffect(() => {
+    api.referenceLinks().then((r) => setReferenceLinks(r.links)).catch(() => {});
+  }, []);
   const popupRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -178,6 +188,7 @@ export default function NoteFilePicker({
       return;
     }
     const name = file.name.replace(/\.md$/, "");
+    addToRecents(file.path, name);   // one recents list, fed from both surfaces
     if (attachOrReplace(name, file.path)) return;
     onSelect(file.path, name);
   };
@@ -305,6 +316,56 @@ export default function NoteFilePicker({
               <button onClick={() => setReplacing(null)} className="shrink-0 underline">Cancel</button>
             </div>
           )}
+          {/* Starred folders — the same list the vault panel shows, so a jump
+              to "where the Rotary notes live" is one tap here too */}
+          {Object.keys(referenceLinks).length > 0 && (
+            <div className="mb-2">
+              <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">★ Reference</div>
+              <div className="flex flex-wrap gap-1">
+                {Object.entries(referenceLinks).map(([name, path]) => (
+                  <button
+                    key={name}
+                    onClick={() => { setSearchQuery(""); setSearchResults([]); setLoading(true); loadFolder(path); }}
+                    title={path}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      folderPath === path ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recently viewed — shared with the vault panel, so a note opened
+              there is to hand when you come to link it to a task */}
+          {recents.length > 0 && searchQuery.length < 2 && (
+            <div className="mb-2">
+              <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Recent</div>
+              {recents.slice(0, 5).map((r) => (
+                <div key={r.path} className="flex items-center gap-1 group/recent">
+                  <button
+                    onClick={() => { addToRecents(r.path, r.name); if (!attachOrReplace(r.name, r.path)) onSelect(r.path, r.name); }}
+                    className="flex-1 min-w-0 text-left text-xs px-2 py-1 rounded hover:bg-blue-50 text-gray-700 hover:text-blue-700 truncate"
+                    title={r.path}
+                  >
+                    <span className="text-[10px] mr-1">🕘</span>{r.name}
+                  </button>
+                  {onAddLink && (
+                    <button
+                      onClick={() => { addToRecents(r.path, r.name); onAddLink(r.name, r.path); }}
+                      className="text-[11px] leading-none px-1 rounded font-bold text-gray-400 hover:text-blue-600 hover:bg-blue-50 shrink-0"
+                      title={`Link ${r.name} to this task`}
+                    >
+                      +
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Search */}
           <input
             ref={searchRef}
