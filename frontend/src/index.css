@@ -262,6 +262,13 @@ select.bg-white,
   max-height: calc((100dvh - 2rem) / var(--ui-zoom, 1));
 }
 
+/* Inside the ⋯ menu every action is shown deliberately, so the ones that
+   normally wait for a hover are simply on. Without this the menu opens on a
+   row of invisible buttons. */
+.row-actions-menu .opacity-0[class*="group-hover"] {
+  opacity: 1;
+}
+
 /* Text-glyph action buttons (→ Plan, ✕): theme-aware base color.
    Tailwind hover:text-* classes still win on hover (higher specificity). */
 .glyph-action { color: var(--text-secondary); }

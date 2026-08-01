@@ -258,6 +258,18 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [prioMenu]);
+  // Which task has its ⋯ actions open (narrow rows only)
+  const [actionMenu, setActionMenu] = useState<number | null>(null);
+  // The ⋯ actions close the same way the priority menu does — the wrapper
+  // carries .plan-pop so clicks inside it survive.
+  useEffect(() => {
+    if (actionMenu === null) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.(".plan-pop")) setActionMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [actionMenu]);
   const [horizonFilter, setHorizonFilter] = useState<"" | "n" | "nw" | "m" | "none">("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
   const [groupPicker, setGroupPicker] = useState<number | null>(null);
@@ -1946,7 +1958,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       onDrop={(e) => { e.preventDefault(); handleDrop(originalIdx, section.name, e); }}
                       onDragEnd={handleDragEnd}
                       onDoubleClick={(e) => { e.stopPropagation(); setAddingAt({ afterIdx: originalIdx, group: section.name || undefined }); }}
-                      className={`group flex flex-wrap items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${
+                      className={`group @container flex items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${
                         dropTarget === originalIdx ? "border-t-2 border-blue-400" : "border-t-2 border-transparent"
                       }`}>
 
@@ -2032,17 +2044,17 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         </span>
                       )}
 
-                      {/* Action icons on their own row under the task, at
-                          every width — inline they take the width the task
-                          text wants, and the Bucket's list is narrow even on
-                          a wide screen. */}
-                      <div className="flex items-center gap-1.5 w-full justify-end">
-                      {/* ⏳ Waiting toggle */}
+                      {/* Wait stays on the line at every width — used
+                          constantly, and the same glyph reports the state
+                          once it's set. The rest are offers, and offers can
+                          wait behind the ⋯ when the row hasn't the room. */}
                       {!task.waiting && (
                         <button onClick={(e) => { e.stopPropagation(); toggleWaiting(originalIdx); }}
                           className="text-xs opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
                           title="Mark as waiting">⏳</button>
                       )}
+                      {(() => {
+                        const actions = (<>
 
                       {/* 🐘 Break down */}
                       <button onClick={(e) => { e.stopPropagation(); hasSubtasks ? toggleExpandSubtasks(originalIdx) : startBreakdown(originalIdx); }}
@@ -2105,7 +2117,33 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       {/* Delete */}
                       <button onClick={(e) => { e.stopPropagation(); deleteTask(originalIdx); }}
                         className="text-xs glyph-action hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
-                      </div>{/* end phone action row */}
+                        </>);
+                        const menuOpen = actionMenu === originalIdx;
+                        return (
+                          <>
+                            {/* Inline once the row can carry them; the
+                                Bucket's list is narrow even on a wide
+                                screen, so this is measured on the row. */}
+                            <div className="hidden @[28rem]:flex items-center gap-1.5 shrink-0">{actions}</div>
+                            <div className="@[28rem]:hidden relative plan-pop shrink-0">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setActionMenu(menuOpen ? null : originalIdx); }}
+                                className={`px-1 leading-none rounded transition-opacity ${menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-40 hover:!opacity-100"}`}
+                                style={{ color: "var(--text-secondary)" }}
+                                title="What you can do with this task"
+                              >
+                                ⋯
+                              </button>
+                              {menuOpen && (
+                                <div className="row-actions-menu absolute right-0 top-full mt-1 z-30 flex items-center gap-3 px-2.5 py-1.5 rounded-lg shadow-xl"
+                                  style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}>
+                                  {actions}
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {/* Subtasks */}
