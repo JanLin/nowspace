@@ -753,12 +753,13 @@ export default function Settings({
         <div className="flex items-center gap-3 flex-wrap">
           <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
             Shaping limit
-            <input
-              type="number" min={1} max={10} value={funnelLimit}
-              onChange={(e) => { setFunnelLimit(Math.max(1, Math.min(10, parseInt(e.target.value || "4", 10)))); setFunnelSaved(false); }}
-              className="w-16 text-sm px-2 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-blue-400"
-              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
-            />
+            <span className="flex items-center gap-1">
+              <button type="button" onClick={() => { const v = Math.max(1, funnelLimit - 1); setFunnelLimit(v); setFunnelSaved(false); }}
+                className="px-2 py-1 rounded-lg text-sm" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>−</button>
+              <span className="w-8 text-center text-sm" style={{ color: "var(--text)" }}>{funnelLimit}</span>
+              <button type="button" onClick={() => { const v = Math.min(10, funnelLimit + 1); setFunnelLimit(v); setFunnelSaved(false); }}
+                className="px-2 py-1 rounded-lg text-sm" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>＋</button>
+            </span>
           </label>
           <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
             Evening cutoff
@@ -799,12 +800,13 @@ export default function Settings({
         <div className="flex items-center gap-3 flex-wrap">
           <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
             Notes kept open
-            <input
-              type="number" min={1} max={20} value={notesMaxOpen}
-              onChange={(e) => { setNotesMaxOpen(Math.max(1, Math.min(20, parseInt(e.target.value || "5", 10)))); setNotesSaved(false); }}
-              className="w-16 text-sm px-2 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-blue-400"
-              style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
-            />
+            <span className="flex items-center gap-1">
+              <button type="button" onClick={() => { const v = Math.max(1, notesMaxOpen - 1); setNotesMaxOpen(v); setNotesSaved(false); }}
+                className="px-2 py-1 rounded-lg text-sm" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>−</button>
+              <span className="w-8 text-center text-sm" style={{ color: "var(--text)" }}>{notesMaxOpen}</span>
+              <button type="button" onClick={() => { const v = Math.min(20, notesMaxOpen + 1); setNotesMaxOpen(v); setNotesSaved(false); }}
+                className="px-2 py-1 rounded-lg text-sm" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>＋</button>
+            </span>
           </label>
           <button
             onClick={() => api.saveNotesSettings({ max_open: notesMaxOpen })

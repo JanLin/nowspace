@@ -179,22 +179,46 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
                       <option value="week">per week</option>
                       <option value="day">daily</option>
                     </select>
+                    {/* Seven chips rather than a number field. Typing was the
+                        problem: the field is controlled and fell back to 1 the
+                        moment you cleared it, so it snapped back as you
+                        deleted. A tap can't be half-done. */}
                     {r.period === "week" && (
-                      <input type="number" min={1} max={7} value={r.target}
-                        onChange={(e) => update({ target: parseInt(e.target.value || "1", 10) })}
-                        className="w-14 px-1.5 py-1 rounded text-xs"
-                        style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+                      <span className="flex gap-0.5" title="Times per week">
+                        {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                          <button key={n} type="button" onClick={() => update({ target: n })}
+                            className={`w-6 py-1 rounded text-xs font-medium transition-colors ${r.target === n ? "bg-blue-600 text-white" : ""}`}
+                            style={r.target === n ? undefined : { background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                            title={`${n}× a week`}>
+                            {n}
+                          </button>
+                        ))}
+                      </span>
                     )}
                     <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
                       <input type="checkbox" checked={r.morning} onChange={(e) => update({ morning: e.target.checked })} />
                       morning
                     </label>
+                    {/* A duration is a number you know, so it's typed. What
+                        it must not do is the thing the old field did: being
+                        controlled with a fallback, it rewrote the digit the
+                        moment you cleared it, so the value came back as you
+                        deleted. Uncontrolled — the DOM owns the text and we
+                        read it, the same reasoning as the task inputs and
+                        their Samsung keyboards. Empty means untimed. */}
                     <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                      <input type="number" min={0} step={5} value={r.duration}
-                        onChange={(e) => update({ duration: parseInt(e.target.value || "0", 10) })}
-                        className="w-14 px-1.5 py-1 rounded text-xs"
+                      <input
+                        key={`dur-${i}`}
+                        type="number" min={0} step={5} inputMode="numeric"
+                        defaultValue={r.duration || ""}
+                        onChange={(e) => {
+                          const v = e.target.value.trim();
+                          update({ duration: v === "" ? 0 : Math.max(0, parseInt(v, 10) || 0) });
+                        }}
+                        placeholder="untimed"
+                        className="w-20 px-1.5 py-1 rounded text-xs"
                         style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
-                        title="Minutes per occurrence — 0 means untimed" />
+                        title="Minutes per occurrence — leave it empty for untimed" />
                       min
                     </label>
                     <button
