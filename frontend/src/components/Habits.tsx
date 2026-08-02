@@ -179,24 +179,39 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
                       <option value="week">per week</option>
                       <option value="day">daily</option>
                     </select>
+                    {/* Seven chips rather than a number field. Typing was the
+                        problem: the field is controlled and fell back to 1 the
+                        moment you cleared it, so it snapped back as you
+                        deleted. A tap can't be half-done. */}
                     {r.period === "week" && (
-                      <input type="number" min={1} max={7} value={r.target}
-                        onChange={(e) => update({ target: parseInt(e.target.value || "1", 10) })}
-                        className="w-14 px-1.5 py-1 rounded text-xs"
-                        style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+                      <span className="flex gap-0.5" title="Times per week">
+                        {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                          <button key={n} type="button" onClick={() => update({ target: n })}
+                            className={`w-6 py-1 rounded text-xs font-medium transition-colors ${r.target === n ? "bg-blue-600 text-white" : ""}`}
+                            style={r.target === n ? undefined : { background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                            title={`${n}× a week`}>
+                            {n}
+                          </button>
+                        ))}
+                      </span>
                     )}
                     <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
                       <input type="checkbox" checked={r.morning} onChange={(e) => update({ morning: e.target.checked })} />
                       morning
                     </label>
-                    <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                      <input type="number" min={0} step={5} value={r.duration}
-                        onChange={(e) => update({ duration: parseInt(e.target.value || "0", 10) })}
-                        className="w-14 px-1.5 py-1 rounded text-xs"
-                        style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
-                        title="Minutes per occurrence — 0 means untimed" />
-                      min
-                    </label>
+                    {/* Same stepper the repeat schedule uses for "every N
+                        weeks". Open-ended, so chips don't suit it — and zero
+                        says "untimed" rather than leaving you to know that. */}
+                    <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}
+                      title="Minutes per occurrence — untimed means no timer">
+                      <button type="button" onClick={() => update({ duration: Math.max(0, r.duration - 5) })}
+                        className="px-1.5 py-0.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>−</button>
+                      <span className="min-w-[3.75rem] text-center text-xs" style={{ color: "var(--text)" }}>
+                        {r.duration ? `${r.duration} min` : "untimed"}
+                      </span>
+                      <button type="button" onClick={() => update({ duration: r.duration + 5 })}
+                        className="px-1.5 py-0.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>＋</button>
+                    </span>
                     <button
                       onClick={(e) => {
                         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
