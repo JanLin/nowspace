@@ -197,13 +197,15 @@ body {
 }
 
 /* Compact markdown rendering in scratchpad */
+/* 14px to match the diary — the two are the same act of writing, and they
+   were 12 and 14, which reads as a mistake rather than a distinction. */
 .scratchpad-preview .wmde-markdown {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.6;
 }
-.scratchpad-preview .wmde-markdown h1 { font-size: 16px; margin: 4px 0; }
-.scratchpad-preview .wmde-markdown h2 { font-size: 14px; margin: 4px 0; }
-.scratchpad-preview .wmde-markdown h3 { font-size: 13px; margin: 2px 0; }
+.scratchpad-preview .wmde-markdown h1 { font-size: 18px; margin: 4px 0; }
+.scratchpad-preview .wmde-markdown h2 { font-size: 16px; margin: 4px 0; }
+.scratchpad-preview .wmde-markdown h3 { font-size: 15px; margin: 2px 0; }
 .scratchpad-preview .wmde-markdown p { margin: 3px 0; }
 .scratchpad-preview .wmde-markdown ul,
 .scratchpad-preview .wmde-markdown ol { margin: 2px 0; padding-left: 20px; }
