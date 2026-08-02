@@ -291,7 +291,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."
-          className="w-full text-xs leading-[18px] px-2 py-2 border border-gray-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 resize-none min-h-[45vh]"
+          className="w-full text-sm leading-[21px] px-2 py-2 border border-gray-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 resize-none min-h-[45vh]"
           style={{ height: "auto" }}
         />
       ) : (
@@ -336,7 +336,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
             pendingEditRef.current = { caret: caretPos, scroll: panel?.scrollTop ?? 0 };
             setFocused(true);
           }}
-          className={`w-full text-xs px-2 py-2 border border-gray-200 rounded-lg bg-white min-h-[45vh] transition-colors scratchpad-preview ${
+          className={`w-full text-sm px-2 py-2 border border-gray-200 rounded-lg bg-white min-h-[45vh] transition-colors scratchpad-preview ${
             isArchive ? "cursor-default" : "cursor-text hover:border-blue-300"
           }`}
           data-color-mode="light"

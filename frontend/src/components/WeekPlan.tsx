@@ -2617,15 +2617,19 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
    *  exactly as tall as what's visible — then do it again on every viewport
    *  change. Height, not max-height: the bottom edge has to sit on the
    *  keyboard, not below it. */
-  const fitNotesPanel = () => {
+  const fitNotesPanel = (opts?: { scroll?: boolean }) => {
     const panel = document.getElementById("day-notes-panel");
     const main = panel?.closest("main");
     if (!panel || !main) return;
     if (!stacked) { panel.style.height = ""; return; }
+    // Scroll to the note only when the note is what you're working in.
+    // Focusing a task field raises the keyboard too, and refitting on that
+    // used to drag the page down to the note — you'd tap a task and lose it.
+    const scroll = opts?.scroll ?? panel.contains(document.activeElement);
     const delta = panel.getBoundingClientRect().top - main.getBoundingClientRect().top;
     // Assigned, not animated: a smooth scroll is silently dropped in some
     // engines (and by reduced-motion), and this has to land.
-    if (Math.abs(delta) > 1) main.scrollTop += delta;
+    if (scroll && Math.abs(delta) > 1) main.scrollTop += delta;
     const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ui-zoom")) || 1;
     const avail = (visibleViewportBottom() - panel.getBoundingClientRect().top - 4) / zoom;
     panel.style.height = avail > 120 ? `${Math.round(avail)}px` : "";
@@ -2639,24 +2643,25 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     }
     // Several passes after opening: the keyboard animates in, and Diary
     // focuses itself, so the layout is still moving for a few hundred ms.
-    const timers = [0, 120, 350, 800].map((ms) => setTimeout(fitNotesPanel, ms));
+    const timers = [0, 120, 350, 800].map((ms) => setTimeout(() => fitNotesPanel({ scroll: true }), ms));
     // Three signals for one event, because which of them fires depends on the
     // phone: Android resizes the layout (window resize), iOS shrinks only the
     // visual viewport, and focus is what summons the keyboard in the first
     // place — refitting twice costs nothing, missing it costs the bottom of
     // the note.
-    const later = () => { setTimeout(fitNotesPanel, 60); setTimeout(fitNotesPanel, 350); };
+    const later = () => { setTimeout(() => fitNotesPanel(), 60); setTimeout(() => fitNotesPanel(), 350); };
+    const onViewport = () => fitNotesPanel();   // never passes the event as opts
     const vv = window.visualViewport;
-    vv?.addEventListener("resize", fitNotesPanel);
-    vv?.addEventListener("scroll", fitNotesPanel);
-    window.addEventListener("resize", fitNotesPanel);
+    vv?.addEventListener("resize", onViewport);
+    vv?.addEventListener("scroll", onViewport);
+    window.addEventListener("resize", onViewport);
     document.addEventListener("focusin", later);
     document.addEventListener("focusout", later);
     return () => {
       timers.forEach(clearTimeout);
-      vv?.removeEventListener("resize", fitNotesPanel);
-      vv?.removeEventListener("scroll", fitNotesPanel);
-      window.removeEventListener("resize", fitNotesPanel);
+      vv?.removeEventListener("resize", onViewport);
+      vv?.removeEventListener("scroll", onViewport);
+      window.removeEventListener("resize", onViewport);
       document.removeEventListener("focusin", later);
       document.removeEventListener("focusout", later);
       const panel = document.getElementById("day-notes-panel");
@@ -3484,7 +3489,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                 // status bar puts them back, which is why that bar stays.
                 if (opening && stacked) {
                   setShowBottomBar(false);
-                  setTimeout(fitNotesPanel, 90);
+                  setTimeout(() => fitNotesPanel({ scroll: true }), 90);
                 }
               }}
               className={`text-xs px-2 py-0.5 rounded transition-colors ${showNotesPanel ? "bg-blue-100 text-blue-700" : "hover:opacity-80"}`}
@@ -3503,7 +3508,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   setShowNotesPanel(true);
                   if (stacked) {
                     setShowBottomBar(false);
-                    setTimeout(fitNotesPanel, 90);
+                    setTimeout(() => fitNotesPanel({ scroll: true }), 90);
                   }
                 }
               }}
@@ -4142,7 +4147,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
           {/* Day navigation bar — shown for one day, or a window through the week */}
           {(viewMode === "day" || windowed) && (
-            <div className="flex items-center gap-2 max-w-lg mx-auto">
+            <div className="flex items-center gap-2 max-w-lg mx-auto min-w-0">
               <button
                 onClick={() => navigateDay(-1)}
                 disabled={loading || (windowed && selectedDayIdx <= 0)}
@@ -4151,7 +4156,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               >
                 ‹
               </button>
-              <div className="flex gap-1 flex-1 justify-center">
+              {/* Wraps: at a larger text size seven days and two arrows are
+                  wider than a phone, and the row was running past the right
+                  edge with the last days unreachable. A second line costs
+                  40px and only appears when it's needed. */}
+              <div className="flex flex-wrap gap-1 flex-1 justify-center min-w-0">
                 {data.days.map((d, i) => {
                   const isSelected = i === selectedDayIdx;
                   const isVisible = windowed && visibleDays.includes(i);
