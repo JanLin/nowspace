@@ -211,6 +211,23 @@ body {
 .scratchpad-preview .wmde-markdown ol { margin: 2px 0; padding-left: 20px; }
 .scratchpad-preview .wmde-markdown li { margin: 1px 0; }
 
+/* The markdown renderer ships its own font stack: -apple-system,
+   BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', ... — no Roboto. On a Mac
+   that resolves to the same face as ours and nobody notices; on Android the
+   first three are absent, so the app lands on Roboto and the rendered note
+   lands on Noto Sans. Same size, different typeface, side by side with the
+   diary. Inherit instead, so a note reads the same wherever it's shown.
+   Code keeps its monospace — that rule is on code/pre and more specific. */
+.wmde-markdown.wmde-markdown {
+  /* Doubled class on purpose: the library's own rule has the same
+     specificity and its stylesheet is injected after ours, so a single
+     class loses on order alone. Spelled out rather than `inherit`, which
+     picks up whichever wrapper happens to sit in between — it has to be the
+     same list as body or Android resolves the two to different faces. */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
 /* Restore bullet markers in markdown previews (MDEditor strips them) */
 .wmde-markdown ul { list-style-type: disc !important; }
 .wmde-markdown ol { list-style-type: decimal !important; }
