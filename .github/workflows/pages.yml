@@ -1,16 +1,20 @@
 name: Website
 
-# Publishes site/ to nowspace.org via GitHub Pages. Only site/ and the
-# philosophy source trigger it — the app's own deploy is a separate path
-# (deploy/update-nowspace.sh on the mini), and neither should fire for the
-# other's commits.
+# Publishes site/ to nowspace.org via GitHub Pages. The app's own deploy is a
+# separate path (deploy/update-nowspace.sh on the mini); neither should fire
+# for the other's commits.
+#
+# MANUAL ONLY, deliberately. GitHub Pages isn't enabled on this repository
+# (the API returns 404 for /pages), so configure-pages fails at the last step
+# and every push touching site/ sent a failure mail for a site nobody has
+# asked to publish yet. Run it from the Actions tab when the site is ready.
+#
+# To publish: enable Pages (Settings → Pages → Source: GitHub Actions — needs
+# a paid plan while the repo is private), then put the push trigger back:
+#   push:
+#     branches: [main]
+#     paths: ["site/**", "docs/philosophy.md", ".github/workflows/pages.yml"]
 on:
-  push:
-    branches: [main]
-    paths:
-      - "site/**"
-      - "docs/philosophy.md"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
