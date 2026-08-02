@@ -199,19 +199,28 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
                       <input type="checkbox" checked={r.morning} onChange={(e) => update({ morning: e.target.checked })} />
                       morning
                     </label>
-                    {/* Same stepper the repeat schedule uses for "every N
-                        weeks". Open-ended, so chips don't suit it — and zero
-                        says "untimed" rather than leaving you to know that. */}
-                    <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}
-                      title="Minutes per occurrence — untimed means no timer">
-                      <button type="button" onClick={() => update({ duration: Math.max(0, r.duration - 5) })}
-                        className="px-1.5 py-0.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>−</button>
-                      <span className="min-w-[3.75rem] text-center text-xs" style={{ color: "var(--text)" }}>
-                        {r.duration ? `${r.duration} min` : "untimed"}
-                      </span>
-                      <button type="button" onClick={() => update({ duration: r.duration + 5 })}
-                        className="px-1.5 py-0.5 rounded" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>＋</button>
-                    </span>
+                    {/* A duration is a number you know, so it's typed. What
+                        it must not do is the thing the old field did: being
+                        controlled with a fallback, it rewrote the digit the
+                        moment you cleared it, so the value came back as you
+                        deleted. Uncontrolled — the DOM owns the text and we
+                        read it, the same reasoning as the task inputs and
+                        their Samsung keyboards. Empty means untimed. */}
+                    <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                      <input
+                        key={`dur-${i}`}
+                        type="number" min={0} step={5} inputMode="numeric"
+                        defaultValue={r.duration || ""}
+                        onChange={(e) => {
+                          const v = e.target.value.trim();
+                          update({ duration: v === "" ? 0 : Math.max(0, parseInt(v, 10) || 0) });
+                        }}
+                        placeholder="untimed"
+                        className="w-20 px-1.5 py-1 rounded text-xs"
+                        style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }}
+                        title="Minutes per occurrence — leave it empty for untimed" />
+                      min
+                    </label>
                     <button
                       onClick={(e) => {
                         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
