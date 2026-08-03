@@ -199,9 +199,12 @@ body {
 /* Compact markdown rendering in scratchpad */
 /* 14px to match the diary — the two are the same act of writing, and they
    were 12 and 14, which reads as a mistake rather than a distinction. */
+/* Must stay identical to the textarea that replaces it on tap
+   (text-sm leading-[21px]) — any difference reads as the note changing
+   size when you start editing. */
 .scratchpad-preview .wmde-markdown {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 21px;
 }
 .scratchpad-preview .wmde-markdown h1 { font-size: 18px; margin: 4px 0; }
 .scratchpad-preview .wmde-markdown h2 { font-size: 16px; margin: 4px 0; }

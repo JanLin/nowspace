@@ -815,6 +815,23 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     onLong: (el) => openNotePicker(el, dayIdx, taskIdx, group, links),
   });
 
+  // A link that exists is a fact about the task, so it rides with the text
+  // as a suffix — the mirror of the waiting hourglass in front of it — and
+  // survives the row getting narrow. Offering to ADD one is an action and
+  // stays in the strip / ⋯ menu with the rest.
+  const linkFactIcon = (dayIdx: number, taskIdx: number, group: string | null, links: TaskLink[], size: string) => (
+    <button
+      {...linkIconProps(dayIdx, taskIdx, group, links)}
+      style={{ touchAction: "manipulation" }}
+      className={`${size} ml-1 align-baseline text-blue-400 hover:text-blue-600 select-none`}
+      title={links.length === 1
+        ? `Open ${links[0].display_text || links[0].name} — hold to change or remove`
+        : `${links.length} linked notes — hold to manage`}
+    >
+      🔗{links.length > 1 && <sup className="text-[8px] font-bold">{links.length}</sup>}
+    </button>
+  );
+
   const addLinkToTask = (dayIdx: number, taskIdx: number, name: string) => {
     if (!data) return;
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
@@ -1194,21 +1211,29 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         document.querySelector(`[data-task-anchor="${CSS.escape(`week:${d.dayIdx}:${d.key}`)}"]`)
           || document.querySelector(`[data-task-anchor$="${CSS.escape(d.key)}"]`);
       const flash = (el: HTMLElement) => {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Not smooth — some engines drop a smooth scroll entirely, and a
+        // reveal that doesn't scroll is a pick that did nothing.
+        el.scrollIntoView({ block: "center" });
         el.style.transition = "box-shadow 0.3s";
         el.style.boxShadow = "0 0 0 2px var(--accent)";
         el.style.borderRadius = "8px";
         setTimeout(() => { el.style.boxShadow = ""; }, 2200);
       };
-      setTimeout(() => {
+      // Poll rather than take two fixed shots: switching day, widening the
+      // tag lens and a refetch each re-render the list at their own pace.
+      let tries = 0;
+      const hunt = () => {
         const el = locate();
         if (el instanceof HTMLElement) { flash(el); return; }
-        window.dispatchEvent(new CustomEvent("week-changed"));
-        setTimeout(() => {
-          const el2 = locate();
-          if (el2 instanceof HTMLElement) flash(el2);
-        }, 700);
-      }, 250);
+        if (tries === 1) {
+          // Same escalation as the Bucket's: a tag lens can hide the very
+          // task that was searched for.
+          setCtxSel([]);
+          window.dispatchEvent(new CustomEvent("week-changed"));
+        }
+        if (++tries < 25) setTimeout(hunt, 120);
+      };
+      setTimeout(hunt, 150);
     };
     window.addEventListener("nowspace-reveal", reveal);
     return () => window.removeEventListener("nowspace-reveal", reveal);
@@ -2961,6 +2986,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         >
           {task.waiting && <span className="mr-0.5 cursor-pointer" title="Remove wait" onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}>⏳</span>}
           {renderLinkedText(displayText)}
+          {task.links?.length > 0 && linkFactIcon(dayIdx, taskIdx, group || parseGroup(task.text).group, task.links, "text-[10px]")}
         </span>
       )}
       {/* Multi-day rows carry no action icons: seven of them on a column a
@@ -2968,19 +2994,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           state you'd otherwise miss — the wait hourglass when it's waiting
           (inline, above) and the link when there is one. Focus still reads
           as bold text. The full set lives in the Day view. */}
-      {/* Link icon — tap opens the note, hold manages the links */}
-      {task.links?.length > 0 && (
-        <button
-          {...linkIconProps(dayIdx, taskIdx, group, task.links)}
-          style={{ touchAction: "manipulation" }}
-          className="shrink-0 text-[10px] text-blue-400 hover:text-blue-600 transition-opacity opacity-70 hover:opacity-100 select-none"
-          title={task.links.length === 1
-            ? `Open ${task.links[0].display_text || task.links[0].name} — hold to change or remove`
-            : `${task.links.length} linked notes — hold to manage`}
-        >
-          🔗{task.links.length > 1 && <sup className="text-[8px] font-bold">{task.links.length}</sup>}
-        </button>
-      )}
     </div>
     );
   };
@@ -3063,6 +3076,41 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           >
             {task.waiting && <span className="mr-1 cursor-pointer" title="Remove wait" onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}>⏳</span>}
             {renderLinkedText(displayText)}
+            {/* What the task IS, carried with its text: steps, links, focus,
+                pin. Full strength, never a hover ghost — these are facts, and
+                a row too narrow for the action strip still shows them. */}
+            {task.subtasks?.length > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleExpandSubtasks(dayIdx, taskIdx); }}
+                className="text-sm ml-1 align-baseline"
+                title={`${task.subtasks.length} step${task.subtasks.length > 1 ? "s" : ""}${isEpicText(task.text) ? " left in this epic — ticking one records it to today" : ""} — click to ${expandedSubtasks.has(`${dayIdx}-${taskIdx}`) ? "collapse" : "expand"}`}
+              >
+                🐘{isEpicText(task.text) && <sup className="text-[8px] font-bold text-amber-600">{task.subtasks.length}</sup>}
+              </button>
+            )}
+            {task.links?.length > 0 && linkFactIcon(dayIdx, taskIdx, group || parseGroup(task.text).group, task.links, "text-sm")}
+            {!task.done && task.focused && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFocus(dayIdx, taskIdx);
+                  if (pomodoro?.taskIdx === taskIdx && pomodoro?.dayIdx === dayIdx) stopPomodoro();
+                }}
+                className="text-sm ml-1 align-baseline"
+                title="Remove focus"
+              >
+                🎺
+              </button>
+            )}
+            {ctxEnabled && !task.done && pinned && (
+              <button
+                onClick={(e) => { e.stopPropagation(); togglePinned(dayIdx, taskIdx); }}
+                className="text-sm ml-1 align-baseline"
+                title="Unpin — stop showing during Work mode"
+              >
+                📌
+              </button>
+            )}
           </span>
         )}
         {/* ↻ recurring designation — a quiet fact, no overdue styling ever.
@@ -3116,45 +3164,33 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             ▶
           </button>
         )}
-        {/* Pin toggle — personal/volunteer tasks only: surface during Work mode */}
-        {ctxEnabled && !task.done && taskCtx !== "work" && (
+        {/* Pinning is the offer; a pin that's set is a fact and rides after
+            the text. Same for the focus horn below. */}
+        {ctxEnabled && !task.done && taskCtx !== "work" && !pinned && (
           <button
             onClick={(e) => { e.stopPropagation(); togglePinned(dayIdx, taskIdx); }}
-            className={`shrink-0 text-sm transition-opacity ${pinned ? "opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
-            title={pinned ? "Unpin — stop showing during Work mode" : "Pin — show during Work mode"}
+            className="shrink-0 text-sm transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
+            title="Pin — show during Work mode"
           >
             📌
           </button>
         )}
-        {/* Focus horn icon */}
-        {!task.done && (
+        {!task.done && !task.focused && (
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (task.focused) {
-                toggleFocus(dayIdx, taskIdx);
-                if (pomodoro?.taskIdx === taskIdx && pomodoro?.dayIdx === dayIdx) stopPomodoro();
-              } else {
-                toggleFocus(dayIdx, taskIdx);
-                setPomodoroPrompt({ dayIdx, taskIdx, taskText: task.text });
-              }
+              toggleFocus(dayIdx, taskIdx);
+              setPomodoroPrompt({ dayIdx, taskIdx, taskText: task.text });
             }}
-            className={`shrink-0 text-sm transition-opacity ${task.focused ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
-            title={task.focused ? "Remove focus" : "Set as focus"}
+            className="shrink-0 text-sm transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
+            title="Set as focus"
           >
             🎺
           </button>
         )}
-        {/* Elephant icon — breakdown indicator (amber count = epic mode) */}
-        {task.subtasks?.length > 0 ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); toggleExpandSubtasks(dayIdx, taskIdx); }}
-            className="shrink-0 text-sm opacity-60 hover:opacity-100 transition-opacity"
-            title={`${task.subtasks.length} step${task.subtasks.length > 1 ? "s" : ""}${isEpicText(task.text) ? " left in this epic — ticking one records it to today" : ""} — click to ${expandedSubtasks.has(`${dayIdx}-${taskIdx}`) ? "collapse" : "expand"}`}
-          >
-            🐘{isEpicText(task.text) && <sup className="text-[8px] font-bold text-amber-600">{task.subtasks.length}</sup>}
-          </button>
-        ) : !task.done ? (
+        {/* Breaking a task down is the offer; steps it already has are a
+            fact and ride after the text with the link. */}
+        {!task.done && !(task.subtasks?.length > 0) ? (
           <button
             onClick={(e) => { e.stopPropagation(); startBreakdown(dayIdx, taskIdx); }}
             className="shrink-0 text-sm opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
@@ -3163,25 +3199,19 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             🐘
           </button>
         ) : null}
-        {/* Link icon — tap opens the linked note (or the picker when there's
-            nothing unambiguous to open), hold manages the links */}
-        {!task.done && viewMode === "day" && (() => {
+        {/* Adding a link is the offer that lives here; a link the task
+            already has is a fact and rides after the text instead, where a
+            narrow row can't hide it. */}
+        {!task.done && viewMode === "day" && (task.links?.length ?? 0) === 0 && (() => {
           const taskGroup = group || parseGroup(task.text).group;
-          const links = task.links || [];
-          const hasLinks = links.length > 0;
           return (
             <button
-              {...linkIconProps(dayIdx, taskIdx, taskGroup, links)}
+              {...linkIconProps(dayIdx, taskIdx, taskGroup, [])}
               style={{ touchAction: "manipulation" }}
-              className={`shrink-0 text-sm transition-opacity select-none ${
-                hasLinks ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"
-              }`}
-              title={links.length === 1
-                ? `Open ${links[0].display_text || links[0].name} — hold to change or remove`
-                : hasLinks ? `${links.length} linked notes — hold to manage`
-                : `Add notes${taskGroup ? ` for ${taskGroup}` : ""}`}
+              className="shrink-0 text-sm transition-opacity select-none opacity-0 group-hover:opacity-30 hover:!opacity-100"
+              title={`Add notes${taskGroup ? ` for ${taskGroup}` : ""}`}
             >
-              🔗{hasLinks && task.links.length > 1 && <sup className="text-[8px] font-bold">{task.links.length}</sup>}
+              🔗
             </button>
           );
         })()}
