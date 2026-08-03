@@ -2660,7 +2660,15 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     panel.style.height = avail > 120 ? `${Math.round(avail)}px` : "";
   };
 
+  // Scrolling the page to the note is for the moment the note is OPENED —
+  // never for a day or week change. This effect also re-runs on those, and
+  // scrolling there took you off the task list you were reading, on the one
+  // layout (a phone) where the note isn't beside it but below it.
+  const notesWasOpen = useRef({ panel: false, diary: false });
   useEffect(() => {
+    const justOpened = (showNotesPanel && !notesWasOpen.current.panel)
+      || (diaryOpen && !notesWasOpen.current.diary);
+    notesWasOpen.current = { panel: showNotesPanel, diary: diaryOpen };
     if (!showNotesPanel || !stacked) {
       const panel = document.getElementById("day-notes-panel");
       if (panel) panel.style.height = "";
@@ -2668,7 +2676,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     }
     // Several passes after opening: the keyboard animates in, and Diary
     // focuses itself, so the layout is still moving for a few hundred ms.
-    const timers = [0, 120, 350, 800].map((ms) => setTimeout(() => fitNotesPanel({ scroll: true }), ms));
+    // The height is re-fitted every time; only the scroll is conditional.
+    const timers = [0, 120, 350, 800].map((ms) => setTimeout(() => fitNotesPanel({ scroll: justOpened }), ms));
     // Three signals for one event, because which of them fires depends on the
     // phone: Android resizes the layout (window resize), iOS shrinks only the
     // visual viewport, and focus is what summons the keyboard in the first
