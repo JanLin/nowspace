@@ -138,19 +138,23 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     const ta = textareaRef.current;
     if (!ta) return;
     const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+    // Two lines of room under the caret, not a few pixels: scrolled to
+    // exactly the last visible row, the line you're typing reads as being
+    // off the bottom — and a phone keyboard's overlap eats that row first.
+    const pad = Math.round(lineHeight * 2);
     const caretTop = () => ta.getBoundingClientRect().top + caretOffsetTop(ta);
     const panel = document.getElementById("day-notes-panel");
     if (panel) {
       const r = panel.getBoundingClientRect();
       const top = caretTop();
-      if (top + lineHeight + 8 > r.bottom) panel.scrollTop += top + lineHeight + 8 - r.bottom;
+      if (top + lineHeight + pad > r.bottom) panel.scrollTop += top + lineHeight + pad - r.bottom;
       else if (top - 8 < r.top) panel.scrollTop -= r.top - top + 8;
     }
     // visualViewport excludes the on-screen keyboard; re-measure because the
     // panel scroll above has already moved the box
     const vv = window.visualViewport;
     const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-    let below = caretTop() + lineHeight + 8 - visibleBottom;
+    let below = caretTop() + lineHeight + pad - visibleBottom;
     if (below <= 0) return;
     // Still under the keyboard: scroll the PAGE container, which slides the
     // whole panel up. The document itself can't scroll (the shell is exactly
@@ -161,7 +165,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     if (main) {
       const room = main.scrollHeight - main.clientHeight - main.scrollTop;
       if (room > 0) main.scrollTop += Math.min(below, room);
-      below = caretTop() + lineHeight + 8 - visibleBottom;
+      below = caretTop() + lineHeight + pad - visibleBottom;
     }
     if (below > 0) window.scrollBy({ top: below }); // last resort, if it can
   };
@@ -353,7 +357,11 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
                   // Preserve blank lines as visible gaps in preview
                   .replace(/\n\n/g, "\n\n&#8203;\n\n")
                 }
-                style={{ fontSize: 12, lineHeight: "18px", background: "transparent" }}
+                /* Size and leading come from the stylesheet, where they are
+                   kept equal to the textarea's — an inline size here would
+                   win over it and the text would change size the moment you
+                   tapped into the note. */
+                style={{ background: "transparent" }}
               />
               {/* Handle wiki link clicks */}
               <WikiLinkHandler onOpenNote={onOpenNote} />

@@ -487,22 +487,46 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       if (d.group) expandGroup(d.group);
       const locate = () => document.querySelector(`[data-task-anchor="${CSS.escape(`bucket:${d.key}`)}"]`);
       const flash = (el: HTMLElement) => {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Not smooth: a smooth scroll is dropped outright by some engines,
+        // and a reveal that silently doesn't scroll is the whole complaint.
+        el.scrollIntoView({ block: "center" });
         el.style.transition = "box-shadow 0.3s";
         el.style.boxShadow = "0 0 0 2px var(--accent)";
         el.style.borderRadius = "8px";
         setTimeout(() => { el.style.boxShadow = ""; }, 2200);
       };
-      setTimeout(() => {
+      // Hunt rather than guess: widening the lenses re-renders the list, a
+      // refetch may re-render it again, and a fixed second attempt lands in
+      // whichever gap it lands in. Poll until the row exists.
+      let tries = 0;
+      const hunt = () => {
         const el = locate();
         if (el instanceof HTMLElement) { flash(el); return; }
-        // stale local data — the search saw fresher state; reload and retry
-        window.dispatchEvent(new CustomEvent("bucket-changed"));
-        setTimeout(() => {
-          const el2 = locate();
-          if (el2 instanceof HTMLElement) flash(el2);
-        }, 700);
-      }, 250);
+        if (tries === 1) {
+          // Three things can hide it: the tag lens (the item belongs to a
+          // context that isn't selected), its group being folded when the
+          // search didn't say which group, or local data older than what the
+          // search read. A search names one item — widen every lens rather
+          // than leave the pick doing nothing.
+          setCtxSel([]);
+          setRecurringFilter(false);
+          window.dispatchEvent(new CustomEvent("bucket-changed"));
+        }
+        // Unfolding is re-done on every pass, not once: the tasks may not be
+        // in hand yet on the first, and a single attempt computed from an
+        // empty list expands nothing and is never retried — which is exactly
+        // how this failed intermittently. Same set → same state, no re-render.
+        if (tries >= 1) {
+          const want = new Set(
+            ["", ...tasksRef.current.map((t) => parseGroup(t.text).group).filter(Boolean)]
+          );
+          setExpandedGroups((prev) =>
+            want.size === prev.size && [...want].every((n) => prev.has(n)) ? prev : persistExpanded(want)
+          );
+        }
+        if (++tries < 25) setTimeout(hunt, 120);
+      };
+      setTimeout(hunt, 150);
     };
     window.addEventListener("nowspace-reveal", reveal);
     return () => window.removeEventListener("nowspace-reveal", reveal);
@@ -1007,6 +1031,20 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     },
     onLong: (el) => openNotePicker(el, idx, group, links),
   });
+
+  // A link the task already has is a fact, so it follows the text as a
+  // suffix and stays visible however narrow the row gets. Offering to add
+  // one is an action and stays with the others in the strip / ⋯ menu.
+  const linkFactIcon = (idx: number, group: string, links: TaskLink[]) => (
+    <button {...linkIconProps(idx, group, links)}
+      style={{ touchAction: "manipulation" }}
+      className="text-xs ml-1 align-baseline opacity-80 hover:opacity-100 select-none"
+      title={links.length === 1
+        ? `Open ${links[0].display_text || links[0].name} — hold to change or remove`
+        : `${links.length} linked notes — hold to manage`}>
+      🔗{links.length > 1 && <sup className="text-[8px] font-bold">{links.length}</sup>}
+    </button>
+  );
 
   // Re-point a link at another note. One text mutation, not remove+add:
   // both of those read the same `tasks` snapshot, so back-to-back calls
@@ -2042,6 +2080,14 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                           className={`flex-1 text-sm cursor-text hover:text-blue-600 ${task.focused ? "font-bold" : ""}`}
                           style={{ color: 'var(--text)' }}>
                           {renderWikiText(displayLabel, onOpenNote)}
+                          {hasSubtasks && (
+                            <button onClick={(e) => { e.stopPropagation(); toggleExpandSubtasks(originalIdx); }}
+                              className="text-xs ml-1 align-baseline opacity-60 hover:opacity-100"
+                              title={`${task.subtasks.length} steps — click to expand`}>
+                              🐘<sup className="text-[8px] font-bold">{task.subtasks.length}</sup>
+                            </button>
+                          )}
+                          {hasLinks && linkFactIcon(originalIdx, parseGroup(task.text).group, taskLinks)}
                         </span>
                       )}
 
@@ -2056,23 +2102,26 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                           title="Mark as waiting">⏳</button>
                       )}
 
-                      {/* 🐘 Break down */}
-                      <button onClick={(e) => { e.stopPropagation(); hasSubtasks ? toggleExpandSubtasks(originalIdx) : startBreakdown(originalIdx); }}
-                        className={`text-xs transition-opacity ${hasSubtasks ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
-                        title={hasSubtasks ? `${task.subtasks.length} steps` : "Break down task"}>
-                        🐘{hasSubtasks && <sup className="text-[8px] font-bold">{task.subtasks.length}</sup>}
-                      </button>
+                      {/* 🐘 Breaking it down is the offer; steps it already
+                          has are a fact and ride after the text. */}
+                      {!hasSubtasks && (
+                        <button onClick={(e) => { e.stopPropagation(); startBreakdown(originalIdx); }}
+                          className="text-xs transition-opacity opacity-0 group-hover:opacity-30 hover:!opacity-100"
+                          title="Break down task">
+                          🐘
+                        </button>
+                      )}
 
-                      {/* 🔗 Tap opens the linked note, hold manages the links */}
-                      <button {...linkIconProps(originalIdx, parseGroup(task.text).group, taskLinks)}
-                        style={{ touchAction: "manipulation" }}
-                        className={`text-xs transition-opacity select-none ${hasLinks ? "opacity-80" : "opacity-0 group-hover:opacity-30 hover:!opacity-100"}`}
-                        title={taskLinks.length === 1
-                          ? `Open ${taskLinks[0].display_text || taskLinks[0].name} — hold to change or remove`
-                          : hasLinks ? `${taskLinks.length} linked notes — hold to manage`
-                          : "Link vault note"}>
-                        🔗{hasLinks && taskLinks.length > 1 && <sup className="text-[8px] font-bold">{taskLinks.length}</sup>}
-                      </button>
+                      {/* 🔗 Linking a note is the offer; a link that exists
+                          rides after the text instead, as a fact. */}
+                      {!hasLinks && (
+                        <button {...linkIconProps(originalIdx, parseGroup(task.text).group, taskLinks)}
+                          style={{ touchAction: "manipulation" }}
+                          className="text-xs transition-opacity select-none opacity-0 group-hover:opacity-30 hover:!opacity-100"
+                          title="Link vault note">
+                          🔗
+                        </button>
+                      )}
 
                       {/* ↻ Make this task repeat — weekly (optional day) or
                           monthly (day of month). The task becomes the live
@@ -2375,9 +2424,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       )}
 
 
-      /* No vault panel here: nothing in the Bucket is being written into,
-         so browsing had no verb — the 🔗 on a task is what relates a task to
-         a note, and reading notes belongs to the Notes tab. */
+      {/* No vault panel here: nothing in the Bucket is being written into,
+          so browsing had no verb — the 🔗 on a task is what relates a task to
+          a note, and reading notes belongs to the Notes tab.
+          Braces required: a bare block comment in child position is TEXT,
+          and this one rendered at the foot of the Bucket for two releases. */}
 
       {/* Funnel dialogs — every stage transition passes through its gate */}
       {stageDialog?.kind === "bind" && tasks[stageDialog.idx] && (

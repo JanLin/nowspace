@@ -50,7 +50,8 @@ const SECTIONS: { id?: string; title: string; img?: string; imgAlt?: string; img
     imgAlt: "A task row with all its action icons visible",
     items: TASK_ICONS,
     body: [
-      "Every task row carries the same small toolkit. On a computer the action icons appear when you hover the row; on phones and tablets they are always faintly visible, on their own line under the title.",
+      "Every task row carries the same small toolkit, split in two. What the task already is — its steps 🐘, a note it links to 🔗, focus 🎺, a pin 📌 — sits straight after its name at full strength, with the waiting hourglass ⏳ in front of it. Those are facts, so they stay put however narrow the row gets.",
+      "What you can do to the task is the other half: the icons appear across the row when there is room for them, and fold behind a ⋯ after the name when there isn't — a phone, or a day column in a multi-day view. Same set either way.",
     ],
   },
   {

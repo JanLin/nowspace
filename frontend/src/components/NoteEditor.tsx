@@ -513,18 +513,23 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
       // better to leave the view alone than to jump somewhere arbitrary.
       return guess >= taBox.top - lineHeight && guess <= taBox.bottom + lineHeight ? guess : NaN;
     };
+    // Two lines of room under the caret, not a few pixels. Scrolling it to
+    // exactly the last visible row is technically "visible" and reads as
+    // typing into the bottom edge — and it's the first thing a phone
+    // keyboard's own overlap eats.
+    const pad = Math.round(lineHeight * 2);
     const r = area.getBoundingClientRect();
     const top = caretTop();
     if (Number.isNaN(top)) return;
     // Only when the caret is actually outside the band — and back up when
     // it's above it, so arrowing up follows too.
-    if (top + lineHeight + 8 > r.bottom) area.scrollTop += top + lineHeight + 8 - r.bottom;
+    if (top + lineHeight + pad > r.bottom) area.scrollTop += top + lineHeight + pad - r.bottom;
     else if (top - 8 < r.top) area.scrollTop -= r.top - top + 8;
     // On a phone the keyboard covers the bottom of the card; visualViewport
     // is what knows where the visible part ends.
     const after = caretTop();
     if (Number.isNaN(after)) return;
-    const below = after + lineHeight + 8 - visibleViewportBottom();
+    const below = after + lineHeight + pad - visibleViewportBottom();
     if (below > 0) {
       const main = ta.closest("main");
       const room = main ? main.scrollHeight - main.clientHeight - main.scrollTop : 0;
