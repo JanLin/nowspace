@@ -80,6 +80,13 @@ confirmation before implementing — do not quietly comply:
   Mini AND all subscriber Docker instances — merging = shipping.
 - User-facing copy changes go to HelpGuide.tsx, Philosophy.tsx AND
   `docs/philosophy.md` together.
+- Bump the version with `cd frontend && npm version 0.x.y --no-git-tag-version`,
+  never by hand: it writes **package.json and package-lock.json together**.
+  Editing package.json alone leaves the lockfile behind, and then the next
+  `npm install` on anyone's machine rewrites it and their `git pull` aborts on
+  a dirty lockfile. The number the app shows comes from package.json via
+  `__APP_VERSION__`, injected at build time — a running dev server keeps
+  showing the old one until it is restarted.
 - Releases: tag `v0.x.y` on main; notes come from `docs/releases/0.x.y.md`;
   the workflow uploads stable-named installers that the README's
   `releases/latest` links depend on — don't rename them.
