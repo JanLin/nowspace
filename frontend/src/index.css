@@ -313,3 +313,8 @@ select.bg-white,
 @keyframes day-enter-back { from { transform: translateX(-7%); opacity: 0.25; } }
 .day-enter-fwd { animation: day-enter-fwd 0.22s ease-out; }
 .day-enter-back { animation: day-enter-back 0.22s ease-out; }
+
+/* The pomodoro countdown: it was text-gray-800 on a card that is dark in dark
+   mode, i.e. the one thing the panel exists to show was invisible. The state
+   colours (amber/green/red) still win — they carry meaning. */
+.pomodoro-time { color: var(--text); }

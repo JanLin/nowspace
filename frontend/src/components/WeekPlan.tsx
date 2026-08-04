@@ -4530,9 +4530,15 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           style={{
             backgroundColor: "var(--card)",
             borderColor: "var(--card-border)",
-            left: pomodoroPos ? `${pomodoroPos.x}px` : "24px",
-            top: pomodoroPos ? `${pomodoroPos.y}px` : "50%",
-            transform: pomodoroPos ? "none" : "translateY(-50%)",
+            // Bottom centre, where the ultra-focus pill sits — the two are the
+            // same kind of thing and belong in the same place. It used to open
+            // halfway down the left edge, which is over the task list on a
+            // narrow window and nowhere near anything on a wide one. Dragging
+            // it still pins it wherever you like, for the session.
+            left: pomodoroPos ? `${pomodoroPos.x}px` : "50%",
+            top: pomodoroPos ? `${pomodoroPos.y}px` : undefined,
+            bottom: pomodoroPos ? undefined : "3.5rem",
+            transform: pomodoroPos ? "none" : "translateX(-50%)",
           }}
         >
           {/* Drag handle */}
@@ -4571,7 +4577,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               pomodoro.state === "grace" ? "text-amber-600" :
               pomodoro.state === "breakRunning" ? "text-green-600" :
               pomodoro.state === "break" || pomodoro.state === "done" ? "text-green-600" :
-              pomodoro.remaining < 60 ? "text-red-600" : "text-gray-800"
+              pomodoro.remaining < 60 ? "text-red-600" : "pomodoro-time"
             }`}>
               {pomodoro.state === "grace"
                 ? formatTime(pomodoro.graceRemaining)
@@ -4583,7 +4589,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           </div>
 
           {/* Task name */}
-          <p className="text-xs text-gray-600 text-center mt-1 truncate" title={pomodoro.taskText}>
+          <p className="text-xs text-center mt-1 truncate" style={{ color: "var(--text-secondary)" }} title={pomodoro.taskText}>
             🎺 {pomodoro.taskText}
           </p>
 
