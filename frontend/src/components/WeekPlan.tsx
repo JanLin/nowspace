@@ -362,22 +362,32 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Which task has its ⋯ actions open (narrow rows only — wide ones show the
   // strip and never need it)
   const [actionMenu, setActionMenu] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
+  const [groupPicker, setGroupPicker] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
   // Any click outside the badge/menu dismisses the pickers (same pattern as
   // the Bucket tab) — wrappers carry .plan-pop so in-menu clicks survive
   useEffect(() => {
-    if (!priorityMenu && panelPrioMenu === null && carryPrioMenu === null && !groupDayMenu && !actionMenu) return;
-    const close = (e: MouseEvent) => {
-      if (!(e.target as Element | null)?.closest?.(".plan-pop")) {
-        setPriorityMenu(null);
-        setPanelPrioMenu(null);
-        setCarryPrioMenu(null);
-        setGroupDayMenu(null);
-        setActionMenu(null);
-      }
+    if (!priorityMenu && panelPrioMenu === null && carryPrioMenu === null && !groupDayMenu && !actionMenu && !groupPicker) return;
+    const closeAll = () => {
+      setPriorityMenu(null);
+      setPanelPrioMenu(null);
+      setCarryPrioMenu(null);
+      setGroupDayMenu(null);
+      setActionMenu(null);
+      setGroupPicker(null);
     };
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.(".plan-pop")) closeAll();
+    };
+    // Escape closes them too. Opening one of these by mistake — the 📂 group
+    // list especially — left no way out but picking something.
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeAll(); };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [priorityMenu, panelPrioMenu, carryPrioMenu, groupDayMenu, actionMenu]);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [priorityMenu, panelPrioMenu, carryPrioMenu, groupDayMenu, actionMenu, groupPicker]);
   const [groupView, setGroupView] = useState(true);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -472,7 +482,6 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const setDropTarget = (v: DropTarget) => { dropTargetRef.current = v; setDropTargetState(v); };
   const [dropGroupTarget, setDropGroupTarget] = useState<{ day: number; groupName: string } | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
-  const [groupPicker, setGroupPicker] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set());
   const [editingSubtask, setEditingSubtask] = useState<{ dayIdx: number; taskIdx: number; subIdx: number } | null>(null);
   const [addingSubtask, setAddingSubtask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
@@ -2085,6 +2094,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // --- Subtask handlers ---
   const toggleExpandSubtasks = (dayIdx: number, taskIdx: number) => {
     const key = `${dayIdx}-${taskIdx}`;
+    // The ⋯ menu hangs under the row — exactly where the steps appear. Asking
+    // for the steps is asking to read them, so the menu gets out of the way.
+    setActionMenu(null);
     setExpandedSubtasks((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -2809,6 +2821,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (!expandedSubtasks.has(key)) return null;
     const subtasks = task.subtasks || [];
     const textSize = compact ? "text-[10px]" : "text-xs";
+    // A step's own icons match the task row's, so they read as the same kind
+    // of control — they were 10px against the row's 14px and all but vanished.
+    const glyphSize = compact ? "text-[10px]" : "text-sm";
     const isAdding = addingSubtask?.dayIdx === dayIdx && addingSubtask?.taskIdx === taskIdx;
     // Don't render empty container — only show when there are subtasks or actively adding
     if (!subtasks.length && !isAdding) return null;
@@ -2875,13 +2890,13 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     e.dataTransfer.effectAllowed = "move";
                   }}
                   onDragEnd={() => setSubDropTarget(null)}
-                  className="shrink-0 text-[10px] text-gray-300 cursor-grab active:cursor-grabbing hover:text-gray-500 select-none leading-none"
+                  className={`shrink-0 ${glyphSize} text-gray-300 cursor-grab active:cursor-grabbing hover:text-gray-500 select-none leading-none`}
                   title="Drag to reorder"
                 >≡</span>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); toggleSubtaskDone(dayIdx, taskIdx, si); }}
-                className={`shrink-0 text-[10px] leading-none hover:opacity-70 ${sub.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
+                className={`shrink-0 ${glyphSize} leading-none hover:opacity-70 ${sub.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
               >
                 {sub.done ? "\u2713" : "\u25CB"}
               </button>
@@ -2904,7 +2919,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               {!sub.done && (
                 <button
                   onClick={(e) => { e.stopPropagation(); promoteSubtask(dayIdx, taskIdx, si); }}
-                  className="shrink-0 text-[10px] glyph-action hover:text-blue-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                  className={`shrink-0 ${glyphSize} glyph-action hover:text-blue-500 opacity-0 group-hover/sub:opacity-100 transition-opacity sub-action`}
                   title="Promote to standalone task"
                 >
                   ↑
@@ -2912,7 +2927,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); deleteSubtask(dayIdx, taskIdx, si); }}
-                className="shrink-0 text-[10px] glyph-action hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                className={`shrink-0 ${glyphSize} glyph-action hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity sub-action`}
               >
                 &times;
               </button>
@@ -3251,9 +3266,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             </button>
           );
         })()}
-        {/* Move to group picker */}
+        {/* Move to group picker. plan-pop so a click inside it isn't read as
+            a click outside — the outside click, and Escape, close it. */}
         {!task.done && (
-          <div className="relative">
+          <div className="relative plan-pop">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -3316,7 +3332,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   ⋯
                 </button>
                 {menuOpen && (
-                  <div className="row-actions-menu absolute right-0 top-full mt-1 z-30 flex items-center gap-3 px-2.5 py-1.5 rounded-lg shadow-xl"
+                  /* Opens above the row when the steps are showing: below is
+                     where they are, and a menu over them hides what you just
+                     asked to see. */
+                  <div className={`row-actions-menu absolute right-0 z-30 flex items-center gap-3 px-2.5 py-1.5 rounded-lg shadow-xl ${
+                    expandedSubtasks.has(`${dayIdx}-${taskIdx}`) ? "bottom-full mb-1" : "top-full mt-1"
+                  }`}
                     style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}>
                     {actions}
                   </div>

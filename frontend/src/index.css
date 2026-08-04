@@ -297,6 +297,13 @@ select.bg-white,
   opacity: 1;
 }
 
+/* A step's promote and delete wait for a hover of their row, and a touch
+   screen has no hover to give — they were simply unreachable there. Shown
+   faintly instead, so the step still reads as text first. */
+@media (hover: none) {
+  .sub-action.opacity-0 { opacity: 0.55; }
+}
+
 /* Text-glyph action buttons (→ Plan, ✕): theme-aware base color.
    Tailwind hover:text-* classes still win on hover (higher specificity). */
 .glyph-action { color: var(--text-secondary); }
