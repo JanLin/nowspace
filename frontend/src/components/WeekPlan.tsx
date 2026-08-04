@@ -519,9 +519,13 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     startedAt: number;
   } | null>(null);
   const [pomodoroPos, setPomodoroPos] = useState<{ x: number; y: number } | null>(null);
-  // Ultra focus: while the pomodoro runs, cover every other task with a
-  // redaction curtain; lifts when the pomodoro stops or on any navigation
-  const [ultraFocus, setUltraFocus] = useState(false);
+  // Ultra focus: cover every other task with a redaction curtain. It holds
+  // the task it is covering FOR, rather than reading it off the pomodoro —
+  // a curtain and a timer are two different answers to "I can't settle", and
+  // needing the timer to get the curtain meant picking a length you didn't
+  // want. Lifts on any navigation, and with the pomodoro when it was that
+  // task's timer that ended.
+  const [ultraFocus, setUltraFocus] = useState<{ dayIdx: number; taskIdx: number; taskText: string } | null>(null);
   const pomodoroDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
   // Bucket state
@@ -1490,14 +1494,14 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Diary only stays open for the day it was opened on
   useEffect(() => { setDiaryOpen(false); }, [selectedDayIdx, viewMode, weekOffset]);
 
-  // Ultra focus drops on navigation and whenever the pomodoro goes away
-  useEffect(() => { setUltraFocus(false); }, [selectedDayIdx, viewMode, weekOffset]);
-  useEffect(() => { if (!pomodoro) setUltraFocus(false); }, [pomodoro]);
-  const ultraFocusActive = ultraFocus && !!pomodoro && viewMode === "day";
+  // Ultra focus drops on navigation — leaving the day you were sitting in is
+  // the plainest way of saying you're done with it.
+  useEffect(() => { setUltraFocus(null); }, [selectedDayIdx, viewMode, weekOffset]);
+  const ultraFocusActive = !!ultraFocus && viewMode === "day";
   const ufRedactRow = (dayIdx: number, taskIdx: number) =>
-    ultraFocusActive && !(pomodoro!.dayIdx === dayIdx && pomodoro!.taskIdx === taskIdx) ? "uf-redact" : "";
+    ultraFocusActive && !(ultraFocus!.dayIdx === dayIdx && ultraFocus!.taskIdx === taskIdx) ? "uf-redact" : "";
   const ufRedactGroup = (groupName: string) =>
-    ultraFocusActive && groupName.toLowerCase() !== (parseGroup(pomodoro!.taskText).group || "").toLowerCase() ? "uf-redact" : "";
+    ultraFocusActive && groupName.toLowerCase() !== (parseGroup(ultraFocus!.taskText).group || "").toLowerCase() ? "uf-redact" : "";
 
   // Check if currently viewing today
   const isOnToday = weekOffset === 0 && selectedDayIdx === todayIdx;
@@ -1677,6 +1681,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const stopPomodoro = () => {
+    // A curtain raised for this task came with the timer, so it goes with it.
+    // One raised over some other task is somebody else's business.
+    setUltraFocus((uf) => (uf && pomodoro && uf.dayIdx === pomodoro.dayIdx && uf.taskIdx === pomodoro.taskIdx ? null : uf));
     setPomodoro(null);
     setPomodoroPrompt(null);
     setPomodoroPos(null);
@@ -1890,9 +1897,13 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const toggleDone = (dayIdx: number, taskIdx: number) => {
     if (!data) return;
     const completing = !data.days[dayIdx]?.tasks[taskIdx]?.done;
-    // Completing the pomodoro's task ends the pomodoro (and ultra focus)
+    // Completing the task ends its pomodoro and lifts its curtain — the thing
+    // they were both for is done.
     if (completing && pomodoro && pomodoro.dayIdx === dayIdx && pomodoro.taskIdx === taskIdx) {
       setPomodoro(null);
+    }
+    if (completing && ultraFocus && ultraFocus.dayIdx === dayIdx && ultraFocus.taskIdx === taskIdx) {
+      setUltraFocus(null);
     }
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
@@ -4454,22 +4465,37 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => setPomodoroPrompt(null)}>
           <div className="rounded-xl shadow-xl p-5 space-y-3 max-w-xs" style={{ backgroundColor: "var(--card)" }} onClick={(e) => e.stopPropagation()}>
             <div className="text-center">
-              <span className="text-3xl">🍅</span>
-              <p className="text-sm font-semibold text-gray-800 mt-1">Start Pomodoro?</p>
-              <p className="text-xs text-gray-500 mt-0.5 truncate">{pomodoroPrompt.taskText}</p>
+              <span className="text-3xl">🎺</span>
+              <p className="text-sm font-semibold mt-1" style={{ color: "var(--text)" }}>Focusing on this</p>
+              <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>{pomodoroPrompt.taskText}</p>
             </div>
+            {/* The curtain comes first, and without a timer. What stops you
+                settling is usually the rest of the list, not the absence of a
+                clock — and being made to pick 15 or 30 minutes to get the
+                curtain is how you end up with neither. */}
+            <button
+              onClick={() => {
+                setUltraFocus({ dayIdx: pomodoroPrompt.dayIdx, taskIdx: pomodoroPrompt.taskIdx, taskText: pomodoroPrompt.taskText });
+                setPomodoroPrompt(null);
+              }}
+              className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 text-white hover:bg-gray-700 transition-colors"
+              title="Cover every other task on the day. No clock — lift it whenever you like."
+            >
+              🕶 Ultra focus — cover the rest
+            </button>
+            <div className="text-center text-[10px] uppercase tracking-wide text-gray-400">or give it a clock</div>
             <div className="flex gap-2 justify-center">
               <button
                 onClick={() => startPomodoro(pomodoroPrompt.dayIdx, pomodoroPrompt.taskIdx, pomodoroPrompt.taskText, 15)}
                 className="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors"
               >
-                15 min
+                🍅 15 min
               </button>
               <button
                 onClick={() => startPomodoro(pomodoroPrompt.dayIdx, pomodoroPrompt.taskIdx, pomodoroPrompt.taskText, 30)}
                 className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
               >
-                30 min
+                🍅 30 min
               </button>
             </div>
             <button
@@ -4483,6 +4509,19 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       )}
 
       {/* Carry Forward Dialog - removed, now a side panel */}
+
+      {/* The curtain's own way out. With a timer running this lives in the
+          timer panel; without one there'd be no control at all — and a state
+          you can't leave is worse than the distraction it covers. */}
+      {ultraFocusActive && !pomodoro && (
+        <button
+          onClick={() => setUltraFocus(null)}
+          className="fixed bottom-14 left-1/2 -translate-x-1/2 z-40 px-3 py-1.5 rounded-full shadow-lg text-xs font-medium bg-gray-800 text-white hover:bg-gray-700 transition-colors"
+          title="Show the rest of the day again"
+        >
+          🕶 Ultra focus on — lift
+        </button>
+      )}
 
       {/* Floating pomodoro timer */}
       {pomodoro && (
@@ -4550,11 +4589,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
           {/* Ultra focus — redact every other task until this pomodoro ends */}
           <button
-            onClick={() => setUltraFocus((v) => !v)}
+            onClick={() => setUltraFocus((uf) => uf ? null : { dayIdx: pomodoro.dayIdx, taskIdx: pomodoro.taskIdx, taskText: pomodoro.taskText })}
             className={`w-full mt-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               ultraFocus ? "bg-gray-800 text-white hover:bg-gray-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
-            title={ultraFocus ? "Lift the curtain" : "Cover every other task until this pomodoro ends"}
+            title={ultraFocus ? "Lift the curtain" : "Cover every other task while you work on this one"}
           >
             {ultraFocus ? "🕶 Ultra focus on" : "🕶 Ultra focus"}
           </button>
