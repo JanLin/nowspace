@@ -148,27 +148,31 @@ function collectGroups(days: DayTasks[]): string[] {
 }
 
 /** Reorder tasks within a day: move all tasks of moveGroup before targetGroup */
+/** Lift every task of `groupName` out of the day and put it back at `targetIdx`
+ *  — an index into the day with those tasks removed. Nothing else moves.
+ *
+ *  This used to rebuild the whole day from a name-keyed map, which quietly
+ *  merged every run of every name — including the ungrouped ones, whose key is
+ *  "". Loose tasks scattered through the day all collected at the first one
+ *  the moment any group was dragged, which is not what dragging a group says.
+ *  Only the dragged group gathers now; every other task keeps its neighbours. */
+function moveGroupTo(tasks: Task[], groupName: string, targetIdx: number): Task[] {
+  const isMoving = (t: Task) => parseGroup(t.text).group === groupName;
+  const moved = tasks.filter(isMoving);
+  if (!moved.length) return tasks;
+  const rest = tasks.filter((t) => !isMoving(t));
+  const at = Math.max(0, Math.min(targetIdx, rest.length));
+  return [...rest.slice(0, at), ...moved, ...rest.slice(at)];
+}
+
 function reorderGroups(tasks: Task[], moveGroup: string, targetGroup: string, before: boolean): Task[] {
-  const grouped = new Map<string, Task[]>();
-  const groupOrder: string[] = [];
-  for (const task of tasks) {
-    const { group } = parseGroup(task.text);
-    if (!grouped.has(group)) {
-      grouped.set(group, []);
-      groupOrder.push(group);
-    }
-    grouped.get(group)!.push(task);
-  }
-  const fromIdx = groupOrder.indexOf(moveGroup);
-  if (fromIdx === -1) return tasks;
-  groupOrder.splice(fromIdx, 1);
-  let toIdx = groupOrder.indexOf(targetGroup);
-  if (toIdx === -1) return tasks;
-  if (!before) toIdx += 1;
-  groupOrder.splice(toIdx, 0, moveGroup);
-  const result: Task[] = [];
-  for (const g of groupOrder) result.push(...(grouped.get(g) || []));
-  return result;
+  const isMoving = (t: Task) => parseGroup(t.text).group === moveGroup;
+  const rest = tasks.filter((t) => !isMoving(t));
+  const hits = rest
+    .map((t, i) => (parseGroup(t.text).group === targetGroup ? i : -1))
+    .filter((i) => i >= 0);
+  if (!hits.length) return tasks;
+  return moveGroupTo(tasks, moveGroup, before ? hits[0] : hits[hits.length - 1] + 1);
 }
 
 /** Compute per-priority sequence numbers, e.g. A1, A2, B1, C1, C2 */
@@ -198,21 +202,9 @@ function sortTasksByPriority(tasks: Task[]): Task[] {
 
 /** Move a group to the start or end position within a day */
 function moveGroupToPosition(tasks: Task[], groupName: string, position: 'start' | 'end'): Task[] {
-  const grouped = new Map<string, Task[]>();
-  const groupOrder: string[] = [];
-  for (const task of tasks) {
-    const { group } = parseGroup(task.text);
-    if (!grouped.has(group)) { grouped.set(group, []); groupOrder.push(group); }
-    grouped.get(group)!.push(task);
-  }
-  const idx = groupOrder.indexOf(groupName);
-  if (idx === -1) return tasks;
-  groupOrder.splice(idx, 1);
-  if (position === 'start') groupOrder.unshift(groupName);
-  else groupOrder.push(groupName);
-  const result: Task[] = [];
-  for (const g of groupOrder) result.push(...(grouped.get(g) || []));
-  return result;
+  // "end" means after everything else, ungrouped tasks included — that is what
+  // the bar at the foot of the list points at.
+  return moveGroupTo(tasks, groupName, position === 'start' ? 0 : tasks.length);
 }
 
 /** Auto-focus input when it appears */
@@ -2498,16 +2490,21 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       );
 
       if (fromDay === dayIdx) {
-        // Same-day move: find insert position in the remaining array
+        // Same-day move: find insert position in the remaining array.
+        // Aim at the indicator, not at the hovered row: this took taskIdx
+        // straight, so a group always landed ABOVE the row you dropped it on
+        // — and with the ungrouped tasks last, there was no row below them to
+        // aim at, so a group simply could not be put after them.
+        const liveIdx = dropTargetRef.current?.day === dayIdx ? dropTargetRef.current.idx : taskIdx;
         const remaining = days[dayIdx].tasks;
         let insertIdx = remaining.length;
         const origTasks = data.days[dayIdx].tasks;
-        for (let i = taskIdx; i < origTasks.length; i++) {
+        for (let i = liveIdx; i < origTasks.length; i++) {
           const pos = remaining.indexOf(origTasks[i]);
           if (pos >= 0) { insertIdx = pos; break; }
         }
-        if (insertIdx === remaining.length && taskIdx > 0) {
-          for (let i = taskIdx - 1; i >= 0; i--) {
+        if (insertIdx === remaining.length && liveIdx > 0) {
+          for (let i = liveIdx - 1; i >= 0; i--) {
             const pos = remaining.indexOf(origTasks[i]);
             if (pos >= 0) { insertIdx = pos + 1; break; }
           }
