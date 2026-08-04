@@ -362,22 +362,32 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Which task has its ⋯ actions open (narrow rows only — wide ones show the
   // strip and never need it)
   const [actionMenu, setActionMenu] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
+  const [groupPicker, setGroupPicker] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
   // Any click outside the badge/menu dismisses the pickers (same pattern as
   // the Bucket tab) — wrappers carry .plan-pop so in-menu clicks survive
   useEffect(() => {
-    if (!priorityMenu && panelPrioMenu === null && carryPrioMenu === null && !groupDayMenu && !actionMenu) return;
-    const close = (e: MouseEvent) => {
-      if (!(e.target as Element | null)?.closest?.(".plan-pop")) {
-        setPriorityMenu(null);
-        setPanelPrioMenu(null);
-        setCarryPrioMenu(null);
-        setGroupDayMenu(null);
-        setActionMenu(null);
-      }
+    if (!priorityMenu && panelPrioMenu === null && carryPrioMenu === null && !groupDayMenu && !actionMenu && !groupPicker) return;
+    const closeAll = () => {
+      setPriorityMenu(null);
+      setPanelPrioMenu(null);
+      setCarryPrioMenu(null);
+      setGroupDayMenu(null);
+      setActionMenu(null);
+      setGroupPicker(null);
     };
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.(".plan-pop")) closeAll();
+    };
+    // Escape closes them too. Opening one of these by mistake — the 📂 group
+    // list especially — left no way out but picking something.
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeAll(); };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [priorityMenu, panelPrioMenu, carryPrioMenu, groupDayMenu, actionMenu]);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [priorityMenu, panelPrioMenu, carryPrioMenu, groupDayMenu, actionMenu, groupPicker]);
   const [groupView, setGroupView] = useState(true);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -460,10 +470,18 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // zone disambiguates indicators that share the same raw index: "task" lights a
   // row's top border, "gap" lights a standalone between-groups bar, "end" the
   // end-of-list bar. Exactly one indicator may render for a given dropTarget.
-  const [dropTarget, setDropTarget] = useState<{ day: number; idx: number; zone?: "task" | "gap" | "end" } | null>(null);
+  type DropTarget = { day: number; idx: number; zone?: "task" | "gap" | "end" } | null;
+  const [dropTarget, setDropTargetState] = useState<DropTarget>(null);
+  // The same value in a ref, and the ref is what the DROP reads. A real drag
+  // fires its last dragover and the drop back to back, in one frame: the state
+  // set by that dragover has not committed yet, so the drop handler still
+  // closes over the previous one and the task lands where the pointer WAS —
+  // usually one row short, which reads as "it refuses to move". Group drags
+  // never had this because they carry their target in a ref already.
+  const dropTargetRef = useRef<DropTarget>(null);
+  const setDropTarget = (v: DropTarget) => { dropTargetRef.current = v; setDropTargetState(v); };
   const [dropGroupTarget, setDropGroupTarget] = useState<{ day: number; groupName: string } | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
-  const [groupPicker, setGroupPicker] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set());
   const [editingSubtask, setEditingSubtask] = useState<{ dayIdx: number; taskIdx: number; subIdx: number } | null>(null);
   const [addingSubtask, setAddingSubtask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
@@ -501,9 +519,13 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     startedAt: number;
   } | null>(null);
   const [pomodoroPos, setPomodoroPos] = useState<{ x: number; y: number } | null>(null);
-  // Ultra focus: while the pomodoro runs, cover every other task with a
-  // redaction curtain; lifts when the pomodoro stops or on any navigation
-  const [ultraFocus, setUltraFocus] = useState(false);
+  // Ultra focus: cover every other task with a redaction curtain. It holds
+  // the task it is covering FOR, rather than reading it off the pomodoro —
+  // a curtain and a timer are two different answers to "I can't settle", and
+  // needing the timer to get the curtain meant picking a length you didn't
+  // want. Lifts on any navigation, and with the pomodoro when it was that
+  // task's timer that ended.
+  const [ultraFocus, setUltraFocus] = useState<{ dayIdx: number; taskIdx: number; taskText: string } | null>(null);
   const pomodoroDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
   // Bucket state
@@ -1472,14 +1494,14 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Diary only stays open for the day it was opened on
   useEffect(() => { setDiaryOpen(false); }, [selectedDayIdx, viewMode, weekOffset]);
 
-  // Ultra focus drops on navigation and whenever the pomodoro goes away
-  useEffect(() => { setUltraFocus(false); }, [selectedDayIdx, viewMode, weekOffset]);
-  useEffect(() => { if (!pomodoro) setUltraFocus(false); }, [pomodoro]);
-  const ultraFocusActive = ultraFocus && !!pomodoro && viewMode === "day";
+  // Ultra focus drops on navigation — leaving the day you were sitting in is
+  // the plainest way of saying you're done with it.
+  useEffect(() => { setUltraFocus(null); }, [selectedDayIdx, viewMode, weekOffset]);
+  const ultraFocusActive = !!ultraFocus && viewMode === "day";
   const ufRedactRow = (dayIdx: number, taskIdx: number) =>
-    ultraFocusActive && !(pomodoro!.dayIdx === dayIdx && pomodoro!.taskIdx === taskIdx) ? "uf-redact" : "";
+    ultraFocusActive && !(ultraFocus!.dayIdx === dayIdx && ultraFocus!.taskIdx === taskIdx) ? "uf-redact" : "";
   const ufRedactGroup = (groupName: string) =>
-    ultraFocusActive && groupName.toLowerCase() !== (parseGroup(pomodoro!.taskText).group || "").toLowerCase() ? "uf-redact" : "";
+    ultraFocusActive && groupName.toLowerCase() !== (parseGroup(ultraFocus!.taskText).group || "").toLowerCase() ? "uf-redact" : "";
 
   // Check if currently viewing today
   const isOnToday = weekOffset === 0 && selectedDayIdx === todayIdx;
@@ -1659,6 +1681,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const stopPomodoro = () => {
+    // A curtain raised for this task came with the timer, so it goes with it.
+    // One raised over some other task is somebody else's business.
+    setUltraFocus((uf) => (uf && pomodoro && uf.dayIdx === pomodoro.dayIdx && uf.taskIdx === pomodoro.taskIdx ? null : uf));
     setPomodoro(null);
     setPomodoroPrompt(null);
     setPomodoroPos(null);
@@ -1704,9 +1729,17 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     // "Rotary: …" at the top of a day that already has a Rotary section
     // just makes a second Rotary heading — which is what "add it to the
     // group" was asking not to happen.
+    //
+    // Unless the caller already named the section: the ＋ on a group header
+    // and a double-click on one of its rows both point at a definite place.
+    // A group can have more than one run in a day (a loose task dropped into
+    // the middle splits it), and hunting for the LAST run then fired the new
+    // task to the far end of the day — past every loose task, which is what
+    // "everything below jumped above it" looked like.
     const targetGroup = parseGroup(fullText).group;
+    const placed = !!group && group === targetGroup && afterIdx >= 0;
     let insertAt = afterIdx + 1;
-    if (targetGroup) {
+    if (targetGroup && !placed) {
       let lastOfGroup = -1;
       data.days[dayIdx].tasks.forEach((t, i) => {
         if (parseGroup(t.text).group === targetGroup) lastOfGroup = i;
@@ -1864,9 +1897,13 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const toggleDone = (dayIdx: number, taskIdx: number) => {
     if (!data) return;
     const completing = !data.days[dayIdx]?.tasks[taskIdx]?.done;
-    // Completing the pomodoro's task ends the pomodoro (and ultra focus)
+    // Completing the task ends its pomodoro and lifts its curtain — the thing
+    // they were both for is done.
     if (completing && pomodoro && pomodoro.dayIdx === dayIdx && pomodoro.taskIdx === taskIdx) {
       setPomodoro(null);
+    }
+    if (completing && ultraFocus && ultraFocus.dayIdx === dayIdx && ultraFocus.taskIdx === taskIdx) {
+      setUltraFocus(null);
     }
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;
@@ -2068,6 +2105,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // --- Subtask handlers ---
   const toggleExpandSubtasks = (dayIdx: number, taskIdx: number) => {
     const key = `${dayIdx}-${taskIdx}`;
+    // The ⋯ menu hangs under the row — exactly where the steps appear. Asking
+    // for the steps is asking to read them, so the menu gets out of the way.
+    setActionMenu(null);
     setExpandedSubtasks((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -2490,7 +2530,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
     // Land where the indicator showed: dropTarget holds the midpoint-adjusted
     // insert index from the last dragOver; taskIdx alone is just the hovered row.
-    const rawTarget = dropTarget && dropTarget.day === dayIdx ? dropTarget.idx : taskIdx;
+    const live = dropTargetRef.current;
+    const rawTarget = live && live.day === dayIdx ? live.idx : taskIdx;
 
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
     let [movedTask] = days[fromDay].tasks.splice(fromIdx, 1);
@@ -2530,6 +2571,15 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     applyTaskChange(days);
     dragRef.current = null;
     setDropTarget(null);
+    // Follow the task, not the pointer. Dragging to the bottom edge makes the
+    // browser scroll the list there on its own, and it stays there afterwards
+    // — so moving a task back up left you staring at the end of the list.
+    // "nearest" means a row already in view doesn't move anything.
+    const landed = trackedTextOf(movedTask);
+    setTimeout(() => {
+      document.querySelector(`[data-task-anchor="${CSS.escape(`week:${dayIdx}:${landed}`)}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    }, 60);
   };
 
   const handleDragEnd = () => {
@@ -2782,6 +2832,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (!expandedSubtasks.has(key)) return null;
     const subtasks = task.subtasks || [];
     const textSize = compact ? "text-[10px]" : "text-xs";
+    // A step's own icons match the task row's, so they read as the same kind
+    // of control — they were 10px against the row's 14px and all but vanished.
+    const glyphSize = compact ? "text-[10px]" : "text-sm";
     const isAdding = addingSubtask?.dayIdx === dayIdx && addingSubtask?.taskIdx === taskIdx;
     // Don't render empty container — only show when there are subtasks or actively adding
     if (!subtasks.length && !isAdding) return null;
@@ -2848,13 +2901,13 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     e.dataTransfer.effectAllowed = "move";
                   }}
                   onDragEnd={() => setSubDropTarget(null)}
-                  className="shrink-0 text-[10px] text-gray-300 cursor-grab active:cursor-grabbing hover:text-gray-500 select-none leading-none"
+                  className={`shrink-0 ${glyphSize} text-gray-300 cursor-grab active:cursor-grabbing hover:text-gray-500 select-none leading-none`}
                   title="Drag to reorder"
                 >≡</span>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); toggleSubtaskDone(dayIdx, taskIdx, si); }}
-                className={`shrink-0 text-[10px] leading-none hover:opacity-70 ${sub.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
+                className={`shrink-0 ${glyphSize} leading-none hover:opacity-70 ${sub.done ? "text-green-400" : "text-gray-300 hover:text-green-400"}`}
               >
                 {sub.done ? "\u2713" : "\u25CB"}
               </button>
@@ -2877,7 +2930,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               {!sub.done && (
                 <button
                   onClick={(e) => { e.stopPropagation(); promoteSubtask(dayIdx, taskIdx, si); }}
-                  className="shrink-0 text-[10px] glyph-action hover:text-blue-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                  className={`shrink-0 ${glyphSize} glyph-action hover:text-blue-500 opacity-0 group-hover/sub:opacity-100 transition-opacity sub-action`}
                   title="Promote to standalone task"
                 >
                   ↑
@@ -2885,7 +2938,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); deleteSubtask(dayIdx, taskIdx, si); }}
-                className="shrink-0 text-[10px] glyph-action hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                className={`shrink-0 ${glyphSize} glyph-action hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity sub-action`}
               >
                 &times;
               </button>
@@ -3224,9 +3277,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             </button>
           );
         })()}
-        {/* Move to group picker */}
+        {/* Move to group picker. plan-pop so a click inside it isn't read as
+            a click outside — the outside click, and Escape, close it. */}
         {!task.done && (
-          <div className="relative">
+          <div className="relative plan-pop">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -3289,7 +3343,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   ⋯
                 </button>
                 {menuOpen && (
-                  <div className="row-actions-menu absolute right-0 top-full mt-1 z-30 flex items-center gap-3 px-2.5 py-1.5 rounded-lg shadow-xl"
+                  /* Opens above the row when the steps are showing: below is
+                     where they are, and a menu over them hides what you just
+                     asked to see. */
+                  <div className={`row-actions-menu absolute right-0 z-30 flex items-center gap-3 px-2.5 py-1.5 rounded-lg shadow-xl ${
+                    expandedSubtasks.has(`${dayIdx}-${taskIdx}`) ? "bottom-full mb-1" : "top-full mt-1"
+                  }`}
                     style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}>
                     {actions}
                   </div>
@@ -4406,22 +4465,37 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => setPomodoroPrompt(null)}>
           <div className="rounded-xl shadow-xl p-5 space-y-3 max-w-xs" style={{ backgroundColor: "var(--card)" }} onClick={(e) => e.stopPropagation()}>
             <div className="text-center">
-              <span className="text-3xl">🍅</span>
-              <p className="text-sm font-semibold text-gray-800 mt-1">Start Pomodoro?</p>
-              <p className="text-xs text-gray-500 mt-0.5 truncate">{pomodoroPrompt.taskText}</p>
+              <span className="text-3xl">🎺</span>
+              <p className="text-sm font-semibold mt-1" style={{ color: "var(--text)" }}>Focusing on this</p>
+              <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>{pomodoroPrompt.taskText}</p>
             </div>
+            {/* The curtain comes first, and without a timer. What stops you
+                settling is usually the rest of the list, not the absence of a
+                clock — and being made to pick 15 or 30 minutes to get the
+                curtain is how you end up with neither. */}
+            <button
+              onClick={() => {
+                setUltraFocus({ dayIdx: pomodoroPrompt.dayIdx, taskIdx: pomodoroPrompt.taskIdx, taskText: pomodoroPrompt.taskText });
+                setPomodoroPrompt(null);
+              }}
+              className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 text-white hover:bg-gray-700 transition-colors"
+              title="Cover every other task on the day. No clock — lift it whenever you like."
+            >
+              🕶 Ultra focus — cover the rest
+            </button>
+            <div className="text-center text-[10px] uppercase tracking-wide text-gray-400">or give it a clock</div>
             <div className="flex gap-2 justify-center">
               <button
                 onClick={() => startPomodoro(pomodoroPrompt.dayIdx, pomodoroPrompt.taskIdx, pomodoroPrompt.taskText, 15)}
                 className="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors"
               >
-                15 min
+                🍅 15 min
               </button>
               <button
                 onClick={() => startPomodoro(pomodoroPrompt.dayIdx, pomodoroPrompt.taskIdx, pomodoroPrompt.taskText, 30)}
                 className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
               >
-                30 min
+                🍅 30 min
               </button>
             </div>
             <button
@@ -4436,6 +4510,19 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
       {/* Carry Forward Dialog - removed, now a side panel */}
 
+      {/* The curtain's own way out. With a timer running this lives in the
+          timer panel; without one there'd be no control at all — and a state
+          you can't leave is worse than the distraction it covers. */}
+      {ultraFocusActive && !pomodoro && (
+        <button
+          onClick={() => setUltraFocus(null)}
+          className="fixed bottom-14 left-1/2 -translate-x-1/2 z-40 px-3 py-1.5 rounded-full shadow-lg text-xs font-medium bg-gray-800 text-white hover:bg-gray-700 transition-colors"
+          title="Show the rest of the day again"
+        >
+          🕶 Ultra focus on — lift
+        </button>
+      )}
+
       {/* Floating pomodoro timer */}
       {pomodoro && (
         <div
@@ -4443,9 +4530,15 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           style={{
             backgroundColor: "var(--card)",
             borderColor: "var(--card-border)",
-            left: pomodoroPos ? `${pomodoroPos.x}px` : "24px",
-            top: pomodoroPos ? `${pomodoroPos.y}px` : "50%",
-            transform: pomodoroPos ? "none" : "translateY(-50%)",
+            // Bottom centre, where the ultra-focus pill sits — the two are the
+            // same kind of thing and belong in the same place. It used to open
+            // halfway down the left edge, which is over the task list on a
+            // narrow window and nowhere near anything on a wide one. Dragging
+            // it still pins it wherever you like, for the session.
+            left: pomodoroPos ? `${pomodoroPos.x}px` : "50%",
+            top: pomodoroPos ? `${pomodoroPos.y}px` : undefined,
+            bottom: pomodoroPos ? undefined : "3.5rem",
+            transform: pomodoroPos ? "none" : "translateX(-50%)",
           }}
         >
           {/* Drag handle */}
@@ -4484,7 +4577,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               pomodoro.state === "grace" ? "text-amber-600" :
               pomodoro.state === "breakRunning" ? "text-green-600" :
               pomodoro.state === "break" || pomodoro.state === "done" ? "text-green-600" :
-              pomodoro.remaining < 60 ? "text-red-600" : "text-gray-800"
+              pomodoro.remaining < 60 ? "text-red-600" : "pomodoro-time"
             }`}>
               {pomodoro.state === "grace"
                 ? formatTime(pomodoro.graceRemaining)
@@ -4496,17 +4589,17 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           </div>
 
           {/* Task name */}
-          <p className="text-xs text-gray-600 text-center mt-1 truncate" title={pomodoro.taskText}>
+          <p className="text-xs text-center mt-1 truncate" style={{ color: "var(--text-secondary)" }} title={pomodoro.taskText}>
             🎺 {pomodoro.taskText}
           </p>
 
           {/* Ultra focus — redact every other task until this pomodoro ends */}
           <button
-            onClick={() => setUltraFocus((v) => !v)}
+            onClick={() => setUltraFocus((uf) => uf ? null : { dayIdx: pomodoro.dayIdx, taskIdx: pomodoro.taskIdx, taskText: pomodoro.taskText })}
             className={`w-full mt-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               ultraFocus ? "bg-gray-800 text-white hover:bg-gray-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
-            title={ultraFocus ? "Lift the curtain" : "Cover every other task until this pomodoro ends"}
+            title={ultraFocus ? "Lift the curtain" : "Cover every other task while you work on this one"}
           >
             {ultraFocus ? "🕶 Ultra focus on" : "🕶 Ultra focus"}
           </button>

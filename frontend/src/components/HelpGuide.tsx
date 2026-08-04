@@ -14,7 +14,7 @@ const TASK_ICONS: Item[] = [
   { icon: "⏳", text: "Mark the task as waiting on someone. A waiting task shows the hourglass in front of its name until you clear it." },
   { icon: "▶", text: "Start the time tracker on this task (pauses whatever was running)." },
   { icon: "📌", text: "Pin — only with contexts enabled: keeps a personal or volunteer task visible while Work is selected." },
-  { icon: "🎺", text: "Focus: bolds the task and offers a pomodoro. Ultra-focus curtains every other task off while it runs." },
+  { icon: "🎺", text: "Focus: bolds the task, and offers two ways to settle into it. Ultra focus curtains every other task off the day — no clock, lift it when you're done. Or give it a pomodoro, 15 or 30 minutes, and curtain the rest from the timer if you want both." },
   { icon: "🐘", text: "Break the task into steps, or expand existing ones. An amber count means the task is an epic — ticking a step then records it as its own completed task for today." },
   { icon: "🔗", text: "Tap to open the task's linked note. Hold it (or right-click) to manage the links instead — open, remove one that no longer applies, or point it at a different note. A small number shows how many notes are linked; with more than one, a tap opens the list." },
   { icon: "📂", text: "Move the task to another group." },

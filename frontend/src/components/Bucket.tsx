@@ -272,9 +272,24 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [actionMenu]);
+  const [groupPicker, setGroupPicker] = useState<number | null>(null);
+  // 📂 opened by mistake had no way out but picking a group: no click-outside,
+  // no Escape. Both close it now, the same way the other two pickers close.
+  useEffect(() => {
+    if (groupPicker === null) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.(".group-pop")) setGroupPicker(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setGroupPicker(null); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [groupPicker]);
   const [horizonFilter, setHorizonFilter] = useState<"" | "n" | "nw" | "m" | "none">("");
   const [editingTask, setEditingTask] = useState<number | null>(null);
-  const [groupPicker, setGroupPicker] = useState<number | null>(null);
   const [breakdownIdx, setBreakdownIdx] = useState<number | null>(null);
   const [addSubAfter, setAddSubAfter] = useState<number | null>(null); // insert after this sub-task index
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<number>>(new Set());
@@ -2140,7 +2155,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                       )}
 
                       {/* 📂 Move to group */}
-                      <div className="relative">
+                      <div className="relative group-pop">
                         <button onClick={(e) => { e.stopPropagation(); setGroupPicker(groupPicker === originalIdx ? null : originalIdx); }}
                           className="text-xs opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
                           title="Move to group">📂</button>

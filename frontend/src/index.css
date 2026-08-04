@@ -297,6 +297,13 @@ select.bg-white,
   opacity: 1;
 }
 
+/* A step's promote and delete wait for a hover of their row, and a touch
+   screen has no hover to give — they were simply unreachable there. Shown
+   faintly instead, so the step still reads as text first. */
+@media (hover: none) {
+  .sub-action.opacity-0 { opacity: 0.55; }
+}
+
 /* Text-glyph action buttons (→ Plan, ✕): theme-aware base color.
    Tailwind hover:text-* classes still win on hover (higher specificity). */
 .glyph-action { color: var(--text-secondary); }
@@ -306,3 +313,8 @@ select.bg-white,
 @keyframes day-enter-back { from { transform: translateX(-7%); opacity: 0.25; } }
 .day-enter-fwd { animation: day-enter-fwd 0.22s ease-out; }
 .day-enter-back { animation: day-enter-back 0.22s ease-out; }
+
+/* The pomodoro countdown: it was text-gray-800 on a card that is dark in dark
+   mode, i.e. the one thing the panel exists to show was invisible. The state
+   colours (amber/green/red) still win — they carry meaning. */
+.pomodoro-time { color: var(--text); }
