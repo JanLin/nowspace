@@ -460,7 +460,16 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // zone disambiguates indicators that share the same raw index: "task" lights a
   // row's top border, "gap" lights a standalone between-groups bar, "end" the
   // end-of-list bar. Exactly one indicator may render for a given dropTarget.
-  const [dropTarget, setDropTarget] = useState<{ day: number; idx: number; zone?: "task" | "gap" | "end" } | null>(null);
+  type DropTarget = { day: number; idx: number; zone?: "task" | "gap" | "end" } | null;
+  const [dropTarget, setDropTargetState] = useState<DropTarget>(null);
+  // The same value in a ref, and the ref is what the DROP reads. A real drag
+  // fires its last dragover and the drop back to back, in one frame: the state
+  // set by that dragover has not committed yet, so the drop handler still
+  // closes over the previous one and the task lands where the pointer WAS —
+  // usually one row short, which reads as "it refuses to move". Group drags
+  // never had this because they carry their target in a ref already.
+  const dropTargetRef = useRef<DropTarget>(null);
+  const setDropTarget = (v: DropTarget) => { dropTargetRef.current = v; setDropTargetState(v); };
   const [dropGroupTarget, setDropGroupTarget] = useState<{ day: number; groupName: string } | null>(null);
   const [editingTask, setEditingTask] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
   const [groupPicker, setGroupPicker] = useState<{ dayIdx: number; taskIdx: number } | null>(null);
@@ -1704,9 +1713,17 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     // "Rotary: …" at the top of a day that already has a Rotary section
     // just makes a second Rotary heading — which is what "add it to the
     // group" was asking not to happen.
+    //
+    // Unless the caller already named the section: the ＋ on a group header
+    // and a double-click on one of its rows both point at a definite place.
+    // A group can have more than one run in a day (a loose task dropped into
+    // the middle splits it), and hunting for the LAST run then fired the new
+    // task to the far end of the day — past every loose task, which is what
+    // "everything below jumped above it" looked like.
     const targetGroup = parseGroup(fullText).group;
+    const placed = !!group && group === targetGroup && afterIdx >= 0;
     let insertAt = afterIdx + 1;
-    if (targetGroup) {
+    if (targetGroup && !placed) {
       let lastOfGroup = -1;
       data.days[dayIdx].tasks.forEach((t, i) => {
         if (parseGroup(t.text).group === targetGroup) lastOfGroup = i;
@@ -2490,7 +2507,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
     // Land where the indicator showed: dropTarget holds the midpoint-adjusted
     // insert index from the last dragOver; taskIdx alone is just the hovered row.
-    const rawTarget = dropTarget && dropTarget.day === dayIdx ? dropTarget.idx : taskIdx;
+    const live = dropTargetRef.current;
+    const rawTarget = live && live.day === dayIdx ? live.idx : taskIdx;
 
     const days = data.days.map((d) => ({ ...d, tasks: [...d.tasks] }));
     let [movedTask] = days[fromDay].tasks.splice(fromIdx, 1);
@@ -2530,6 +2548,15 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     applyTaskChange(days);
     dragRef.current = null;
     setDropTarget(null);
+    // Follow the task, not the pointer. Dragging to the bottom edge makes the
+    // browser scroll the list there on its own, and it stays there afterwards
+    // — so moving a task back up left you staring at the end of the list.
+    // "nearest" means a row already in view doesn't move anything.
+    const landed = trackedTextOf(movedTask);
+    setTimeout(() => {
+      document.querySelector(`[data-task-anchor="${CSS.escape(`week:${dayIdx}:${landed}`)}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    }, 60);
   };
 
   const handleDragEnd = () => {
