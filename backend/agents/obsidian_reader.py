@@ -16,6 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from backend.models import Subtask, Task, TaskLink
+from backend.vault_io import is_conflict_copy
 
 
 # Patterns
@@ -85,6 +86,8 @@ def scan_goals(vault_path: Path) -> list[str]:
         return goals
 
     for md_file in vault_path.rglob("*.md"):
+        if is_conflict_copy(md_file):
+            continue  # a conflict copy would double every task it holds
         file_stem = md_file.stem.lower()
         if not _is_plan_file(file_stem):
             continue
@@ -153,6 +156,8 @@ def scan_vault(vault_path: Path) -> list[Task]:
         return tasks
 
     for md_file in vault_path.rglob("*.md"):
+        if is_conflict_copy(md_file):
+            continue  # a conflict copy would double every task it holds
         if any(part.startswith(".") for part in md_file.parts):
             continue
         if "template" in md_file.name.lower():
@@ -185,6 +190,8 @@ def scan_vault_with_carryover(vault_path: Path, target_date: date | None = None)
         return today_tasks, carryover_tasks
 
     for md_file in vault_path.rglob("*.md"):
+        if is_conflict_copy(md_file):
+            continue  # a conflict copy would double every task it holds
         if any(part.startswith(".") for part in md_file.parts):
             continue
         if "template" in md_file.name.lower():

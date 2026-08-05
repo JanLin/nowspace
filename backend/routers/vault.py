@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.config import config
+from backend.vault_io import is_conflict_copy
 
 
 class MoveRequest(BaseModel):
@@ -136,7 +137,7 @@ async def vault_folder(path: str = "1-Projects"):
         return {"path": path, "files": []}
     files = []
     for f in sorted(folder.iterdir(), key=lambda x: x.name.lower()):
-        if f.is_file() and f.suffix == ".md":
+        if f.is_file() and f.suffix == ".md" and not is_conflict_copy(f):
             try:
                 mtime = datetime.fromtimestamp(f.stat().st_mtime).isoformat()
             except OSError:

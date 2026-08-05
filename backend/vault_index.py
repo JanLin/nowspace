@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from backend.config import config
+from backend.vault_io import is_conflict_copy
 
 
 # In-memory index: note_name (lowercase) → list of (relative_path, priority_score)
@@ -68,6 +69,11 @@ def refresh_index() -> int:
         rel = md_file.relative_to(vault_root)
         parts = rel.parts
         if any(p.startswith(".") or p == "_attachments" for p in parts):
+            continue
+        # A Syncthing conflict copy is a second file with the same content and
+        # a different name: indexing it makes every [[link]] ambiguous and
+        # offers the stale copy as a search hit.
+        if is_conflict_copy(md_file):
             continue
 
         rel_str = str(rel)
@@ -279,6 +285,8 @@ def discover_linked_docs(folder_path: str) -> dict:
         if entry.is_dir():
             subfolders.append({"name": entry.name, "path": rel})
         elif entry.suffix == ".md":
+            if is_conflict_copy(entry):
+                continue
             name = entry.stem
             try:
                 modified = datetime.fromtimestamp(entry.stat().st_mtime).isoformat()
