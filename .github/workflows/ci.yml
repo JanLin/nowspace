@@ -47,6 +47,49 @@ jobs:
       - name: Python SAST
         run: bandit -q -r backend/ -x backend/tests --severity-level medium
 
+  baseline:
+    name: Baseline (no extensions)
+    runs-on: ubuntu-latest
+    # The coupling this guards against creeps back quietly: a seam grows a
+    # reach into an extension, and nobody notices until a subscriber's Docker
+    # image won't start. Treat a failure here the way the canary harness in
+    # test_handoff.py is treated — a build failure, not a report.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: cp config.yaml.example config.yaml
+      # Nothing installed, nothing listed, nothing in the environment
+      - name: Boot and test with an empty extension list
+        env:
+          NOWSPACE_ADDONS: ""
+        run: |
+          python - <<'PY'
+          from backend.addons import ADDON_MODULES, addon_modules
+          assert ADDON_MODULES == [], f"an extension is committed into the default build: {ADDON_MODULES}"
+          assert addon_modules() == [], addon_modules()
+          from backend.main import app, _mounted_addons
+          assert _mounted_addons == [], _mounted_addons
+          print("baseline boots with no extensions")
+          PY
+          python -m pytest backend/tests -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build the frontend with an empty registry
+        working-directory: frontend
+        run: |
+          if grep -qE '^\s*(import|register)' src/addons.generated.ts; then
+            echo "addons.generated.ts registers something in the baseline build"; exit 1
+          fi
+          npm ci
+          npx vite build
+
   frontend:
     name: Type-check + build
     runs-on: ubuntu-latest
