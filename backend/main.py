@@ -47,6 +47,9 @@ async def health():
     # vault_schema is the marker synced in WITH the vault files — it is how
     # an isolated matched pair (the desktop app) finds out that another
     # device already writes a newer format.
+    # host_api is the version of the extension seams (backend/host.py) —
+    # unrelated to the vault format above, and bumped for different reasons.
+    from backend.host import HOST_API
     try:
         vault_schema = config.bucket_schema_marker
     except Exception:
@@ -55,6 +58,7 @@ async def health():
         "status": "ok",
         "schema_version": BUCKET_SCHEMA_VERSION,
         "vault_schema": vault_schema,
+        "host_api": HOST_API,
     }
 
 

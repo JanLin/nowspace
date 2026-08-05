@@ -357,11 +357,44 @@ class Config:
             return bool(areas) if isinstance(areas, list) else False
         return bool(val)
 
+    @property
+    def app_settings(self) -> dict:
+        """The `app:` map as clients should see it: the three resolved
+        switches, plus any boolean key a newer instance has stored. One shape
+        for the GET and the POST reply, so a switch this backend doesn't know
+        still comes back to the client that set it."""
+        raw = self._vault_settings().get("app")
+        stored = raw if isinstance(raw, dict) else {}
+        out = {
+            "mode": self.app_mode,
+            "funnel": self.funnel_enabled,
+            "handoff": self.handoff_enabled,
+        }
+        for k, v in stored.items():
+            if k not in out and isinstance(v, bool):
+                out[k] = v
+        return out
+
     def save_app_settings(self, updates: dict) -> None:
+        """Merge into the `app:` map, keeping keys this backend doesn't know.
+
+        The filter used to drop anything outside _APP_DEFAULTS, which means an
+        instance one release behind silently deleted a newer instance's switch
+        and synced the deletion to every device — the same class of loss that
+        `extra="forbid"` guards against on bucket writes.
+
+        Unknown keys are accepted only as booleans: a switch is all anything
+        outside this module should be storing here, and it keeps a mistyped
+        key from parking arbitrary structure in a shared file. An extension's
+        own settings do not belong here at all — they go under a top-level
+        key of their own (`docs/EXTENSIONS.md`).
+        """
         raw = self._vault_settings().get("app")
         merged = dict(raw) if isinstance(raw, dict) else {}
         for k, v in (updates or {}).items():
             if k in self._APP_DEFAULTS:
+                merged[k] = v
+            elif isinstance(v, bool):
                 merged[k] = v
         self._save_vault_settings({"app": merged})
 
