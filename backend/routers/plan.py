@@ -109,7 +109,16 @@ TASK_CTX_TAG_RE = re.compile(r"\s@([a-z])\b(?!\w)", re.IGNORECASE)
 #     Colon-free on purpose: a colon inside the text trips the "Group:"
 #     splitter on short lines (same reason week files use ~es not ~e:).
 #     The regexes also accept a short-lived legacy ~id:xxxxxx form.
-BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6})\b", re.IGNORECASE)
+# ~x<6 hex> is an external reference carried on a WEEK line: an item a
+# registered week source (docs/EXTENSIONS.md, seam 5) put there, tying the
+# line back to whatever it came from. Colon-free like ~es and ~i…, because a
+# colon on a week line is read as a "Group:" prefix. The baseline never
+# interprets it — it strips it for display and re-emits it on save, so it
+# survives a carry-forward and the week archive whether or not the extension
+# that wrote it is installed. No BucketTask field: an external item is not a
+# bucket item, and no schema bump: the bucket wire format is untouched.
+BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|x[0-9a-f]{6})\b", re.IGNORECASE)
+EXTERNAL_REF_RE = re.compile(r"~x([0-9a-f]{6})\b", re.IGNORECASE)
 BUCKET_ID_RE = re.compile(r"~i(?:d:)?([0-9a-f]{6})\b", re.IGNORECASE)
 
 

@@ -56,4 +56,52 @@ export const surfaceEnabled = (s: Surface, settings: unknown): boolean => {
   return node === true;
 };
 
-/* ── Seam 5 lands here: registerWeekSource ─────────────────────────── */
+/* ── Week sources ──────────────────────────────────────────────────── */
+
+/** One schedulable thing from somewhere that is not the bucket. */
+export type WeekItem = {
+  /** Stable within the source. Written onto the week line as `~x<6 hex>`,
+   *  which is how the line finds its way back here after a carry-forward or
+   *  an archive — including on an instance where the source isn't installed,
+   *  because the baseline carries the token without reading it. */
+  ref: string;
+  text: string;
+  /** Optional ISO date the source considers this due. The baseline does not
+   *  schedule from it, warn about it, or count it. */
+  due?: string;
+};
+
+export type WeekSource = {
+  id: string;
+  /** What is available to schedule. Read-only: the baseline never writes
+   *  back through this, and an item appears in a week only when the user
+   *  puts it there. */
+  list: () => Promise<WeekItem[]>;
+  /** The user dropped an item into a day. The source records that however it
+   *  likes; the baseline writes the week line with the `~x` token. */
+  schedule: (item: WeekItem, day: string) => Promise<void>;
+  /** The user ticked the line off. */
+  complete: (ref: string) => Promise<void>;
+};
+
+const sources: WeekSource[] = [];
+
+/** Registration point only in Stage 0 — no provider ships, so Plan Week is
+ *  exactly what it was. What a source may do is deliberately narrow: offer
+ *  items, be told one was scheduled, be told one was completed. It never
+ *  writes a week file or a bucket file itself, so `extra="forbid"`, the
+ *  client-version guard and the mtime guard all keep working. */
+export const registerWeekSource = (s: WeekSource) => {
+  const at = sources.findIndex((r) => r.id === s.id);
+  if (at >= 0) sources[at] = s;
+  else sources.push(s);
+};
+
+export const weekSources = (): WeekSource[] => [...sources];
+
+/** The `~x<6 hex>` reference on a week line, or null. Colon-free: a colon on
+ *  a week line is read as a "Group:" prefix. */
+export const externalRef = (text: string): string | null => {
+  const m = (text || "").match(/~x([0-9a-f]{6})\b/i);
+  return m ? m[1].toLowerCase() : null;
+};
