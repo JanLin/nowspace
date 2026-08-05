@@ -22,6 +22,31 @@ jobs:
       - run: python -c "from backend.main import app; print('backend imports OK')"
       - run: python -m pytest backend/tests -q
 
+  security:
+    name: Dependency + code scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install pip-audit bandit
+
+      # requirements.txt pins floors (>=), not versions, so this audits what
+      # a fresh install actually resolves to rather than a stale lockfile.
+      # Clean today. When it does fire it will be because a new release
+      # carried a CVE in, which is exactly when it should stop a merge.
+      - name: Dependency CVEs
+        run: pip-audit -r requirements.txt --progress-spinner off
+
+      # This one IS a gate. Tests are excluded because pytest is 300+ bare
+      # asserts, and low severity is dropped because it is mostly that plus
+      # string literals that look like passwords ('daily', 'morning').
+      # Medium and high are few enough to keep at zero.
+      - name: Python SAST
+        run: bandit -q -r backend/ -x backend/tests --severity-level medium
+
   frontend:
     name: Type-check + build
     runs-on: ubuntu-latest
@@ -42,3 +67,5 @@ jobs:
       # checking nothing.
       - run: npx tsc -p tsconfig.app.json --noEmit
       - run: npx vite build
+      # Clean at zero today, so keep it a gate rather than advisory.
+      - run: npm audit --audit-level=high

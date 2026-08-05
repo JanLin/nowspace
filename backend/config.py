@@ -159,7 +159,11 @@ class Config:
         self.max_tokens = api.get("max_tokens", 1024)
 
         server = raw.get("server", {})
-        self.host = server.get("host", "0.0.0.0")
+        # Binding all interfaces is the deliberate default: the container and
+        # the mini both need to be reachable from off-box (Docker port map,
+        # tailnet). Deployments that shouldn't be reachable set host in
+        # config.yaml. Bandit flags this as B104; the choice is deliberate.
+        self.host = server.get("host", "0.0.0.0")  # nosec
         self.port = server.get("port", 8000)
         self.cors_origins = server.get("cors_origins", ["http://localhost:5173"])
 

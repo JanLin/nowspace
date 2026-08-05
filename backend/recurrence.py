@@ -297,8 +297,15 @@ def is_day_specific(parsed: Optional[dict]) -> bool:
 
 def instance_identity(template_id: str, occurrence: str) -> str:
     """Derived, not random: two devices spawning the same occurrence write
-    byte-identical lines, so sync conflict resolution can't fork state."""
-    return hashlib.sha1(f"{template_id}|{occurrence}".encode()).hexdigest()[:6]
+    byte-identical lines, so sync conflict resolution can't fork state.
+
+    usedforsecurity=False says what this is: a short stable name, not a
+    security digest. It does not change the bytes SHA-1 produces, so existing
+    ~i tokens in every synced vault stay valid — that must remain true.
+    """
+    return hashlib.sha1(
+        f"{template_id}|{occurrence}".encode(), usedforsecurity=False
+    ).hexdigest()[:6]
 
 
 def lapsed(t: RecurrenceTemplate, today: date) -> bool:
