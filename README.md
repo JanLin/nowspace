@@ -52,6 +52,11 @@ installer alongside the versioned ones):
 | **Linux (AppImage)** | [Nowspace-linux-x86_64.AppImage](https://github.com/JanLin/nowspace/releases/latest/download/Nowspace-linux-x86_64.AppImage) |
 | **Linux (deb)** | [Nowspace-linux-amd64.deb](https://github.com/JanLin/nowspace/releases/latest/download/Nowspace-linux-amd64.deb) |
 
+Only the current release is published — older ones are removed when a new one
+ships. Instances sharing a vault should run the same release: the vault format
+carries a schema version, and an older build refuses to write a newer vault
+rather than quietly damaging it.
+
 Or browse all releases: [github.com/JanLin/nowspace/releases](https://github.com/JanLin/nowspace/releases)
 
 > **macOS says the app "is damaged and can't be opened"?** Nothing is
