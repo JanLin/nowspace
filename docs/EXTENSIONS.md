@@ -12,14 +12,28 @@ that is a pull request against the baseline, not a reach through it.
 The whole of it:
 
 ```
-frontend   src/surfaces.ts      registerSurface, registerWeekSource, types
-                                React comes from the host — never bundle a
-                                second copy, or you get two Reacts and hooks
-                                that throw
+frontend   (nothing)            The host is passed to your register(host) —
+                                see seam 3. You import nothing from the
+                                baseline, not even React, which the host
+                                provides: a second bundled copy gives you
+                                two Reacts and hooks that throw.
 
-backend    backend.vault_io     read_text, write_text_guarded, is_conflict_copy
-           backend.host         HOST_API, AddonRouter
+backend    backend.vault_io     read_text, write_text_guarded,
+                                write_guard, is_conflict_copy
+           backend.host         HOST_API, AddonRouter,
+                                vault_root, addon_settings
 ```
+
+`vault_root()` is for **resolving** a configured path against the vault this
+server is pointed at. Every write still goes through `vault_io` — a path from
+here plus a direct `open(..., "w")` bypasses the atomic write, the mtime
+guard and the conflict-copy rule in one line.
+
+`addon_settings("<id>")` returns your own top-level block from the vault
+settings file, or `{}`. It is the server-side mirror of the `addons` block
+clients get from `GET /api/settings`; a router needs its own configuration
+too, and the client's copy is no use to it. There is no setter, deliberately:
+a settings panel is a seam of its own rather than a hole in this one.
 
 Explicitly not importable, now or later:
 
@@ -79,20 +93,75 @@ deletion to every device.
 
 ### 3. `frontend/src/surfaces.ts` — a tab
 
+An extension exports `register(host)`. The host is **handed in**, not
+imported — the baseline is not a published package, and an alias would need a
+matching `tsconfig` path in every extension plus an `external` entry in its
+bundler, and would still behave differently in dev and in a build.
+
 ```ts
-registerSurface({
-  id: "relay",            // also the route prefix and the settings key
-  icon: "🛰",
-  name: "Relay",
-  order: 25,              // 10 Plan · 20 Bucket · 30 Notes · 40 Habits · 50 Time · 90 Settings
-  enabledBy: "relay.enabled",
-  component: RelayPanel,  // props: { onOpenNote(path, name) }
-});
+// Declared locally — this type is the whole of the frontend contract.
+// (Copy it; a types-only package can come later.)
+type NowspaceHost = {
+  HOST_UI_API: number;
+  registerSurface: (s: Surface) => void;
+  registerWeekSource: (s: WeekSource) => void;
+  surfaceEnabled: (s: Surface, settings: unknown) => boolean;
+  externalRef: (text: string) => string | null;
+};
+
+export function register(host: NowspaceHost) {
+  if (host.HOST_UI_API !== 1) return;   // a host you don't know: stay away
+
+  host.registerSurface({
+    id: "relay",            // also the route prefix and the settings key
+    icon: "🛰",
+    name: "Relay",
+    order: 25,              // 10 Plan · 20 Bucket · 30 Notes · 40 Habits · 50 Time · 90 Settings
+    enabledBy: "relay.enabled",
+    component: RelayPanel,  // props: { onOpenNote(path, name) }
+  });
+}
 ```
 
-Registered at import time from `frontend/src/addons.generated.ts`, before the
-first render. Each surface renders inside an error boundary: one that throws
-costs its own tab and logs once, and the rest of the app keeps working.
+`register(host)` is called at import time from
+`frontend/src/addons.generated.ts`, before the first render. Each surface
+renders inside an error boundary: one that throws costs its own tab and logs
+once, and the rest of the app keeps working.
+
+`HOST_UI_API` is the UI half of the version, moving under the same rule as
+`HOST_API`: additive changes don't bump it.
+
+### Styling a surface
+
+**Tailwind classes in a prebuilt extension bundle produce no CSS.** Tailwind
+v4 generates from the sources it scans, and it does not scan built packages
+under `node_modules` — so a class name that arrives as a string in your bundle
+was never seen, and no rule exists for it. This costs a day to discover.
+
+Use inline styles with the baseline's CSS variables, which is what keeps an
+extension in step with the theme:
+
+```tsx
+<div style={{ background: "var(--bg-secondary)", color: "var(--text)",
+              border: "1px solid var(--border)" }}>
+```
+
+`--bg`, `--bg-secondary`, `--bg-tertiary`, `--text`, `--text-secondary`,
+`--text-tertiary`, `--border`, `--border-strong`, `--card`, `--card-border`,
+`--accent`, `--accent-bg` — all defined for both themes in `index.css`, and
+they follow the theme toggle without an extension doing anything.
+
+Or ship your own CSS file and import it from your entry. Neither needs a
+baseline change.
+
+### Packaging a surface
+
+**Ship a built bundle, with `react` external.** The host compiles nothing on
+your behalf: raw JSX resolved from outside the app's `node_modules` cannot
+find `react/jsx-runtime` and the build fails outright. Build your extension
+with `react` and `react-dom` as peer dependencies marked external, so the
+single copy the host already loaded is the one your components use — two
+copies of React give you hooks that throw.
 
 ### 4. `backend/addons.py` — routes
 

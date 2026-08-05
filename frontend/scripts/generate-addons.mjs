@@ -13,7 +13,10 @@
  *   NOWSPACE_ADDONS_UI="@nowspace/relay,@nowspace/other"
  *
  * Entries are import specifiers, passed through verbatim — the same string
- * npm was given to install it. Each package exports `register()`.
+ * npm was given to install it. Each package exports `register(host)`, and the
+ * host — the surfaces module — is handed in rather than imported: an
+ * extension is not resolving anything from the baseline, so it needs no
+ * alias, no tsconfig path and no bundler `external` entry.
  *
  * Unset, it writes the empty stub, byte for byte what the repository holds.
  * That is deliberate: every build runs this, and a baseline build must leave
@@ -59,8 +62,15 @@ if (specs.length === 0) {
   body = EMPTY_BODY;
 } else {
   const imports = specs.map((s, i) => `import { register as ${aliasFor(s, i)} } from ${JSON.stringify(s)};`);
-  const calls = specs.map((s, i) => `${aliasFor(s, i)}();`);
-  body = `\n${imports.join("\n")}\n\n${calls.join("\n")}\n`;
+  const calls = specs.map((s, i) => `${aliasFor(s, i)}(host);`);
+  body = [
+    "",
+    'import * as host from "./surfaces";',
+    ...imports,
+    "",
+    ...calls,
+    "",
+  ].join("\n");
 }
 
 const next = HEADER + body;

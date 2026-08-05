@@ -1,11 +1,11 @@
 {
   "name": "nowspace",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
     "addons:generate": "node scripts/generate-addons.mjs",
+    "dev": "npm run addons:generate && vite",
     "build": "npm run addons:generate && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

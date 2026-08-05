@@ -117,3 +117,55 @@ def test_health_reports_host_api(client):
 
 def test_host_api_is_an_integer_starting_at_one():
     assert isinstance(HOST_API, int) and HOST_API >= 1
+
+
+# ── what a router is given (0.6.1) ────────────────────────────────────
+
+def test_addon_settings_returns_the_block_verbatim(vault):
+    """Including keys the baseline has never heard of — it is their namespace."""
+    from backend import host
+    _settings_file(vault)
+    block = host.addon_settings("relay")
+    assert block == {"enabled": True, "endpoint": "https://example.invalid/relay"}
+
+
+def test_addon_settings_is_empty_for_an_absent_key(vault):
+    """A fresh vault needs no seeding."""
+    from backend import host
+    _settings_file(vault)
+    assert host.addon_settings("not-installed") == {}
+
+
+def test_addon_settings_is_empty_when_there_is_no_settings_file(vault):
+    from backend import host
+    config._vault_cfg_cache = None
+    config._vault_cfg_mtime = None
+    assert host.addon_settings("relay") == {}
+
+
+def test_addon_settings_hands_back_a_copy(vault):
+    """A router mutating what it got must not edit the cached settings."""
+    from backend import host
+    _settings_file(vault)
+    got = host.addon_settings("relay")
+    got["enabled"] = False
+    assert host.addon_settings("relay")["enabled"] is True
+
+
+def test_addon_settings_never_returns_a_baseline_key(vault):
+    """`app`, `contexts` and friends are the baseline's, not a namespace."""
+    from backend import host
+    _settings_file(vault)
+    assert host.addon_settings("app") == {}
+    assert host.addon_settings("contexts") == {}
+
+
+def test_vault_root_matches_config(vault):
+    from backend import host
+    assert host.vault_root() == config.vault_root
+
+
+def test_the_host_module_exposes_no_setter():
+    """The contract is read-only; a settings panel is a seam of its own."""
+    from backend import host
+    assert not [n for n in dir(host) if n.startswith(("save_", "set_", "write_"))]

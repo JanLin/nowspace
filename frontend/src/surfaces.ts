@@ -1,15 +1,24 @@
 /* The extension seam on the frontend — a tab, and (seam 5) a source of
    schedulable items.
 
-   An extension imports `registerSurface` from here and nothing else from the
-   baseline except React, which the host provides: bundling a second copy
-   gives you two Reacts and hooks that throw. Registration happens at import
-   time, from the generated `addons.generated.ts`, before the app renders.
+   An extension imports NOTHING from here. The generated addons.generated.ts
+   passes this module to its `register(host)` at import time, before the app
+   renders, and the extension declares the NowspaceHost type locally. That is
+   what lets an extension build with no alias, no tsconfig path mapping and
+   no `external` entry — and React stays single-copy, since a second bundled
+   copy gives you hooks that throw.
 
    The baseline registers nothing. With an empty registry every one of these
    functions is a no-op and navigation is exactly what it was. */
 
 import type React from "react";
+
+/** The version of what `register(host)` receives — the UI half of HOST_API.
+ *  Additive changes (another member, another optional field) do not move it;
+ *  removing or changing one does, on a minor release. An extension checks it
+ *  and refuses a host it doesn't know rather than failing halfway through
+ *  registering. */
+export const HOST_UI_API = 1;
 
 export type Surface = {
   /** Stable id, matching the extension: "relay" for nowspace-relay. Also the
@@ -54,6 +63,28 @@ export const surfaceEnabled = (s: Surface, settings: unknown): boolean => {
     node = (node as Record<string, unknown>)[key];
   }
   return node === true;
+};
+
+/* ── What an extension is handed ───────────────────────────────────── */
+
+/** The object passed to an extension's `register()`.
+ *
+ *  Handed in rather than imported, because an extension cannot import from
+ *  the baseline: it is not a published package, and an alias would need a
+ *  matching tsconfig path in every extension plus an `external` entry in its
+ *  bundler, and would still behave differently in dev and in a build. An
+ *  argument needs none of that — the extension declares this type locally and
+ *  imports nothing from here at build time, which is also what keeps React
+ *  single-copy.
+ *
+ *  Copy this type into an extension (or take it from a types-only package
+ *  later); it is the whole of the frontend contract. */
+export type NowspaceHost = {
+  HOST_UI_API: number;
+  registerSurface: (s: Surface) => void;
+  registerWeekSource: (s: WeekSource) => void;
+  surfaceEnabled: (s: Surface, settings: unknown) => boolean;
+  externalRef: (text: string) => string | null;
 };
 
 /* ── Week sources ──────────────────────────────────────────────────── */
