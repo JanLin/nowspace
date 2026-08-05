@@ -14,6 +14,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
 from backend.config import config
 from backend.routers import plan, coach, memory, vault, notes, settings, habits, timelog, handoff, recurrence
+from backend.addons import mount_addons
 
 app = FastAPI(title="Personal Coaching Agent", version="0.1.0")
 
@@ -35,6 +36,11 @@ app.include_router(habits.router)
 app.include_router(timelog.router)
 app.include_router(handoff.router)
 app.include_router(recurrence.router)
+
+# Extensions, if this build includes any (backend/addons.py). Empty by
+# default; a listed module that raises on import costs one log line and its
+# own tab, never the server.
+_mounted_addons = mount_addons(app)
 
 
 @app.get("/health")
@@ -59,6 +65,7 @@ async def health():
         "schema_version": BUCKET_SCHEMA_VERSION,
         "vault_schema": vault_schema,
         "host_api": HOST_API,
+        "addons": _mounted_addons,
     }
 
 
