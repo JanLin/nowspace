@@ -33,12 +33,11 @@ jobs:
           cache: pip
       - run: pip install pip-audit bandit
 
-      # Advisory, not a gate. There are known CVEs in the starlette /
-      # python-multipart chain whose fixes need a FastAPI major upgrade —
-      # real work, but not a reason to block every unrelated PR until it
-      # lands. Read the output; make it blocking once the upgrade is done.
-      - name: Dependency CVEs (advisory)
-        continue-on-error: true
+      # requirements.txt pins floors (>=), not versions, so this audits what
+      # a fresh install actually resolves to rather than a stale lockfile.
+      # Clean today. When it does fire it will be because a new release
+      # carried a CVE in, which is exactly when it should stop a merge.
+      - name: Dependency CVEs
         run: pip-audit -r requirements.txt --progress-spinner off
 
       # This one IS a gate. Tests are excluded because pytest is 300+ bare
