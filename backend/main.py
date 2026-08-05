@@ -16,7 +16,7 @@ from backend.config import config
 from backend.routers import plan, coach, memory, vault, notes, settings, habits, timelog, handoff, recurrence
 from backend.addons import mount_addons
 
-app = FastAPI(title="Personal Coaching Agent", version="0.1.0")
+app = FastAPI(title="Nowspace", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
