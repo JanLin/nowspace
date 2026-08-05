@@ -511,6 +511,10 @@ export const api = {
       funnel?: FunnelSettings;
       notes?: NotesSettings;
       app?: AppSettings;
+      /** Extension namespaces from the vault settings, untouched by the
+       *  baseline — where a registered surface finds its enabled switch.
+       *  Absent on a backend older than the seam. */
+      addons?: Record<string, unknown>;
     }>("/api/settings"),
 
   // funnel is a real field on the route (routers/settings.py) — the type

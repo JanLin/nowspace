@@ -357,6 +357,24 @@ class Config:
             return bool(areas) if isinstance(areas, list) else False
         return bool(val)
 
+    # Every top-level key the baseline itself owns. Anything else in the
+    # settings file belongs to an extension, and is passed through to clients
+    # untouched so a surface can read its own `<addon-id>.enabled` switch.
+    _BASELINE_SETTINGS_KEYS = {
+        "app", "areas", "bucket_schema", "context_tags", "contexts",
+        "diary_folder", "funnel", "notes", "reference_links",
+    }
+
+    @property
+    def addon_settings(self) -> dict:
+        """The extension namespaces, as stored. Read-only from the baseline's
+        side: it never interprets what is in them, and never writes them —
+        an extension owns its own key through its own route."""
+        return {
+            k: v for k, v in self._vault_settings().items()
+            if k not in self._BASELINE_SETTINGS_KEYS
+        }
+
     @property
     def app_settings(self) -> dict:
         """The `app:` map as clients should see it: the three resolved

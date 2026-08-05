@@ -48,6 +48,9 @@ class SettingsResponse(BaseModel):
     funnel: Dict = {}
     notes: Dict = {}
     app: Dict = {}
+    # Extension namespaces, passed through untouched — how a registered
+    # surface reads its own enabled switch (docs/EXTENSIONS.md)
+    addons: Dict = {}
 
 
 class ContextSettingsUpdate(BaseModel):
@@ -249,6 +252,7 @@ async def get_settings():
         funnel=config.funnel,
         notes=config.notes,
         app=config.app_settings,
+        addons=config.addon_settings,
     )
 
 
