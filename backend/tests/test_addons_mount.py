@@ -6,10 +6,10 @@ cost one log line and its own routes — never the server.
 """
 
 import sys
-import types
 
 import pytest
-from fastapi import APIRouter, FastAPI
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from backend import addons
 
@@ -20,9 +20,24 @@ def clean_env(monkeypatch):
     monkeypatch.delenv("NOWSPACE_ADDONS", raising=False)
 
 
-def _install(name: str, module: types.ModuleType):
-    sys.modules[name] = module
-    return name
+@pytest.fixture
+def fake_addon(tmp_path, monkeypatch):
+    """Write a real module and put it on sys.path.
+
+    Not a types.ModuleType parked in sys.modules: such a module has no
+    __spec__, and Python 3.12's import system does not treat it the way 3.9
+    does — which is how this file passed locally and failed on CI. An
+    extension is a real installed package, so the test uses one.
+    """
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    def write(name: str, body: str) -> str:
+        (tmp_path / f"{name}.py").write_text(body, encoding="utf-8")
+        sys.modules.pop(name, None)
+        monkeypatch.delitem(sys.modules, name, raising=False)
+        return name
+
+    return write
 
 
 # ── the empty state, which is the shipped one ─────────────────────────
@@ -42,25 +57,26 @@ def test_the_baseline_ships_an_empty_list():
 
 # ── a working extension ───────────────────────────────────────────────
 
-def test_a_listed_module_is_mounted(clean_env, monkeypatch):
-    mod = types.ModuleType("fake_addon_ok")
+def test_a_listed_module_is_mounted(clean_env, monkeypatch, fake_addon):
+    name = fake_addon("fake_addon_ok", """
+from fastapi import APIRouter
 
-    def router():
-        r = APIRouter(prefix="/api/fake", tags=["fake"])
+def router():
+    r = APIRouter(prefix="/api/fake", tags=["fake"])
 
-        @r.get("/ping")
-        def ping():
-            return {"pong": True}
+    @r.get("/ping")
+    def ping():
+        return {"pong": True}
 
-        return r
-
-    mod.router = router
-    _install("fake_addon_ok", mod)
-    monkeypatch.setattr(addons, "ADDON_MODULES", ["fake_addon_ok"])
+    return r
+""")
+    monkeypatch.setattr(addons, "ADDON_MODULES", [name])
 
     app = FastAPI()
-    assert addons.mount_addons(app) == ["fake_addon_ok"]
-    assert any(getattr(r, "path", "") == "/api/fake/ping" for r in app.routes)
+    assert addons.mount_addons(app) == [name]
+    # Reachable, not merely present in app.routes — the route being callable
+    # at /api/<id>/* is the actual contract (docs/EXTENSIONS.md)
+    assert TestClient(app).get("/api/fake/ping").json() == {"pong": True}
 
 
 # ── a broken one ──────────────────────────────────────────────────────
@@ -78,30 +94,30 @@ def test_a_module_that_raises_on_import_leaves_a_running_server(clean_env, monke
     assert "definitely_not_installed_addon" in lines[0].getMessage()
 
 
-def test_a_module_whose_router_raises_is_skipped(clean_env, monkeypatch):
-    mod = types.ModuleType("fake_addon_boom")
-
-    def router():
-        raise RuntimeError("bad wiring")
-
-    mod.router = router
-    _install("fake_addon_boom", mod)
-    monkeypatch.setattr(addons, "ADDON_MODULES", ["fake_addon_boom"])
+def test_a_module_whose_router_raises_is_skipped(clean_env, monkeypatch, fake_addon):
+    name = fake_addon("fake_addon_boom", """
+def router():
+    raise RuntimeError("bad wiring")
+""")
+    monkeypatch.setattr(addons, "ADDON_MODULES", [name])
     assert addons.mount_addons(FastAPI()) == []
 
 
-def test_a_module_without_a_router_is_skipped(clean_env, monkeypatch):
-    _install("fake_addon_bare", types.ModuleType("fake_addon_bare"))
-    monkeypatch.setattr(addons, "ADDON_MODULES", ["fake_addon_bare"])
+def test_a_module_without_a_router_is_skipped(clean_env, monkeypatch, fake_addon):
+    name = fake_addon("fake_addon_bare", "VALUE = 1\n")
+    monkeypatch.setattr(addons, "ADDON_MODULES", [name])
     assert addons.mount_addons(FastAPI()) == []
 
 
-def test_one_broken_addon_does_not_stop_the_next(clean_env, monkeypatch):
-    mod = types.ModuleType("fake_addon_second")
-    mod.router = lambda: APIRouter(prefix="/api/second")
-    _install("fake_addon_second", mod)
-    monkeypatch.setattr(addons, "ADDON_MODULES", ["not_installed_at_all", "fake_addon_second"])
-    assert addons.mount_addons(FastAPI()) == ["fake_addon_second"]
+def test_one_broken_addon_does_not_stop_the_next(clean_env, monkeypatch, fake_addon):
+    name = fake_addon("fake_addon_second", """
+from fastapi import APIRouter
+
+def router():
+    return APIRouter(prefix="/api/second")
+""")
+    monkeypatch.setattr(addons, "ADDON_MODULES", ["not_installed_at_all", name])
+    assert addons.mount_addons(FastAPI()) == [name]
 
 
 # ── the list is a build input ─────────────────────────────────────────
