@@ -1,4 +1,4 @@
-# Nowspace (coaching-agent)
+# Nowspace
 
 FastAPI backend + React/Vite frontend (Tauri desktop wrapper) that is a
 presentation layer over an Obsidian vault. **All data is markdown files in

@@ -42,7 +42,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/JanLin/coaching-agent/releases/latest/download/latest.json"
+        "https://github.com/JanLin/nowspace/releases/latest/download/latest.json"
       ],
       "dialog": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlBNjUwNDU0RTU3REFDMjQKUldRa3JIM2xWQVJsbW5Qd25xMExnenVlWmtYRkpNK2RyQkN1VEJXWk1CR3VPaXg5ODVwSDZYSDYK"
