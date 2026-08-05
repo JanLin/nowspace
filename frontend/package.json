@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "addons:generate": "node scripts/generate-addons.mjs",
+    "build": "npm run addons:generate && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",

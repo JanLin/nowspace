@@ -31,7 +31,22 @@ fi
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-(cd frontend && npm ci --no-audit --no-fund && npx vite build)
+# NOWSPACE_ADDONS_UI installs extension packages for the frontend build.
+# Reinstalled every run on purpose: npm ci wipes node_modules, and this clone
+# is git reset --hard above — nothing an extension needs can be left lying
+# around in the tree. --no-save keeps package.json/lock untouched, so the
+# next update still fast-forwards cleanly. The backend half is a pip install
+# in .venv (which survives, since the venv is not recreated) plus
+# NOWSPACE_ADDONS in the launchd plist. See docs/EXTENSIONS.md.
+(
+  cd frontend
+  npm ci --no-audit --no-fund
+  if [ -n "${NOWSPACE_ADDONS_UI:-}" ]; then
+    echo "$(date '+%F %T') installing extension packages: $NOWSPACE_ADDONS_UI"
+    npm install --no-save --no-audit --no-fund $(echo "$NOWSPACE_ADDONS_UI" | tr ',' ' ')
+  fi
+  npm run build
+)
 [ -d .venv ] || python3 -m venv .venv
 .venv/bin/pip install -q -r requirements.txt
 

@@ -160,15 +160,61 @@ doesn't know.
 | settings key | `<id>` , switch `<id>.enabled` |
 | surface id | `<id>` |
 
+## Installing one on a deployment
+
+**An extension is installed by a deployment, never by a commit here.** The
+baseline ships with an empty list — the `baseline` CI job fails if that stops
+being true — so one release serves every instance, whether or not it is
+carrying a prototype. Removing an extension is removing a variable, not
+reverting a release.
+
+Two halves, because they are constrained differently:
+
+| | how | when it takes effect |
+| --- | --- | --- |
+| backend | `pip install nowspace-relay`, then `NOWSPACE_ADDONS=nowspace_relay` | server start |
+| frontend | `npm install @nowspace/relay`, then `NOWSPACE_ADDONS_UI=@nowspace/relay` | **build** |
+
+The frontend cannot be a runtime switch: a Tauri build runs under
+`script-src 'self'`, so `register()` has to be inside the bundle.
+`npm run build` runs `scripts/generate-addons.mjs`, which writes
+`src/addons.generated.ts` from `NOWSPACE_ADDONS_UI`. Unset, it writes the
+empty stub byte for byte — a baseline build leaves the tree clean, which CI
+checks.
+
+`NOWSPACE_ADDONS_UI` holds import specifiers, verbatim: `@nowspace/relay` for
+a published package, or a path like `/opt/nowspace-relay` for a checkout you
+are still writing. A specifier that isn't installed **fails the build** — the
+opposite of the backend, where a missing module is one log line and a running
+server. A build has time to be fixed; a server has users waiting.
+
+### On the mini
+
+```bash
+# once
+.venv/bin/pip install -e /opt/nowspace-relay
+# in com.nowspace.server.plist, alongside the existing keys:
+#   <key>EnvironmentVariables</key>
+#   <dict><key>NOWSPACE_ADDONS</key><string>nowspace_relay</string></dict>
+
+# every update: deploy/update-nowspace.sh reads this and reinstalls before
+# building, because npm ci wipes node_modules and the clone is reset --hard
+export NOWSPACE_ADDONS_UI=/opt/nowspace-relay
+```
+
+### In a Docker image
+
+Add the two installs to that image's build (`pip install` next to the
+requirements step, `npm install` before `npm run build`) and set both
+variables. The baseline image, which is the one subscribers get, sets
+neither.
+
 ## Development
 
 An extension can be built against a checkout with `npm link` and
-`pip install -e`, wired into nothing. Add its module name to `ADDON_MODULES`
-(or `NOWSPACE_ADDONS`) and its `register()` call to `addons.generated.ts`
-locally; neither belongs in a baseline commit.
+`pip install -e`, wired into nothing.
 
-`addons.generated.ts` is committed empty, and the `baseline` CI job fails if
-it isn't. A tracked file cannot be ignored, so a local regeneration shows up
-in `git status`; `git update-index --skip-worktree
-frontend/src/addons.generated.ts` quietens that on a machine where an
-extension is installed.
+Do not edit `addons.generated.ts` — every build rewrites it. If you build
+locally with `NOWSPACE_ADDONS_UI` set, the file will show as modified;
+`git update-index --skip-worktree frontend/src/addons.generated.ts` quietens
+that on a machine where an extension is installed.
