@@ -1249,7 +1249,7 @@ export default function Settings({
             stored as plain markdown files you own.
           </p>
           <p>
-            <a href="https://github.com/JanLin/coaching-agent/releases" target="_blank" rel="noreferrer"
+            <a href="https://github.com/JanLin/nowspace/releases" target="_blank" rel="noreferrer"
               className="underline hover:opacity-80">Release notes</a>
           </p>
         </div>

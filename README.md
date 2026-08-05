@@ -1,6 +1,6 @@
 # Nowspace — Personal Coaching Agent
 
-![Version](https://img.shields.io/github/package-json/v/JanLin/coaching-agent?filename=frontend%2Fpackage.json&label=version&color=4c78dd)
+![Version](https://img.shields.io/github/package-json/v/JanLin/nowspace?filename=frontend%2Fpackage.json&label=version&color=4c78dd)
 
 A task planning and coaching tool that reads your [Obsidian](https://obsidian.md/) vault, prioritises tasks using AI, and helps you stay focused through coaching questions.
 
@@ -47,12 +47,12 @@ installer alongside the versioned ones):
 
 | Platform | Download |
 |---|---|
-| **macOS (Apple Silicon)** | [Nowspace-macos-arm64.dmg](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace-macos-arm64.dmg) |
-| **Windows** | [Nowspace-windows-x64-setup.exe](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace-windows-x64-setup.exe) |
-| **Linux (AppImage)** | [Nowspace-linux-x86_64.AppImage](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace-linux-x86_64.AppImage) |
-| **Linux (deb)** | [Nowspace-linux-amd64.deb](https://github.com/JanLin/coaching-agent/releases/latest/download/Nowspace-linux-amd64.deb) |
+| **macOS (Apple Silicon)** | [Nowspace-macos-arm64.dmg](https://github.com/JanLin/nowspace/releases/latest/download/Nowspace-macos-arm64.dmg) |
+| **Windows** | [Nowspace-windows-x64-setup.exe](https://github.com/JanLin/nowspace/releases/latest/download/Nowspace-windows-x64-setup.exe) |
+| **Linux (AppImage)** | [Nowspace-linux-x86_64.AppImage](https://github.com/JanLin/nowspace/releases/latest/download/Nowspace-linux-x86_64.AppImage) |
+| **Linux (deb)** | [Nowspace-linux-amd64.deb](https://github.com/JanLin/nowspace/releases/latest/download/Nowspace-linux-amd64.deb) |
 
-Or browse all releases: [github.com/JanLin/coaching-agent/releases](https://github.com/JanLin/coaching-agent/releases)
+Or browse all releases: [github.com/JanLin/nowspace/releases](https://github.com/JanLin/nowspace/releases)
 
 > **macOS says the app "is damaged and can't be opened"?** Nothing is
 > damaged — the app is not notarized with Apple (no Developer ID
@@ -88,8 +88,8 @@ Run Nowspace as a web app using Docker, without installing Python or Node.js.
 1. Clone and configure:
 
    ```bash
-   git clone git@github.com:JanLin/coaching-agent.git
-   cd coaching-agent
+   git clone git@github.com:JanLin/nowspace.git
+   cd nowspace
    cp .env.example .env
    # Edit .env — set ANTHROPIC_API_KEY and VAULT_PATH
    ```
@@ -159,8 +159,8 @@ Host github.com-nowspace
   IdentitiesOnly yes
 SSHEOF
 mkdir -p ~/projects && cd ~/projects
-git clone git@github.com-nowspace:JanLin/coaching-agent.git
-cd coaching-agent
+git clone git@github.com-nowspace:JanLin/nowspace.git
+cd nowspace
 ```
 
 ### 3. Configuration
@@ -249,8 +249,8 @@ update, and find logs in `~/Library/Logs/nowspace-{server,update}.log`.
 1. Clone and install:
 
    ```bash
-   git clone git@github.com:JanLin/coaching-agent.git
-   cd coaching-agent
+   git clone git@github.com:JanLin/nowspace.git
+   cd nowspace
    pip install -r requirements.txt
    cd frontend && npm install && cd ..
    ```
@@ -400,7 +400,7 @@ For development, settings live in `config.yaml` (copy from `config.yaml.example`
 
 ## Feedback and Issues
 
-Found a bug or have a suggestion? [Open an issue](https://github.com/JanLin/coaching-agent/issues).
+Found a bug or have a suggestion? [Open an issue](https://github.com/JanLin/nowspace/issues).
 Thinking of contributing code? Read [CONTRIBUTING.md](CONTRIBUTING.md) first —
 Nowspace has binding non-goals, and it's better to know them before you build.
 
