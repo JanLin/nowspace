@@ -210,6 +210,10 @@ export interface AppSettings {
   mode: "basic" | "advanced";
   funnel: boolean;   // advanced === the funnel: stages, shaping, sizes, Slate
   handoff: boolean;  // agent dispatch, independent of the mode
+  // A switch added by a newer instance sharing this vault. Enumerating the
+  // three known keys is what let an older build drop the rest; the backend
+  // round-trips unknown booleans, and so does this type.
+  [key: string]: string | boolean | undefined;
 }
 
 export interface NotesSettings {
@@ -507,11 +511,15 @@ export const api = {
       funnel?: FunnelSettings;
       notes?: NotesSettings;
       app?: AppSettings;
+      /** Extension namespaces from the vault settings, untouched by the
+       *  baseline — where a registered surface finds its enabled switch.
+       *  Absent on a backend older than the seam. */
+      addons?: Record<string, unknown>;
     }>("/api/settings"),
 
   // funnel is a real field on the route (routers/settings.py) — the type
   // just didn't list it, so the call that sets it never type-checked.
-  saveAppSettings: (updates: { mode?: "basic" | "advanced"; handoff?: boolean; funnel?: boolean }) =>
+  saveAppSettings: (updates: { mode?: "basic" | "advanced"; handoff?: boolean; funnel?: boolean } & Record<string, boolean | string | undefined>) =>
     request<{ status: string; app: AppSettings }>("/api/settings/app", {
       method: "POST",
       body: JSON.stringify(updates),

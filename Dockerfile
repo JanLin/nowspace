@@ -19,6 +19,12 @@ COPY backend/ ./backend/
 COPY config.yaml.example ./config.yaml
 COPY system_prompt.md ./
 
+# Extensions listed in backend/addons.py, if this image is built with any.
+# Empty in the baseline image, which is the one that ships: an extension is
+# installed on one deployment deliberately, not baked into everybody's.
+# A build that installs one adds its pip install here and its module name to
+# backend/addons.py — the same list PyInstaller reads (docs/EXTENSIONS.md).
+
 # Copy built frontend
 COPY --from=frontend-build /build/dist ./frontend/dist/
 

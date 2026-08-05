@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.config import config
+from backend import vault_io
 from backend.vault_index import refresh_index
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
@@ -54,10 +55,10 @@ async def read_note(path: str):
     if not full.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
 
-    try:
-        content = full.read_text(encoding="utf-8")
-    except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Error reading file: {e}")
+    # No default: a note that cannot be read must not open as an empty editor
+    # the user then saves back over it. vault_io retries first — on a synced
+    # vault an unreadable file is usually one mid-copy.
+    content = vault_io.read_text(full)
 
     try:
         modified = datetime.fromtimestamp(full.stat().st_mtime).isoformat()
@@ -79,10 +80,7 @@ async def write_note(req: WriteRequest):
     # Ensure parent directory exists
     full.parent.mkdir(parents=True, exist_ok=True)
 
-    try:
-        full.write_text(req.content, encoding="utf-8")
-    except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Error writing file: {e}")
+    vault_io.write_text_guarded(full, req.content)
 
     modified = datetime.fromtimestamp(full.stat().st_mtime).isoformat()
     return {"success": True, "modified": modified, "path": req.path}
@@ -95,19 +93,13 @@ async def append_note(req: AppendRequest):
 
     full.parent.mkdir(parents=True, exist_ok=True)
 
-    try:
-        existing = full.read_text(encoding="utf-8") if full.exists() else ""
-    except OSError:
-        existing = ""
+    existing = vault_io.read_text(full, default="")
 
     # Ensure newline separation
     separator = "\n" if existing and not existing.endswith("\n") else ""
     new_content = existing + separator + req.content
 
-    try:
-        full.write_text(new_content, encoding="utf-8")
-    except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Error appending to file: {e}")
+    vault_io.write_text_guarded(full, new_content)
 
     modified = datetime.fromtimestamp(full.stat().st_mtime).isoformat()
     return {"success": True, "modified": modified, "path": req.path}
@@ -129,10 +121,7 @@ async def create_note(req: CreateRequest):
 
     content = req.template or f"# {req.name}\n\n"
 
-    try:
-        file_path.write_text(content, encoding="utf-8")
-    except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Error creating file: {e}")
+    vault_io.write_text_guarded(file_path, content)
 
     # Keep the vault index current so the new note resolves immediately when its
     # [[link]] is clicked (Obsidian keeps its index live; we were only rebuilding

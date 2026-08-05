@@ -9,6 +9,34 @@ import { api, type AppSettings } from "./api";
 const DEFAULT: AppSettings = { mode: "advanced", funnel: true, handoff: false };
 
 let cached: AppSettings | null = null;
+let cachedAddons: Record<string, unknown> = {};
+
+/** The extension namespaces from the vault settings, as stored.
+ *
+ *  Only used to answer a surface's `enabledBy` — the baseline never looks
+ *  inside one. Empty until the settings arrive, so a tab appears when its
+ *  switch is known to be on rather than before. */
+export function useAddonSettings(): Record<string, unknown> {
+  const [addons, setAddons] = useState<Record<string, unknown>>(cachedAddons);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      api.getSettings()
+        .then((s) => {
+          if (!alive) return;
+          cachedAddons = (s.addons as Record<string, unknown>) ?? {};
+          setAddons(cachedAddons);
+        })
+        .catch(() => { /* an older backend has no addons key: no tabs, no noise */ });
+    };
+    load();
+    window.addEventListener("app-mode-changed", load);
+    return () => { alive = false; window.removeEventListener("app-mode-changed", load); };
+  }, []);
+
+  return addons;
+}
 
 export function useAppMode(): AppSettings {
   const [mode, setMode] = useState<AppSettings>(cached ?? DEFAULT);

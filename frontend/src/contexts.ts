@@ -165,10 +165,13 @@ export function taskVisibleInCtxSelection(text: string, sel: CtxSelection, ctxMa
    ~m     = "this month" GTD horizon on the bucket board
    Funnel tokens (~s: stage, ~e:/~es estimate, ~sl: slips, ~rs:/~se: dates,
    ~wake:, ~dr:, ~rh) are parsed into fields server-side; the regex still
-   strips them so hand-edited files and week lines (~es) never show them. */
+   strips them so hand-edited files and week lines (~es) never show them.
+   ~x<6 hex> is an external reference put on a week line by a registered week
+   source (docs/EXTENSIONS.md): stripped for display here, kept in the text so
+   it survives the save. */
 
 export const BUCKET_META_RE =
-  /\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|s:(?:captured|binding|ready|dormant|discarded)|e:?[sml]|sl:\d+|rs:\d{4}-\d{2}-\d{2}|se:\d{4}-\d{2}-\d{2}|wake:\d{4}-\d{2}-\d{2}|dr:\w+|rh|r[0-9a-f]{6}|du\d{4}-\d{2}-\d{2})\b/gi;
+  /\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|x[0-9a-f]{6}|s:(?:captured|binding|ready|dormant|discarded)|e:?[sml]|sl:\d+|rs:\d{4}-\d{2}-\d{2}|se:\d{4}-\d{2}-\d{2}|wake:\d{4}-\d{2}-\d{2}|dr:\w+|rh|r[0-9a-f]{6}|du\d{4}-\d{2}-\d{2})\b/gi;
 
 export function stripBucketMeta(text: string): string {
   return text.replace(BUCKET_META_RE, "").trim();

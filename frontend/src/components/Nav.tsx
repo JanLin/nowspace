@@ -1,6 +1,17 @@
 import React from "react";
+import { surfaces, surfaceEnabled } from "../surfaces";
+import { useAddonSettings } from "../appMode";
 
-type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
+/** A registered surface's id widens this, so it is a string rather than the
+ *  union it used to be. The built-in ids are still the only ones the baseline
+ *  itself switches on. */
+type View = string;
+
+/** Where the built-ins sit, so a registered surface can ask for a place
+ *  between two of them (25 → after Bucket, before Notes). Settings stays at
+ *  the end; an extension asking for 100 still lands before it, because the
+ *  sort is stable and Settings is appended last. */
+const BUILT_IN_ORDER = { week: 10, bucket: 20, notes: 30, habits: 40, time: 50, settings: 90 } as const;
 
 export default function Nav({
   current,
@@ -15,20 +26,30 @@ export default function Nav({
       edge had run out of room on a 360px phone. */
   onSearch?: () => void;
 }) {
-  const tabs: { id: View; icon: string; name: string }[] = [
-    { id: "week", icon: "📅", name: "Plan" },
-    { id: "bucket", icon: "🪣", name: "Bucket" },
+  const addonSettings = useAddonSettings();
+
+  const builtIn: { id: View; icon: string; name: string; order: number }[] = [
+    { id: "week", icon: "📅", name: "Plan", order: BUILT_IN_ORDER.week },
+    { id: "bucket", icon: "🪣", name: "Bucket", order: BUILT_IN_ORDER.bucket },
     // The Slate has no tab — it opens from the Nowspace logo (App.tsx),
     // keeping the ambient surface out of the working navigation.
-    { id: "notes", icon: "📝", name: "Notes" },
-    { id: "habits", icon: "🌱", name: "Habits" },
-    { id: "time", icon: "⏱", name: "Time" },
+    { id: "notes", icon: "📝", name: "Notes", order: BUILT_IN_ORDER.notes },
+    { id: "habits", icon: "🌱", name: "Habits", order: BUILT_IN_ORDER.habits },
+    { id: "time", icon: "⏱", name: "Time", order: BUILT_IN_ORDER.time },
     // Coach + Dashboard are parked (hidden even with an API key configured);
     // re-enable by restoring their entries here and the panels in App.tsx:
-    // { id: "coaching", icon: "🧭", name: "Coach" },
-    // { id: "dashboard", icon: "📊", name: "Dashboard" },
-    { id: "settings", icon: "⚙️", name: "Settings" },
+    // { id: "coaching", icon: "🧭", name: "Coach", order: 60 },
+    // { id: "dashboard", icon: "📊", name: "Dashboard", order: 70 },
+    { id: "settings", icon: "⚙️", name: "Settings", order: BUILT_IN_ORDER.settings },
   ];
+
+  // Registered surfaces whose switch is on. Empty in the baseline, which is
+  // why every one of these lines is a no-op until an extension is installed.
+  const extra = surfaces()
+    .filter((s) => surfaceEnabled(s, addonSettings))
+    .map((s) => ({ id: s.id as View, icon: s.icon, name: s.name, order: s.order ?? 80 }));
+
+  const tabs = [...builtIn, ...extra].sort((a, b) => a.order - b.order);
 
   return (
     <nav className="flex flex-1 gap-1 p-1 rounded-lg" style={{ backgroundColor: "var(--bg-secondary)" }}>

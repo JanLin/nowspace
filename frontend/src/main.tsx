@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import { installDragAutoScroll } from "./dragScroll";
+// Extensions register here, before the first render. Empty in the baseline.
+import "./addons.generated";
 
 // One listener for every drag in the app — tasks, groups, bucket and carry
 // rows — so a drag can reach past the edge of the screen.

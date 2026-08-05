@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from backend.agents.obsidian_reader import scan_vault, scan_vault_with_carryover, scan_goals, get_day_type, parse_week_plan
 from backend.agents.prioritiser import prioritise_tasks
 from backend.config import config
+from backend import vault_io as _vault_io
 from backend.models import (
     ApproveRequest, PlanResponse, Task, WeekPlanResponse, SaveWeekRequest,
     BucketResponse, BucketSaveRequest, BucketMoveRequest, BucketTask,
@@ -108,7 +109,16 @@ TASK_CTX_TAG_RE = re.compile(r"\s@([a-z])\b(?!\w)", re.IGNORECASE)
 #     Colon-free on purpose: a colon inside the text trips the "Group:"
 #     splitter on short lines (same reason week files use ~es not ~e:).
 #     The regexes also accept a short-lived legacy ~id:xxxxxx form.
-BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6})\b", re.IGNORECASE)
+# ~x<6 hex> is an external reference carried on a WEEK line: an item a
+# registered week source (docs/EXTENSIONS.md, seam 5) put there, tying the
+# line back to whatever it came from. Colon-free like ~es and ~i…, because a
+# colon on a week line is read as a "Group:" prefix. The baseline never
+# interprets it — it strips it for display and re-emits it on save, so it
+# survives a carry-forward and the week archive whether or not the extension
+# that wrote it is installed. No BucketTask field: an external item is not a
+# bucket item, and no schema bump: the bucket wire format is untouched.
+BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|x[0-9a-f]{6})\b", re.IGNORECASE)
+EXTERNAL_REF_RE = re.compile(r"~x([0-9a-f]{6})\b", re.IGNORECASE)
 BUCKET_ID_RE = re.compile(r"~i(?:d:)?([0-9a-f]{6})\b", re.IGNORECASE)
 
 
@@ -395,7 +405,7 @@ def _increment_bucket_slips() -> int:
             t.slip_count += 1
             slipped += 1
     if slipped:
-        bucket.write_text(_format_bucket_tasks(tasks, pinned), encoding="utf-8")
+        _vault_io.write_text_guarded(bucket, _format_bucket_tasks(tasks, pinned))
     if missed_template_ids:
         _route_misses_to_templates(missed_template_ids)
     return slipped
@@ -494,7 +504,7 @@ def _auto_transition_if_needed() -> list[str]:
         else:
             # Create fresh template for the next week
             template = _create_week_template(next_year, next_week)
-            current_file.write_text(template, encoding="utf-8")
+            _vault_io.write_text_guarded(current_file, template)
             transitions.append(f"Created wk{next_week:02d}")
 
     if transitions:
@@ -665,7 +675,7 @@ async def save_goals(req: SaveGoalsRequest):
             goal_bullets = ["-"]  # empty placeholder
         lines = lines[:goals_start + 1] + goal_bullets + lines[goals_end:]
 
-    plan_file.write_text("\n".join(lines), encoding="utf-8")
+    _vault_io.write_text_guarded(plan_file, "\n".join(lines))
     return {"status": "ok", "count": len([g for g in req.goals if g.strip()])}
 
 
@@ -749,16 +759,14 @@ async def save_week_plan(req: SaveWeekRequest):
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail="Plan Week.md not found in vault")
 
-    # Sync guard: refuse to overwrite a file that changed since the client
-    # last read it (Obsidian edit, or a sync from another device landing).
+    # Sync guard and the write itself both live in vault_io — see the module
+    # docstring for why a truncating write on a synced vault is a data loss.
+    # The guard is checked again inside write_text_guarded, against the mtime
+    # at the moment of writing rather than the moment of parsing.
     if req.expected_mtime is not None:
-        if plan_file.stat().st_mtime > req.expected_mtime + 0.01:
-            raise HTTPException(
-                status_code=409,
-                detail="Week file changed on disk since it was loaded — reload before saving",
-            )
+        _vault_io.write_guard(plan_file, req.expected_mtime, what="Week file")
 
-    original = plan_file.read_text(encoding="utf-8")
+    original = _vault_io.read_text(plan_file)
     lines = original.split("\n")
 
     # Find the first day heading and the end boundary (Notes / * * *)
@@ -805,9 +813,11 @@ async def save_week_plan(req: SaveWeekRequest):
 
     # Reconstruct file
     new_lines = lines[:first_day_idx] + day_lines + [""] + lines[end_idx:]
-    plan_file.write_text("\n".join(new_lines), encoding="utf-8")
+    mtime = _vault_io.write_text_guarded(
+        plan_file, "\n".join(new_lines), req.expected_mtime, what="Week file"
+    )
 
-    return {"status": "saved", "days": len(req.days), "mtime": plan_file.stat().st_mtime}
+    return {"status": "saved", "days": len(req.days), "mtime": mtime}
 
 
 @router.post("/create-next-week")
@@ -825,7 +835,7 @@ async def create_next_week():
     # Ensure 0-Inbox directory exists
     next_file.parent.mkdir(parents=True, exist_ok=True)
     content = _create_week_template(year, week)
-    next_file.write_text(content, encoding="utf-8")
+    _vault_io.write_text_guarded(next_file, content)
 
     return {"status": "created", "week_label": f"Week {year}-wk{week:02d}", "file": str(next_file)}
 
@@ -873,7 +883,7 @@ async def transition_week():
     else:
         # Create a fresh Plan Week.md for the new current week
         template = _create_week_template(next_year, next_week)
-        current_file.write_text(template, encoding="utf-8")
+        _vault_io.write_text_guarded(current_file, template)
 
     return {
         "status": "transitioned",
@@ -1164,7 +1174,7 @@ def _rewrite_week_file(plan_file: Path, original: str, result: dict):
         # No blank line between days — matches original format
 
     new_content = "\n".join(header_lines + [""] + day_lines + footer_lines)
-    plan_file.write_text(new_content, encoding="utf-8")
+    _vault_io.write_text_guarded(plan_file, new_content)
 
 
 class SaveVaultRequest(BaseModel):
@@ -1233,7 +1243,7 @@ async def save_to_vault(req: SaveVaultRequest):
         + lines[end_idx:]
     )
 
-    plan_file.write_text("\n".join(new_lines), encoding="utf-8")
+    _vault_io.write_text_guarded(plan_file, "\n".join(new_lines))
     return {"status": "saved", "day": day_name, "file": str(plan_file)}
 
 
@@ -1574,7 +1584,7 @@ async def get_bucket():
         for t in tasks:
             t.text = _stamp_bucket_id(t.text)
         try:
-            bucket.write_text(_format_bucket_tasks(tasks, pinned), encoding="utf-8")
+            _vault_io.write_text_guarded(bucket, _format_bucket_tasks(tasks, pinned))
         except OSError:
             pass  # read-only vault: ids still returned, just not persisted
     return BucketResponse(tasks=tasks, pinned_groups=pinned, mtime=bucket.stat().st_mtime)
@@ -1597,10 +1607,10 @@ def _log_funnel_transitions(entries: list[tuple[str, str, str]]) -> None:
     lines = [f"- {today} {frm}->{to}: {label}" for frm, to, label in entries]
     try:
         if not path.exists():
-            path.write_text(
+            _vault_io.write_text_guarded(
+                path,
                 "# Funnel Log\n\nStage transitions, for the diagnostics view. "
                 "Append-only; safe to prune old lines.\n\n" + "\n".join(lines) + "\n",
-                encoding="utf-8",
             )
         else:
             with open(path, "a", encoding="utf-8") as f:
@@ -1717,26 +1727,22 @@ async def save_bucket(req: BucketSaveRequest):
     _require_current_schema(req.schema_version)
     bucket = _bucket_path()
     # Sync guard — see save_week_plan
-    if req.expected_mtime is not None and bucket.exists():
-        if bucket.stat().st_mtime > req.expected_mtime + 0.01:
-            raise HTTPException(
-                status_code=409,
-                detail="Bucket file changed on disk since it was loaded — reload before saving",
-            )
+    if req.expected_mtime is not None:
+        _vault_io.write_guard(bucket, req.expected_mtime, what="Bucket file")
     # Funnel gates: compare against current disk state to detect transitions
     on_disk: list[BucketTask] = []
     if bucket.exists():
-        on_disk, _ = _parse_bucket_file(bucket.read_text(encoding="utf-8"))
+        on_disk, _ = _parse_bucket_file(_vault_io.read_text(bucket))
     transitions = _validate_funnel_save(req.tasks, on_disk)
     # Inline group teaching: learn "wallet@w:"-style tags and clean them.
     # Stamp entered-week metadata on tasks that don't carry it yet (age hint).
     for task in req.tasks:
         task.text = _stamp_bucket_tokens(_learn_and_clean_group_tag(task.text))
     md = _format_bucket_tasks(req.tasks, req.pinned_groups)
-    bucket.write_text(md, encoding="utf-8")
+    mtime = _vault_io.write_text_guarded(bucket, md, req.expected_mtime, what="Bucket file")
     _log_funnel_transitions(transitions)
     _stamp_vault_schema()
-    return {"status": "saved", "task_count": len(req.tasks), "mtime": bucket.stat().st_mtime}
+    return {"status": "saved", "task_count": len(req.tasks), "mtime": mtime}
 
 
 @router.post("/bucket/move")
@@ -1862,7 +1868,7 @@ async def move_bucket_task(req: BucketMoveRequest):
 
     # Save both files
     bucket.parent.mkdir(parents=True, exist_ok=True)
-    bucket.write_text(_format_bucket_tasks(bucket_tasks, pinned), encoding="utf-8")
+    _vault_io.write_text_guarded(bucket, _format_bucket_tasks(bucket_tasks, pinned))
 
     # Save week plan — reuse save endpoint
     from backend.models import SaveWeekRequest
@@ -1938,7 +1944,7 @@ async def slate_capture(req: SlateCaptureRequest):
         stage="captured",
     ))
     bucket.parent.mkdir(parents=True, exist_ok=True)
-    bucket.write_text(_format_bucket_tasks(tasks, pinned), encoding="utf-8")
+    _vault_io.write_text_guarded(bucket, _format_bucket_tasks(tasks, pinned))
     return {"status": "captured"}
 
 
@@ -2168,7 +2174,7 @@ async def append_plan_note(req: AppendNoteRequest):
         insert_at = day_end_idx
         lines = lines[:insert_at] + [formatted_entry, ""] + lines[insert_at:]
 
-    plan_file.write_text("\n".join(lines), encoding="utf-8")
+    _vault_io.write_text_guarded(plan_file, "\n".join(lines))
     return {"status": "appended", "day": day_lower}
 
 
@@ -2246,7 +2252,7 @@ async def put_plan_notes(req: PutNotesRequest):
     else:
         lines = lines[:section_end] + new_day_lines + lines[section_end:]
 
-    plan_file.write_text("\n".join(lines), encoding="utf-8")
+    _vault_io.write_text_guarded(plan_file, "\n".join(lines))
     return {"status": "saved", "day": day_lower}
 
 

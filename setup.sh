@@ -3,7 +3,7 @@ set -e
 
 echo ""
 echo "=========================================="
-echo "  Personal Coaching Agent - Setup"
+echo "  Nowspace - Setup"
 echo "=========================================="
 echo ""
 

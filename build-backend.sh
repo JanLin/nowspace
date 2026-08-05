@@ -16,13 +16,27 @@ echo "Building for target: $TARGET_TRIPLE"
 # Clean previous builds
 rm -rf "$PROJECT_ROOT/build" "$PROJECT_ROOT/dist"
 
-# Run PyInstaller from project root so 'backend' package is importable
+# Run PyInstaller from project root so 'backend' package is importable.
+# --paths . rather than an absolute path: the generated .spec bakes whatever
+# it is given, and an absolute path is a build that breaks the day the folder
+# is renamed or built on another machine.
 cd "$PROJECT_ROOT"
+
+# A frozen bundle discovers nothing at run time, so every extension in
+# backend/addons.py has to be named to PyInstaller here. One list, read from
+# the module itself so the two cannot drift.
+ADDON_IMPORTS=$(python3 -c "
+from backend.addons import addon_modules
+print(' '.join('--hidden-import ' + m for m in addon_modules()))
+" 2>/dev/null || echo "")
+if [ -n "$ADDON_IMPORTS" ]; then
+  echo "Bundling extensions: $ADDON_IMPORTS"
+fi
 python3 -m PyInstaller \
   --noconfirm \
   --onefile \
   --name "nowspace-server" \
-  --paths "$PROJECT_ROOT" \
+  --paths . \
   --hidden-import backend \
   --hidden-import backend.main \
   --hidden-import backend.config \
@@ -49,7 +63,11 @@ python3 -m PyInstaller \
   --hidden-import uvicorn.protocols.websockets.auto \
   --hidden-import uvicorn.lifespan \
   --hidden-import uvicorn.lifespan.on \
+  --hidden-import backend.vault_io \
+  --hidden-import backend.host \
+  --hidden-import backend.addons \
   --collect-submodules backend \
+  $ADDON_IMPORTS \
   backend/run_server.py
 
 # Copy to Tauri binaries dir with correct naming

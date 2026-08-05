@@ -16,16 +16,24 @@ import HelpGuide from "./components/HelpGuide";
 import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
 import { api, CLIENT_SCHEMA_VERSION, type NoteTab } from "./api";
-import { useAppMode } from "./appMode";
+import { useAppMode, useAddonSettings } from "./appMode";
+import { surfaces, surfaceEnabled } from "./surfaces";
+import SurfaceBoundary from "./components/SurfaceBoundary";
 import { useUiScaleShortcuts } from "./uiScale";
 
-type View = "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "coaching" | "dashboard" | "settings";
+// A registered surface's id is a view too, so this is a string. The built-in
+// names are listed for the reader, not enforced by the type.
+type View = string;   // "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "settings" | <surface id>
 
 export default function App() {
   const [view, setView] = useState<View>("week");
   // The Slate is the funnel's ambient surface — binding questions and
   // rehearsal. With Basic there is nothing for it to show.
   const { funnel: funnelOn } = useAppMode();
+  // Registered extension tabs. Empty in the baseline: nothing registers, so
+  // this renders nothing and the panels below are exactly what they were.
+  const addonSettings = useAddonSettings();
+  const activeSurfaces = surfaces().filter((s) => surfaceEnabled(s, addonSettings));
   useUiScaleShortcuts();   // desktop app only — a browser already has ⌘ +/-
   // Notes held open in the Notes tab, one sub-tab each. Opening a note from a
   // task or a [[link]] adds it here and switches to the tab, so notes and
@@ -555,6 +563,17 @@ export default function App() {
             <Goals />
           </div>
           {/* Coach + Dashboard are parked — see the note in Nav.tsx */}
+          {/* Registered surfaces, in the same hidden-div pattern as the
+              built-ins so a tab keeps its state while you work elsewhere.
+              Each one is wrapped: an extension that throws costs its own tab
+              and nothing else. */}
+          {activeSurfaces.map((s) => (
+            <div key={s.id} className={view === s.id ? "" : "hidden"}>
+              <SurfaceBoundary id={s.id} name={s.name}>
+                <s.component onOpenNote={showNote} />
+              </SurfaceBoundary>
+            </div>
+          ))}
           <div className={view === "settings" ? "max-w-3xl mx-auto" : "hidden"}>
             <Settings
               onVaultReady={() => {

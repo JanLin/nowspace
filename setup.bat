@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 echo.
 echo ==========================================
-echo   Personal Coaching Agent - Setup
+echo   Nowspace - Setup
 echo ==========================================
 echo.
 

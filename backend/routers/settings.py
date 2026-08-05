@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 import yaml
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from backend.config import config
 
@@ -48,6 +48,9 @@ class SettingsResponse(BaseModel):
     funnel: Dict = {}
     notes: Dict = {}
     app: Dict = {}
+    # Extension namespaces, passed through untouched — how a registered
+    # surface reads its own enabled switch (docs/EXTENSIONS.md)
+    addons: Dict = {}
 
 
 class ContextSettingsUpdate(BaseModel):
@@ -71,6 +74,13 @@ class NoteTabUpdate(BaseModel):
 
 
 class AppSettingsUpdate(BaseModel):
+    # extra="allow", the opposite choice from BucketTask and for the same
+    # reason: this map is shared through the vault, so a key this backend
+    # doesn't know belongs to an instance that is ahead of it. Forbidding it
+    # would 422 the newer client; dropping it would delete their switch.
+    # Unknown keys are round-tripped as booleans (config.save_app_settings).
+    model_config = ConfigDict(extra="allow")
+
     mode: Optional[str] = None      # "basic" | "advanced"
     funnel: Optional[bool] = None   # an option inside Advanced
     handoff: Optional[bool] = None
@@ -241,11 +251,8 @@ async def get_settings():
         diary_folder=config.diary_folder,
         funnel=config.funnel,
         notes=config.notes,
-        app={
-            "mode": config.app_mode,
-            "funnel": config.funnel_enabled,
-            "handoff": config.handoff_enabled,
-        },
+        app=config.app_settings,
+        addons=config.addon_settings,
     )
 
 
@@ -282,15 +289,12 @@ async def save_app_settings(body: AppSettingsUpdate):
         updates["funnel"] = bool(body.funnel)
     if body.handoff is not None:
         updates["handoff"] = bool(body.handoff)
+    # Anything else this backend doesn't know: pass it through untouched
+    for k, v in (body.model_extra or {}).items():
+        if isinstance(v, bool):
+            updates[k] = v
     config.save_app_settings(updates)
-    return {
-        "status": "saved",
-        "app": {
-            "mode": config.app_mode,
-            "funnel": config.funnel_enabled,
-            "handoff": config.handoff_enabled,
-        },
-    }
+    return {"status": "saved", "app": config.app_settings}
 
 
 @router.post("/notes")

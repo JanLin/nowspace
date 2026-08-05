@@ -196,4 +196,47 @@ jobs:
             printf 'See the commit history for changes in %s.\n' "$TAG" > /tmp/notes.md
             notes=/tmp/notes.md
           fi
-          gh release edit "$TAG" --notes-file "$notes"
+          # Only one release is published at a time, so the visible one has to
+          # introduce the app as well as list what changed — someone landing
+          # on the Releases page may never see the README.
+          cat docs/release-intro.md "$notes" > /tmp/body.md
+          gh release edit "$TAG" --notes-file /tmp/body.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # tauri-action creates a DRAFT. Nothing published it, which is how
+          # v0.4.1 sat unreleased while /releases/latest — and every download
+          # link in the README — went on serving v0.4.0.
+          gh release edit "$TAG" --draft=false --latest
+
+      - name: Remove superseded releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Guard first: never delete anything until THIS release is published
+          # and carries the four stable-named installers the README links to.
+          # A prune that ran on a half-finished release would leave the
+          # download links pointing at nothing.
+          draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
+          [ "$draft" = "false" ] || { echo "$TAG is still a draft — not pruning"; exit 1; }
+          for want in Nowspace-macos-arm64.dmg Nowspace-windows-x64-setup.exe \
+                      Nowspace-linux-x86_64.AppImage Nowspace-linux-amd64.deb; do
+            gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$want" \
+              || { echo "$TAG is missing $want — not pruning"; exit 1; }
+          done
+
+          # Older releases go; their TAGS stay (no --cleanup-tag). The tag is
+          # invisible on the Releases page once the release object is gone,
+          # and it is the only way to tell what a given deployment was running.
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -vFx "$TAG" \
+            | while read -r old; do
+                echo "removing superseded release $old (tag kept)"
+                gh release delete "$old" --yes
+              done
