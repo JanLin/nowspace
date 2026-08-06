@@ -19,6 +19,16 @@ export default defineConfig({
       },
     },
   ],
+  // An extension ships a built bundle with react external, so its dist/
+  // carries bare `react` and `react/jsx-runtime` imports. It is installed by
+  // path and symlinked in, and Vite resolves through the symlink — so node
+  // resolution walks up from the extension's own directory and never reaches
+  // this app's node_modules. Without this the build fails outright, and the
+  // obvious workaround (installing react beside the extension) is what gives
+  // you two Reacts and hooks that throw. Resolve them from here instead.
+  resolve: {
+    dedupe: ["react", "react-dom"],
+  },
   define: {
     __APP_VERSION__: JSON.stringify(version),
     // Tauri builds bake in the sidecar address; plain web builds stay
