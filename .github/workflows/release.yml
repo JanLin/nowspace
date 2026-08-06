@@ -199,7 +199,11 @@ jobs:
           # Only one release is published at a time, so the visible one has to
           # introduce the app as well as list what changed — someone landing
           # on the Releases page may never see the README.
-          cat docs/release-intro.md "$notes" > /tmp/body.md
+          # Strip the intro's own HTML comment: it explains the file to
+          # whoever edits it, and has no business in a published body — it
+          # doesn't render, but it is there in the raw text.
+          sed '/^<!--/,/-->/d' docs/release-intro.md > /tmp/body.md
+          cat "$notes" >> /tmp/body.md
           gh release edit "$TAG" --notes-file /tmp/body.md
 
       - name: Publish the release
