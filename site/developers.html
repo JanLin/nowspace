@@ -83,18 +83,23 @@
       <div class="kicker">The approach</div>
       <h2>Plain files are the interface everyone shares</h2>
       <p class="lede">Nowspace's substrate is plain markdown in your own Obsidian vault — and that turns out to be exactly what agent work needs. Anything that can read a file can read your plan. Including your agents.</p>
-      <div class="split">
+      <ul class="checklist">
+        <li><strong>One plan, every thread.</strong> Each agent stream is a task group in your day. Priorities (A/B/C) tell you what to review first; the hourglass marks what's blocked waiting on a run.</li>
+        <li><strong>Agent output lands as linked notes.</strong> Agents write their results into the vault as markdown; the plan holds pointers to them. You review on your schedule, not theirs.</li>
+        <li><strong>Handover is just... the file.</strong> Because state lives in structured notes rather than your head, handing a thread to a colleague — or feeding it to the next agent — is passing a link, not writing an essay.</li>
+        <li><strong>Separated contexts, no leaks.</strong> One context per engagement. Client detail never lives in the plan — the plan holds pointers into separated contexts, so nothing crosses a boundary that shouldn't.</li>
+      </ul>
+
+      <!-- The markdown is the argument on this page, so it gets its own frame
+           rather than being half of a composite that shrinks on a phone. -->
+      <div class="split" style="margin-top:44px; align-items:start">
         <div>
-          <ul class="checklist">
-            <li><strong>One plan, every thread.</strong> Each agent stream is a task group in your day. Priorities (A/B/C) tell you what to review first; the hourglass marks what's blocked waiting on a run.</li>
-            <li><strong>Agent output lands as linked notes.</strong> Agents write their results into the vault as markdown; the plan holds pointers to them. You review on your schedule, not theirs.</li>
-            <li><strong>Handover is just... the file.</strong> Because state lives in structured notes rather than your head, handing a thread to a colleague — or feeding it to the next agent — is passing a link, not writing an essay.</li>
-            <li><strong>Separated contexts, no leaks.</strong> One context per engagement. Client detail never lives in the plan — the plan holds pointers into separated contexts, so nothing crosses a boundary that shouldn't.</li>
-          </ul>
+          <div class="shot" style="margin-top:0"><a href="assets/app-plan.png" title="Open full size"><img src="assets/app-plan.png" alt="A day in the Nowspace app: agent-facing task groups per client, each task carrying an A/B/C priority"></a></div>
+          <p class="caption">The app view your day is planned in.</p>
         </div>
         <div>
-          <div class="shot" style="margin-top:0"><img src="assets/app-and-vault.png" alt="The same plan in the Nowspace app and as plain markdown on disk — the substrate agents read and write"></div>
-          <p class="caption">The vault is the substrate: the app view and the markdown file are the same plan. Agent output lands here as linked notes for review.</p>
+          <div class="shot" style="margin-top:0"><a href="assets/vault-markdown.png" title="Open full size"><img src="assets/vault-markdown.png" alt="The same day as plain markdown: - [ ] checkbox lines with priorities and groups, and [[wiki-links]] pointing at agent output notes"></a></div>
+          <p class="caption">The same plan on disk. Checkbox lines and <code>[[wiki-links]]</code> — no schema to learn, and anything that can read a file can read it. This is what you hand an agent.</p>
         </div>
       </div>
     </div>
