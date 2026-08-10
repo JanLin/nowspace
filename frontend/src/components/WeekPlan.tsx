@@ -9,6 +9,7 @@ import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
 import { markDone as markAPDone } from "../actionPoints";
+import { weekSources, externalRef } from "../surfaces";
 import { resolveLink, longPressProps } from "../links";
 import { visibleViewportBottom } from "../caretView";
 import { useAppMode } from "../appMode";
@@ -1896,6 +1897,21 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     }
     if (completing && ultraFocus && ultraFocus.dayIdx === dayIdx && ultraFocus.taskIdx === taskIdx) {
       setUltraFocus(null);
+    }
+    // A line carrying a source's ~x ref reports its completion back (seam 5).
+    // Every registered source is told — refs are content-addressed, so the
+    // ones that don't own it refuse, and a failure is one console line: the
+    // tick here stands either way, and the source's file is the truth the
+    // next read shows. Un-ticking reports nothing; the seam has no inverse.
+    if (completing) {
+      const ref = externalRef(data.days[dayIdx]?.tasks[taskIdx]?.text || "");
+      if (ref) {
+        weekSources().forEach((s) =>
+          s.complete(ref).catch((e) =>
+            console.warn(`[nowspace] week source "${s.id}" complete failed`, e),
+          ),
+        );
+      }
     }
     const days = data.days.map((d, di) => {
       if (di !== dayIdx) return d;

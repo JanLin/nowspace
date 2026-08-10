@@ -171,7 +171,7 @@ export function taskVisibleInCtxSelection(text: string, sel: CtxSelection, ctxMa
    it survives the save. */
 
 export const BUCKET_META_RE =
-  /\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|x[0-9a-f]{6}|s:(?:captured|binding|ready|dormant|discarded)|e:?[sml]|sl:\d+|rs:\d{4}-\d{2}-\d{2}|se:\d{4}-\d{2}-\d{2}|wake:\d{4}-\d{2}-\d{2}|dr:\w+|rh|r[0-9a-f]{6}|du\d{4}-\d{2}-\d{2})\b/gi;
+  /\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|x[0-9a-f]{6,40}|s:(?:captured|binding|ready|dormant|discarded)|e:?[sml]|sl:\d+|rs:\d{4}-\d{2}-\d{2}|se:\d{4}-\d{2}-\d{2}|wake:\d{4}-\d{2}-\d{2}|dr:\w+|rh|r[0-9a-f]{6}|du\d{4}-\d{2}-\d{2})\b/gi;
 
 export function stripBucketMeta(text: string): string {
   return text.replace(BUCKET_META_RE, "").trim();

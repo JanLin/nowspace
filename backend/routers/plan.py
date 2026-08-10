@@ -117,8 +117,8 @@ TASK_CTX_TAG_RE = re.compile(r"\s@([a-z])\b(?!\w)", re.IGNORECASE)
 # survives a carry-forward and the week archive whether or not the extension
 # that wrote it is installed. No BucketTask field: an external item is not a
 # bucket item, and no schema bump: the bucket wire format is untouched.
-BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|x[0-9a-f]{6})\b", re.IGNORECASE)
-EXTERNAL_REF_RE = re.compile(r"~x([0-9a-f]{6})\b", re.IGNORECASE)
+BUCKET_META_RE = re.compile(r"\s*~(w\d{4}|m|i(?:d:)?[0-9a-f]{6}|x[0-9a-f]{6,40})\b", re.IGNORECASE)
+EXTERNAL_REF_RE = re.compile(r"~x([0-9a-f]{6,40})\b", re.IGNORECASE)
 BUCKET_ID_RE = re.compile(r"~i(?:d:)?([0-9a-f]{6})\b", re.IGNORECASE)
 
 
@@ -818,6 +818,109 @@ async def save_week_plan(req: SaveWeekRequest):
     )
 
     return {"status": "saved", "days": len(req.days), "mtime": mtime}
+
+
+class ScheduleItemRequest(BaseModel):
+    day: str
+    text: str
+    ref: str
+    priority: str = "B"
+    expected_mtime: Optional[float] = None
+
+
+_REF_SHAPE_RE = re.compile(r"^[0-9a-f]{6,40}$", re.IGNORECASE)
+
+_DAY_SYNONYMS = {
+    "monday": {"monday", "mon"},
+    "tuesday": {"tuesday", "tues", "tue"},
+    "wednesday": {"wednesday", "wed"},
+    "thursday": {"thursday", "thur", "thu"},
+    "friday": {"friday", "fri"},
+    "saturday": {"saturday", "sat"},
+    "sunday": {"sunday", "sun"},
+}
+
+
+@router.post("/schedule-item")
+async def schedule_item(req: ScheduleItemRequest):
+    """Put one external item on a day of the current week — seam 5's write.
+
+    An extension surface cannot write a week file, and must not: this route
+    is the door instead. The line lands in the day's section through the
+    same guarded write every other save uses, carrying the item's `~x`
+    reference — scheduling is by reference, never a copy, so the source's
+    staleness scan keeps seeing the row and the two never drift.
+
+    A ref already on some week line is refused with 409: one obligation must
+    not become two tasks. The ref travels in `ref`, never inline in `text`,
+    so the dedupe check cannot be dodged by formatting.
+    """
+    day_word = (req.day or "").strip().lower()
+    canonical = next((d for d, names in _DAY_SYNONYMS.items() if day_word in names), None)
+    if canonical is None:
+        raise HTTPException(status_code=400, detail=f"Unknown day: {req.day!r}")
+    if not _REF_SHAPE_RE.match(req.ref or ""):
+        raise HTTPException(status_code=400, detail="ref must be 6-40 hex characters")
+    prio = (req.priority or "B").strip().upper()
+    if prio not in {"A", "B", "C", "D"}:
+        raise HTTPException(status_code=400, detail=f"Unknown priority: {req.priority!r}")
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is empty")
+    if EXTERNAL_REF_RE.search(text):
+        raise HTTPException(status_code=400, detail="carry the reference in `ref`, not in the text")
+
+    plan_file = config.vault_path / config.plan_week_file
+    if not plan_file.exists():
+        raise HTTPException(status_code=404, detail="Plan Week.md not found in vault")
+
+    original = _vault_io.read_text(plan_file)
+    ref = req.ref.lower()
+    if any(m.group(1).lower() == ref for m in EXTERNAL_REF_RE.finditer(original)):
+        raise HTTPException(
+            status_code=409,
+            detail="that item is already on a week line — one obligation, one task",
+        )
+
+    lines = original.split("\n")
+    heading_re_local = re.compile(r"^#{3,6}\s+(.+)")
+
+    day_idx = None
+    for i, line in enumerate(lines):
+        m = heading_re_local.match(line.strip())
+        if not m:
+            continue
+        words = {w.strip("*_").lower() for w in m.group(1).split()}
+        if words & _DAY_SYNONYMS[canonical]:
+            day_idx = i
+            break
+    if day_idx is None:
+        raise HTTPException(status_code=404, detail=f"No heading for {canonical} in Plan Week.md")
+
+    # The section runs to the next heading of any kind or the notes rule.
+    end = len(lines)
+    for i in range(day_idx + 1, len(lines)):
+        stripped = lines[i].strip()
+        m = heading_re_local.match(stripped)
+        if m or stripped == "* * *":
+            end = i
+            break
+
+    # Land after the last task, not after the section's trailing blanks.
+    insert_at = end
+    while insert_at > day_idx + 1 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+
+    # Sequence within the day's priority, same as a saved plan would carry.
+    seq_re = re.compile(rf"^- \[.\] {prio}(\d*):")
+    seq = sum(1 for l in lines[day_idx + 1 : insert_at] if seq_re.match(l.strip())) + 1
+
+    new_line = f"- [ ] {prio}{seq}: {text} ~x{ref}"
+    lines.insert(insert_at, new_line)
+    mtime = _vault_io.write_text_guarded(
+        plan_file, "\n".join(lines), req.expected_mtime, what="Week file"
+    )
+    return {"status": "scheduled", "day": canonical, "line": new_line, "mtime": mtime}
 
 
 @router.post("/create-next-week")

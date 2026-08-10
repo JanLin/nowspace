@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { api, type PlanResponse, type Task } from "../api";
+import { weekSources, externalRef } from "../surfaces";
 import TaskCheck from "./TaskCheck";
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -262,6 +263,20 @@ export default function DailyPlan({
       // Task is in plan.tasks — flip done flag
       const tasks = [...plan.tasks];
       tasks[planIdx] = { ...tasks[planIdx], done: !tasks[planIdx].done };
+      // Completion has two doors — this view and the week — and a ~x line
+      // must report through both (seam 5). Same rule as WeekPlan: only on
+      // completing, never on un-ticking, and a refusal costs one console
+      // line while the tick stands.
+      if (tasks[planIdx].done) {
+        const ref = externalRef(tasks[planIdx].text || "");
+        if (ref) {
+          weekSources().forEach((s) =>
+            s.complete(ref).catch((e) =>
+              console.warn(`[nowspace] week source "${s.id}" complete failed`, e),
+            ),
+          );
+        }
+      }
       setPlan({ ...plan, tasks });
       onTasksChanged(tasks);
     } else if (completedIdx >= 0) {

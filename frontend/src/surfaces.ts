@@ -130,9 +130,11 @@ export const registerWeekSource = (s: WeekSource) => {
 
 export const weekSources = (): WeekSource[] => [...sources];
 
-/** The `~x<6 hex>` reference on a week line, or null. Colon-free: a colon on
- *  a week line is read as a "Group:" prefix. */
+/** The `~x<hex>` reference on a week line, or null. Colon-free: a colon on
+ *  a week line is read as a "Group:" prefix. Six hex minimum — a generator-
+ *  stamped id — and up to forty, because a source without ids yet may key
+ *  items by content hash, and a longer ref must round-trip unharmed. */
 export const externalRef = (text: string): string | null => {
-  const m = (text || "").match(/~x([0-9a-f]{6})\b/i);
+  const m = (text || "").match(/~x([0-9a-f]{6,40})\b/i);
   return m ? m[1].toLowerCase() : null;
 };
