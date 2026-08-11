@@ -17,7 +17,7 @@ import Philosophy from "./components/Philosophy";
 import { useTheme } from "./useTheme";
 import { api, CLIENT_SCHEMA_VERSION, type NoteTab } from "./api";
 import { useAppMode, useAddonSettings } from "./appMode";
-import { surfaces, surfaceEnabled } from "./surfaces";
+import { surfaces, surfaceEnabled, _registerSurfaceOpener } from "./surfaces";
 import SurfaceBoundary from "./components/SurfaceBoundary";
 import { useUiScaleShortcuts } from "./uiScale";
 
@@ -27,6 +27,12 @@ type View = string;   // "week" | "bucket" | "slate" | "notes" | "habits" | "tim
 
 export default function App() {
   const [view, setView] = useState<View>("week");
+  // The navigation seam: an extension may ask to show a view, and the ask
+  // is exactly a setView — nothing read, written or refreshed on the way.
+  useEffect(() => {
+    _registerSurfaceOpener(setView);
+    return () => _registerSurfaceOpener(null);
+  }, []);
   // The Slate is the funnel's ambient surface — binding questions and
   // rehearsal. With Basic there is nothing for it to show.
   const { funnel: funnelOn } = useAppMode();

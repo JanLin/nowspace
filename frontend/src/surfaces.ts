@@ -85,6 +85,30 @@ export type NowspaceHost = {
   registerWeekSource: (s: WeekSource) => void;
   surfaceEnabled: (s: Surface, settings: unknown) => boolean;
   externalRef: (text: string) => string | null;
+  /** Added after HOST_UI_API 1 shipped — additive, so the version holds.
+   *  An extension written against the older shape checks for it. */
+  showSurface: (id: string) => boolean;
+};
+
+/* ── Navigation ────────────────────────────────────────────────────── */
+
+let surfaceOpener: ((id: string) => void) | null = null;
+
+/** The app hands its view setter in at mount. Baseline-internal — an
+ *  extension never calls this. */
+export const _registerSurfaceOpener = (fn: ((id: string) => void) | null) => {
+  surfaceOpener = fn;
+};
+
+/** Switch the app to a view — a baseline one ("week", "bucket", "notes",
+ *  "habits", "time") or a registered surface's id. Navigation only: nothing
+ *  is read, written or refreshed on the way, and an unknown id simply shows
+ *  the empty view the app already shows for one. Returns false when no app
+ *  is mounted to navigate. */
+export const showSurface = (id: string): boolean => {
+  if (!surfaceOpener) return false;
+  surfaceOpener(id);
+  return true;
 };
 
 /* ── Week sources ──────────────────────────────────────────────────── */
