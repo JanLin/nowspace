@@ -22,7 +22,11 @@ from backend.vault_io import is_conflict_copy
 # Patterns
 CHECKBOX_RE = re.compile(r"^[\s]*[-*]\s*\[([ xX])\]\s*(.*)")
 BULLET_RE = re.compile(r"^[\s]*[-*]\s+(.*)")
-TAG_RE = re.compile(r"#(\w[\w/-]*)")
+# A tag's # stands alone — start of text or after whitespace. Without the
+# lookbehind this also matched the fragment of any URL ("…/mail/u/1/#all/…"),
+# and the strip below then deleted it from the task text on every parse→save
+# cycle: a link survived scheduling and died at the first save.
+TAG_RE = re.compile(r"(?<![\w/#])#(\w[\w/-]*)")
 STRIKETHROUGH_FULL_RE = re.compile(r"^~~(.+?)~~$")
 PRIORITY_RE = re.compile(r"^(?:\[([ABCD])\d*\]|([ABCD])\d*:)\s*(.*)", re.IGNORECASE)
 BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
