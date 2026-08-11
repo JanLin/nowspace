@@ -88,7 +88,18 @@ export type NowspaceHost = {
   /** Added after HOST_UI_API 1 shipped — additive, so the version holds.
    *  An extension written against the older shape checks for it. */
   showSurface: (id: string) => boolean;
+  /** The window event an extension dispatches after changing the week file
+   *  through a baseline API — Plan Week re-checks at once. Additive. */
+  WEEK_CHANGED_EVENT: string;
 };
+
+/** An extension that changed the week file through a baseline API announces
+ *  it by dispatching this window event, and Plan Week re-checks at once
+ *  instead of at its next 30-second poll. In-app writes deserve in-app
+ *  latency; the poll stays as the net for outside writers — Obsidian, a
+ *  sync landing. Dispatching is optional and never required for
+ *  correctness. */
+export const WEEK_CHANGED_EVENT = "week-changed";
 
 /* ── Navigation ────────────────────────────────────────────────────── */
 

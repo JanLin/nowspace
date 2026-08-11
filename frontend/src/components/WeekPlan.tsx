@@ -9,7 +9,7 @@ import VaultBrowser, { type VaultBrowserState } from "./VaultBrowser";
 import HabitStrip, { type HabitTime } from "./HabitStrip";
 import { shiftTime } from "../timefmt";
 import { markDone as markAPDone } from "../actionPoints";
-import { weekSources, externalRef } from "../surfaces";
+import { weekSources, externalRef, WEEK_CHANGED_EVENT } from "../surfaces";
 import { resolveLink, longPressProps } from "../links";
 import { visibleViewportBottom } from "../caretView";
 import { useAppMode } from "../appMode";
@@ -790,12 +790,18 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     };
     const onVisChange = () => { if (!document.hidden) check(); };
     const onFocus = () => check();
+    // An in-app writer (an extension scheduling through /plan/schedule-item)
+    // announces itself with this event — the same check, now, instead of at
+    // the next poll tick. The poll stays as the net for outside writers.
+    const onWeekChanged = () => check();
     document.addEventListener("visibilitychange", onVisChange);
     window.addEventListener("focus", onFocus);
+    window.addEventListener(WEEK_CHANGED_EVENT, onWeekChanged);
     const poll = setInterval(check, 30000);
     return () => {
       document.removeEventListener("visibilitychange", onVisChange);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(WEEK_CHANGED_EVENT, onWeekChanged);
       clearInterval(poll);
     };
   }, [data, weekOffset, dirty, addingAt]);
