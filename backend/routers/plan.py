@@ -828,6 +828,36 @@ class ScheduleItemRequest(BaseModel):
     expected_mtime: Optional[float] = None
 
 
+class BucketItemRequest(BaseModel):
+    group: str
+    text: str
+    ref: str
+    horizon: str = ""  # "" stays in the bucket · n this week · nw next · m month
+    priority: str = "B"
+    expected_mtime: Optional[float] = None
+
+
+def _ref_already_placed(ref: str) -> Optional[str]:
+    """The file already holding this ref — week or bucket — or None.
+
+    One obligation must not become two lines, wherever they live: a row
+    scheduled into the week cannot also be parked in the bucket, and one
+    parked in the bucket cannot be scheduled again until it moves.
+    """
+    ref = ref.lower()
+    for label, path in (
+        ("a week line", config.vault_path / config.plan_week_file),
+        ("the bucket", config.vault_path / config.plan_week_bucket_file),
+    ):
+        try:
+            text = _vault_io.read_text(path, default="")
+        except HTTPException:
+            continue
+        if any(m.group(1).lower() == ref for m in EXTERNAL_REF_RE.finditer(text)):
+            return label
+    return None
+
+
 _REF_SHAPE_RE = re.compile(r"^[0-9a-f]{6,40}$", re.IGNORECASE)
 
 _DAY_SYNONYMS = {
@@ -874,13 +904,14 @@ async def schedule_item(req: ScheduleItemRequest):
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail="Plan Week.md not found in vault")
 
-    original = _vault_io.read_text(plan_file)
-    ref = req.ref.lower()
-    if any(m.group(1).lower() == ref for m in EXTERNAL_REF_RE.finditer(original)):
+    placed = _ref_already_placed(req.ref)
+    if placed:
         raise HTTPException(
             status_code=409,
-            detail="that item is already on a week line — one obligation, one task",
+            detail=f"that item is already on {placed} — one obligation, one task",
         )
+    original = _vault_io.read_text(plan_file)
+    ref = req.ref.lower()
 
     lines = original.split("\n")
     heading_re_local = re.compile(r"^#{3,6}\s+(.+)")
@@ -921,6 +952,77 @@ async def schedule_item(req: ScheduleItemRequest):
         plan_file, "\n".join(lines), req.expected_mtime, what="Week file"
     )
     return {"status": "scheduled", "day": canonical, "line": new_line, "mtime": mtime}
+
+
+@router.post("/bucket-item")
+async def bucket_item(req: BucketItemRequest):
+    """Park one external item in the bucket with a GTD horizon — the other
+    half of seam 5's write.
+
+    The week door is for "this day"; this one is for "not yet": `n` this
+    week, `nw` next week, `m` next month, or bare for the bucket's floor.
+    The line lands under its group in the bucket's own grammar
+    (`\t- nwB: text ~w<entered> ~x<ref>`), the group is created at the end
+    when new, and the `~i` identity is left for the next bucket save to
+    stamp, as it does for every line. Same dedupe as the week door, across
+    both files: one obligation, one place.
+    """
+    horizon = (req.horizon or "").strip().lower()
+    if horizon not in {"", "n", "nw", "m"}:
+        raise HTTPException(status_code=400, detail=f"Unknown horizon: {req.horizon!r}")
+    if not _REF_SHAPE_RE.match(req.ref or ""):
+        raise HTTPException(status_code=400, detail="ref must be 6-40 hex characters")
+    prio = (req.priority or "B").strip().upper()
+    if prio not in {"A", "B", "C", "D"}:
+        raise HTTPException(status_code=400, detail=f"Unknown priority: {req.priority!r}")
+    group = (req.group or "").strip().rstrip(":")
+    if not group or ":" in group:
+        raise HTTPException(status_code=400, detail="group must be a plain, colon-free name")
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is empty")
+    if EXTERNAL_REF_RE.search(text):
+        raise HTTPException(status_code=400, detail="carry the reference in `ref`, not in the text")
+
+    placed = _ref_already_placed(req.ref)
+    if placed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"that item is already on {placed} — one obligation, one place",
+        )
+
+    bucket_file = config.vault_path / config.plan_week_bucket_file
+    if not bucket_file.exists():
+        raise HTTPException(status_code=404, detail="Bucket file not found in vault")
+    original = _vault_io.read_text(bucket_file)
+
+    iso = date.today().isocalendar()
+    week_token = f"~w{iso[0] % 100:02d}{iso[1]:02d}"
+    new_line = f"\t- {horizon}{prio}: {text} {week_token} ~x{req.ref.lower()}"
+
+    lines = original.split("\n")
+    group_line = f"- {group}:"
+    start = next((i for i, l in enumerate(lines) if l.strip() == group_line), None)
+    if start is None:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        lines.extend([group_line, new_line, ""])
+    else:
+        end = len(lines)
+        for i in range(start + 1, len(lines)):
+            s = lines[i]
+            if s.strip() and not s.startswith(("\t", "  ")):
+                end = i
+                break
+        insert_at = end
+        while insert_at > start + 1 and not lines[insert_at - 1].strip():
+            insert_at -= 1
+        lines.insert(insert_at, new_line)
+
+    mtime = _vault_io.write_text_guarded(
+        bucket_file, "\n".join(lines), req.expected_mtime, what="Bucket file"
+    )
+    return {"status": "parked", "group": group, "horizon": horizon, "line": new_line.strip(), "mtime": mtime}
 
 
 @router.post("/create-next-week")
