@@ -761,10 +761,16 @@ export default function Settings({
                 setMoving(true); setMoveResult(null);
                 try {
                   const r = await api.movePlanFolder(moveTarget.trim() || planFolderTarget);
-                  setMoveResult({ ok: true, text: r.status === "already-there"
-                    ? "Already there."
-                    : `Moved ${r.moved.length} files to ${r.folder}/.`
-                      + (r.settings_renamed ? ` Settings now at ${r.settings_file}.` : "") });
+                  // Say what actually happened. "Moved 0 files" while 69
+                  // archived weeks changed folder is technically true and
+                  // completely useless.
+                  const parts: string[] = [];
+                  if (r.moved.length) parts.push(`Moved ${r.moved.length} file${r.moved.length === 1 ? "" : "s"} to ${r.folder}/`);
+                  if (r.archive_moved) parts.push(`archived weeks to ${r.archive_folder}/`);
+                  if (r.settings_renamed) parts.push(`settings to ${r.settings_file}`);
+                  setMoveResult({ ok: true, text: parts.length
+                    ? parts.join(", ").replace(/^./, (c) => c.toUpperCase()) + "."
+                    : "Everything is already where it should be." });
                   const fresh = await api.getSettings();
                   setPlanFolder(fresh.plan_folder || "");
                   setArchiveFolder(fresh.archive_folder || "");
