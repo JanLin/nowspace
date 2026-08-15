@@ -40,7 +40,9 @@ holds the days; the bucket holds everything not in a day yet.
 
 **Finished weeks move to the archive** at the turn of the week — the current
 week file is renamed into the archive folder and a fresh one takes its place.
-Nothing is deleted, and last week is still readable in Obsidian.
+Nothing is deleted, and last week is still readable in Obsidian. The archive is
+named after the folder it archives, the way the rest of the vault is: the weeks
+from `0-Plan` live in `4-Archive/a0-Plan`.
 
 **Configuration is shared, not per-device.** `Plan Week Configuration.md`
 syncs with the vault, so every installation reading this vault — desktop,

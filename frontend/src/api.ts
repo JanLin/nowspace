@@ -693,7 +693,8 @@ export const api = {
    *  that in the vault settings so every installation follows. */
   movePlanFolder: (folder: string) =>
     request<{ status: string; folder: string; from?: string; moved: string[];
-              settings_file?: string; settings_renamed?: boolean }>(
+              settings_file?: string; settings_renamed?: boolean;
+              archive_folder?: string; archive_moved?: boolean }>(
       "/plan/move-plan-folder", { method: "POST", body: JSON.stringify({ folder }) }),
 
   updateVaultPath: (vault_path: string, create_structure: boolean = false) =>
