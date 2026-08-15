@@ -333,8 +333,14 @@ def _week_files() -> List[Path]:
     if current.exists():
         files.append(current)
     base = config.plan_week_file.replace(".md", "")
+    # Only real week files: "<base> - 2026-wk34.md". The glob alone also
+    # matched anything else parked beside them under that name — a hand-made
+    # "Plan Week - pre-dedupe backup.md" was being read as a live week, and
+    # every ~r line in such a copy counts as a live instance, which silently
+    # stops the matching repeat from ever spawning again.
+    dated = re.compile(re.escape(base) + r" - \d{4}-wk\d{1,2}\.md$")
     for p in sorted(config.vault_path.glob(f"{base} - *.md")):
-        if ".sync-conflict-" not in p.name:
+        if ".sync-conflict-" not in p.name and dated.match(p.name):
             files.append(p)
     return files
 
