@@ -381,7 +381,11 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
   // ─── Render: Browser View ──────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full">
+    /* flex-1 + min-h-0 as well as h-full: h-full only resolves against a
+       parent with a definite height, and the Notes wrapper has a max-height,
+       so the panel used to size itself to its content and overflow the cap.
+       As a flex child it shrinks to the cap and the list scrolls inside. */
+    <div className="flex flex-col h-full flex-1 min-h-0">
       {/* Header */}
       <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
         <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
