@@ -32,7 +32,7 @@ def _project_root() -> Path:
 
 # The folder the Plan Week files have always lived in, and the archive that
 # has always received finished weeks. Defaults only: both are vault settings
-# now (plan.folder / plan.archive_folder in Plan Week Configuration.md), so a
+# now (plan.folder / plan.archive_folder in the settings file), so a
 # vault can move them once and every instance sharing it follows.
 DEFAULT_PLAN_FOLDER = "0-Inbox"
 DEFAULT_ARCHIVE_FOLDER = "4-Archive/a0-Inbox"
@@ -159,7 +159,7 @@ class Config:
         self.plan_week_config_file = plan.get("config_file") or ""
 
         # Reference links (group → vault folder path). Shared settings like
-        # this live in Plan Week Configuration.md inside the vault (synced to
+        # this live in the vault's settings file (synced to
         # every installation); the config.yaml value is a legacy fallback for
         # vaults that don't have the file/key yet.
         self._fallback_reference_links: Dict[str, str] = raw.get("reference_links", {})
@@ -221,7 +221,7 @@ class Config:
         return self.system_prompt_path.read_text()
 
     # ------------------------------------------------------------------
-    # Shared settings — stored in Plan Week Configuration.md in the vault
+    # Shared settings — stored in the vault's settings file
     # (a ```yaml block), so Syncthing carries them to every installation.
     # config.yaml values act as a read fallback for keys the file lacks;
     # every save writes the effective values to the vault file, migrating
@@ -348,7 +348,7 @@ class Config:
             content = content.rstrip("\n") + "\n\n" + block + "\n"
         else:
             content = (
-                "# Plan Week Configuration\n\n"
+                f"# {SETTINGS_FILE_NAME[:-3]}\n\n"
                 "Shared Nowspace settings. This file syncs with the vault, so every\n"
                 "installation (Mac, mini, phone) reads the same mappings.\n\n"
                 + block + "\n"
