@@ -128,15 +128,94 @@ def test_it_leaves_your_own_files_alone(client, vault, monkeypatch):
     assert (inbox / "Business cards").is_dir()
 
 
-def test_it_keeps_existing_plan_settings(client, vault, monkeypatch):
-    """A move must not drop archive_folder, or the archive silently relocates."""
+def test_the_archive_follows_the_plan_folder(client, vault, monkeypatch):
+    """a0-Inbox means "the archive of 0-Inbox" — it stops being true the
+    moment the plan leaves the inbox, so the weeks move with it."""
     _fresh(monkeypatch)
-    _populate(vault, "plan:\n  archive_folder: 4-Archive/a0-Inbox\n")
-    assert client.post("/plan/move-plan-folder").status_code == 200
+    _populate(vault)
+    old_archive = vault / "4-Archive" / "a0-Inbox"
+    old_archive.mkdir(parents=True, exist_ok=True)
+    for wk in (31, 32, 33):
+        (old_archive / f"Plan Week - 2026-wk{wk}.md").write_text(f"Week 2026-wk{wk}\n", encoding="utf-8")
+
+    r = client.post("/plan/move-plan-folder", json={"folder": "0-Plan"})
+    assert r.status_code == 200, r.text
+    assert r.json()["archive_folder"] == "4-Archive/a0-Plan"
+    assert r.json()["archive_moved"] is True
+
+    new_archive = vault / "4-Archive" / "a0-Plan"
+    assert sorted(p.name for p in new_archive.iterdir()) == [
+        "Plan Week - 2026-wk31.md", "Plan Week - 2026-wk32.md", "Plan Week - 2026-wk33.md"]
+    assert not old_archive.exists()
+
     config._vault_cfg_cache = None
     config._vault_cfg_mtime = None
-    assert config.archive_folder == "4-Archive/a0-Inbox"
-    assert config.plan_folder == MOVE_DESTINATION
+    assert config.archive_folder == "4-Archive/a0-Plan"
+    assert config.plan_folder == "0-Plan"
+
+
+def test_an_archived_week_is_still_readable_afterwards(client, vault, monkeypatch):
+    """The point of moving it rather than leaving it: history stays reachable."""
+    _fresh(monkeypatch)
+    _populate(vault)
+    old_archive = vault / "4-Archive" / "a0-Inbox"
+    old_archive.mkdir(parents=True, exist_ok=True)
+    (old_archive / "Plan Week - 2026-wk33.md").write_text(
+        "Week 2026-wk33\n\n##### Mon 10\n- [ ] C1: last week's task\n", encoding="utf-8")
+
+    assert client.post("/plan/move-plan-folder", json={"folder": "0-Plan"}).status_code == 200
+    config._vault_cfg_cache = None
+    config._vault_cfg_mtime = None
+
+    from backend.routers.plan import _list_archived_week_files
+    assert [(y, w) for y, w, _ in _list_archived_week_files()] == [(2026, 33)]
+
+
+def test_a_vault_that_moved_earlier_can_finish_the_archive(client, vault, monkeypatch):
+    """Your vault: plan already in 0-Plan, weeks still in a0-Inbox."""
+    _fresh(monkeypatch)
+    plan = vault / "0-Plan"
+    plan.mkdir()
+    (plan / "Plan Week.md").write_text("Week 2026-wk33\n", encoding="utf-8")
+    (vault / DEFAULT_PLAN_FOLDER / SETTINGS_FILE_NAME).write_text(
+        "```yaml\nplan:\n  folder: 0-Plan\n```\n", encoding="utf-8")
+    old_archive = vault / "4-Archive" / "a0-Inbox"
+    old_archive.mkdir(parents=True, exist_ok=True)
+    (old_archive / "Plan Week - 2026-wk32.md").write_text("Week 2026-wk32\n", encoding="utf-8")
+    config._vault_cfg_cache = None
+    config._vault_cfg_mtime = None
+
+    r = client.post("/plan/move-plan-folder", json={"folder": "0-Plan"})
+    assert r.status_code == 200, r.text
+    assert r.json()["moved"] == []            # nothing to move: already there
+    assert r.json()["archive_moved"] is True  # …but the archive still needed it
+    assert (vault / "4-Archive" / "a0-Plan" / "Plan Week - 2026-wk32.md").exists()
+
+
+def test_it_refuses_when_the_archive_target_exists(client, vault, monkeypatch):
+    _fresh(monkeypatch)
+    _populate(vault)
+    (vault / "4-Archive" / "a0-Inbox").mkdir(parents=True, exist_ok=True)
+    (vault / "4-Archive" / "a0-Plan").mkdir(parents=True)
+
+    r = client.post("/plan/move-plan-folder", json={"folder": "0-Plan"})
+    assert r.status_code == 409
+    assert "a0-Plan" in r.json()["detail"]
+    assert (vault / DEFAULT_PLAN_FOLDER / "Plan Week.md").exists()   # nothing moved
+
+
+def test_a_failed_write_puts_the_archive_back_too(client, vault, monkeypatch):
+    _fresh(monkeypatch)
+    _populate(vault)
+    old_archive = vault / "4-Archive" / "a0-Inbox"
+    old_archive.mkdir(parents=True, exist_ok=True)
+    (old_archive / "Plan Week - 2026-wk32.md").write_text("x\n", encoding="utf-8")
+    monkeypatch.setattr(config, "save_plan_folder",
+                        lambda *_a, **_k: (_ for _ in ()).throw(OSError("read-only")))
+
+    assert client.post("/plan/move-plan-folder", json={"folder": "0-Plan"}).status_code == 500
+    assert (old_archive / "Plan Week - 2026-wk32.md").exists(), "the archive was not put back"
+    assert not (vault / "4-Archive" / "a0-Plan").exists()
 
 
 def test_moving_twice_is_a_no_op(client, vault, monkeypatch):

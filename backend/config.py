@@ -290,13 +290,16 @@ class Config:
     def vault_path(self, value) -> None:
         self._plan_folder_override = Path(value) if value is not None else None
 
-    def save_plan_folder(self, folder: str) -> None:
+    def save_plan_folder(self, folder: str, archive_folder: Optional[str] = None) -> None:
         """Record where the plan files live, in the vault's own settings.
 
-        Merged into any existing `plan:` block so archive_folder survives.
+        Merged into any existing `plan:` block, so a key this call doesn't
+        set survives untouched.
         """
         plan = dict(self._vault_settings().get("plan") or {})
         plan["folder"] = folder.strip().strip("/")
+        if archive_folder:
+            plan["archive_folder"] = archive_folder.strip().strip("/")
         self._save_vault_settings({"plan": plan})
         self._plan_folder_override = None      # resolve from the setting now
 
