@@ -34,9 +34,20 @@ def _require_current_schema(sent: int) -> None:
                 "silent field loss."
             ),
         )
-    # The vault itself may have been written by a NEWER installation (the
-    # marker syncs in with the files) — a matched pair like the desktop app
-    # can only find that out here, from the data, not from any API skew.
+    _require_vault_not_newer()
+
+
+def _require_vault_not_newer() -> None:
+    """Refuse writes to a vault a NEWER installation has already upgraded.
+
+    The marker syncs in with the files, so a matched pair like the desktop
+    app can only find this out here, from the data, not from any API skew.
+
+    This runs on week writes as well as bucket writes. Where the plan files
+    live is a vault setting now, and an installation too old to read it would
+    otherwise carry on writing the folder it knows — two live week files in
+    two folders, with Syncthing faithfully keeping both.
+    """
     marker = config.bucket_schema_marker
     if marker > BUCKET_SCHEMA_VERSION:
         raise HTTPException(
@@ -77,16 +88,19 @@ def _week_info_for_offset(offset: int) -> tuple[int, int]:
 
 
 def _vault_root() -> Path:
-    """Return vault root (parent of 0-Inbox if vault_path points to inbox)."""
-    vp = config.vault_path
-    if vp.name == "0-Inbox":
-        return vp.parent
-    return vp
+    """Return the vault root.
+
+    config resolves this once, from config.yaml, and it is the only path that
+    cannot live in the vault. Re-deriving it here by matching a folder NAME
+    was the thing that made the plan folder unmovable.
+    """
+    return config.vault_root
 
 
 def _archive_path() -> Path:
-    """Return the archive folder path: vaultRoot/4-Archive/a0-Inbox."""
-    return _vault_root() / "4-Archive" / "a0-Inbox"
+    """Where finished weeks go — a vault setting (plan.archive_folder),
+    defaulting to the 4-Archive/a0-Inbox every vault has used so far."""
+    return config.archive_path
 
 
 # Inline group teaching: "wallet@w: task" assigns group wallet → the context
@@ -748,6 +762,7 @@ async def get_week_plan(offset: int = 0):
 @router.post("/save-week")
 async def save_week_plan(req: SaveWeekRequest):
     """Write all days back to the week file, replacing the day sections."""
+    _require_vault_not_newer()
     offset = getattr(req, "offset", 0) or 0
     if offset < 0:
         raise HTTPException(status_code=400, detail="Cannot save to archived weeks")
