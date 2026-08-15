@@ -381,7 +381,11 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
   // ─── Render: Browser View ──────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full">
+    /* flex-1 + min-h-0 as well as h-full: h-full only resolves against a
+       parent with a definite height, and the Notes wrapper has a max-height,
+       so the panel used to size itself to its content and overflow the cap.
+       As a flex child it shrinks to the cap and the list scrolls inside. */
+    <div className="flex flex-col h-full flex-1 min-h-0">
       {/* Header */}
       <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border-strong)" }}>
         <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
@@ -451,7 +455,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
 
       {query.trim().length >= 2 ? (
         /* Search results replace the tree until the box is cleared */
-        <div className="flex-1 overflow-y-auto px-3 py-2">
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
           <div className="flex items-center justify-between mb-1">
             <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
               {searching ? "Searching…" : `${hits.length} match${hits.length === 1 ? "" : "es"}`}
@@ -493,7 +497,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
           })}
         </div>
       ) : (
-      <div className="flex-1 overflow-y-auto" ref={scrollRef}>
+      <div className="flex-1 min-h-0 overflow-y-auto" ref={scrollRef}>
         {/* Reference groups — the starred folders. They used to be their own
             browser in the notes panel; here they're jumps into this one, so
             the folders you live in stay one tap away without a second tree. */}

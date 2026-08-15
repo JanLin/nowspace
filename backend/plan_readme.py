@@ -56,12 +56,18 @@ its funnel state, and a task that loses its `~i` token becomes a new task.
 
 ## If you move this folder
 
-`plan.folder` and `plan.archive_folder` in `Plan Week Configuration.md` decide
-where these files live, as paths relative to the vault root. Because they are
-vault settings rather than per-device settings, every installation follows
-automatically. Move the files and the setting together, and make sure every
-installation is on a release that understands the setting before you do —
-an older one keeps writing the folder it knows.
+Settings → *Nowspace's files* moves them and records where they went, so every
+installation reading this vault follows. `plan.folder` and
+`plan.archive_folder` in the configuration file are what it writes, as paths
+relative to the vault root.
+
+The configuration file itself does not move with them. It lives with the tool
+files, in one of two places the app knows to look, and that is exactly what
+lets the rest go anywhere: a file cannot record its own location, so this one
+stays findable and records everything else.
+
+Update every installation before you move — an older one keeps writing the
+folder it knows.
 """
 
 
@@ -88,7 +94,7 @@ def _rows() -> list[tuple[str, str, str]]:
         (config.plan_week_bucket_file,
          "The bucket: everything you intend to do but haven't committed to a day.",
          "Permanent. Items leave by being scheduled, parked or dropped."),
-        (SETTINGS_FILE_NAME,
+        (config._vault_settings_path.name,
          "Settings shared by every installation reading this vault — contexts, "
          "groups, reference folders, and where these files live."
          + _settings_note(),

@@ -542,7 +542,11 @@ export default function App() {
               {/* Vault panel — opening a note from here adds it as a sub-tab,
                   so browsing and reading happen in the same place */}
               {vaultOpen && (
-                <div className="w-full md:w-80 shrink-0 border-l md:pl-0 max-h-[calc(100dvh-160px)] overflow-hidden sticky top-[72px] self-start rounded-lg"
+                /* flex column, so VaultBrowser's own h-full/flex-1 list has a
+                   height to scroll inside. Without it the panel was capped and
+                   overflow-hidden: the tree was simply cut off, with no way to
+                   reach the rest. The header stays put and the list scrolls. */
+                <div className="w-full md:w-80 shrink-0 border-l md:pl-0 flex flex-col max-h-[calc(100dvh-160px)] overflow-hidden sticky top-[72px] self-start rounded-lg"
                   style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
                   <VaultBrowser
                     onClose={() => setVaultOpen(false)}

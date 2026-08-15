@@ -11,8 +11,10 @@ from pydantic import BaseModel
 
 from backend.agents.obsidian_reader import scan_vault, scan_vault_with_carryover, scan_goals, get_day_type, parse_week_plan
 from backend.agents.prioritiser import prioritise_tasks
-from backend.config import config
-from backend import vault_io as _vault_io
+from backend.config import config, SETTINGS_FILE_NAME, SETTINGS_SEARCH_FOLDERS
+from backend import vault_io as _vault_io, plan_readme
+from backend.plan_readme import README_NAME
+from backend.vault_io import is_conflict_copy
 from backend.models import (
     ApproveRequest, PlanResponse, Task, WeekPlanResponse, SaveWeekRequest,
     BucketResponse, BucketSaveRequest, BucketMoveRequest, BucketTask,
@@ -2488,3 +2490,188 @@ for _abbr, _full in {
     "sunday": {"sunday", "sun"},
 }.items():
     _DAY_NORMALIZE_REVERSE[_abbr] = _full
+
+
+# ── Moving the plan folder ────────────────────────────────────────────
+#
+# The destination is yours to choose, and that is only safe because the
+# settings file does NOT go with it. That file can live only where discovery
+# looks (config.SETTINGS_SEARCH_FOLDERS) — a file cannot record its own
+# location — so it stays put, in 5-Meta with the other tool files, and
+# records where the plan went. Split that way, the plan folder can be
+# anything: 0-Plan, 2-Areas/Planning, whatever the vault prefers.
+
+MOVE_DESTINATION = "0-Plan"          # what the UI offers; not a limit
+
+
+def _plan_folder_files(folder: Path) -> list[Path]:
+    """Nowspace's own files in a folder, and nothing else.
+
+    Everything here is a name Nowspace writes. Whatever else lives in the
+    folder is the user's, and a move that took their notes with it would be
+    unforgivable — so the list is by name, never "everything in the folder".
+    """
+    stem = config.plan_week_file.replace(".md", "")
+    # The settings file is deliberately absent: it stays where discovery can
+    # find it and records where everything else went.
+    exact = {
+        config.plan_week_file,
+        config.plan_week_bucket_file,
+        config.plan_week_habits_file,
+        config.plan_week_recurring_file,
+        "Plan Week Funnel Log.md",
+        README_NAME,
+    }
+    found: list[Path] = []
+    if not folder.is_dir():
+        return found
+    for p in sorted(folder.iterdir()):
+        if not p.is_file():
+            continue
+        if is_conflict_copy(p):
+            continue
+        if p.name in exact or _WEEK_COPY_RE.match(p.name) or _TIME_LOG_RE.match(p.name):
+            found.append(p)
+    return found
+
+
+_TIME_LOG_RE = re.compile(r"^Time Log - \d{4}-\d{2}\.md$")
+# Any "Plan Week - …" copy: next week's file, and the pre-dedupe style backup
+# someone parks beside it. Both are Nowspace's to move.
+_WEEK_COPY_RE = re.compile(re.escape(config.plan_week_file.replace('.md', '')) + r" - .+\.md$")
+
+
+def _tidy_settings_file() -> bool:
+    """Give the settings file its current name, and its tool-folder home.
+
+    Only ever from an explicit move — never silently at startup, because a
+    synced file changing name underneath another instance is exactly the kind
+    of surprise this codebase avoids. The old name stays readable forever, so
+    a vault that never takes this step keeps working.
+    """
+    current = config._vault_settings_path
+    if not current.exists():
+        return False
+    home = config.vault_root / SETTINGS_SEARCH_FOLDERS[0]
+    target = home / SETTINGS_FILE_NAME
+    if current == target:
+        return False
+    if target.exists():
+        return False        # something is already there; leave both alone
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(current), str(target))
+    except OSError:
+        return False
+    config._vault_cfg_cache = None
+    config._vault_cfg_mtime = None
+    return True
+
+
+class MovePlanFolderRequest(BaseModel):
+    # Vault-relative, e.g. "0-Plan". Empty means the offered default.
+    folder: str = ""
+
+
+def _validated_destination(raw: str) -> tuple[str, Path]:
+    """A vault-relative folder, or a 400 saying why not."""
+    typed = (raw or MOVE_DESTINATION).strip()
+    if not typed:
+        raise HTTPException(status_code=400, detail="A destination folder is required")
+    # Check before stripping slashes, or "/etc" quietly becomes "<vault>/etc" —
+    # harmless but not what anyone typing an absolute path meant.
+    if typed.startswith("/") or Path(typed).is_absolute():
+        raise HTTPException(
+            status_code=400,
+            detail="Write the folder relative to the vault root, without a leading slash (e.g. 0-Plan)",
+        )
+    folder = typed.strip("/")
+    candidate = Path(folder)
+    if ".." in candidate.parts:
+        raise HTTPException(
+            status_code=400,
+            detail="The folder must be inside the vault, written relative to its root (e.g. 0-Plan)",
+        )
+    dst = (config.vault_root / candidate).resolve()
+    try:
+        dst.relative_to(config.vault_root.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="That folder is outside the vault")
+    return folder, dst
+
+
+@router.post("/move-plan-folder")
+async def move_plan_folder(req: Optional[MovePlanFolderRequest] = None):
+    """Move Nowspace's plan files to the folder the vault chooses.
+
+    The settings file does not come: it stays where discovery can find it and
+    records where the rest went — which is exactly what lets the destination
+    be anything.
+
+    Order matters and is the whole safety argument: the files move first and
+    the setting is written last, so a failure at any point leaves the vault
+    exactly as it was — pointing at files that are still there. If the
+    setting write fails after the files moved, they are moved back.
+    """
+    _require_vault_not_newer()
+
+    folder, dst = _validated_destination(req.folder if req else "")
+    src = config.vault_path
+    if src.resolve() == dst:
+        return {"status": "already-there", "folder": folder, "moved": []}
+
+    files = _plan_folder_files(src)
+    if not files:
+        raise HTTPException(status_code=404, detail=f"No Nowspace files found in {src}")
+
+    # A conflict copy anywhere in either folder means a sync is unresolved.
+    # Moving now is how the resolution gets lost.
+    for check_dir in (src, dst):
+        if check_dir.is_dir():
+            unresolved = [p.name for p in check_dir.iterdir() if is_conflict_copy(p)]
+            if unresolved:
+                raise HTTPException(
+                    status_code=409,
+                    detail=("Unresolved sync conflicts here — resolve them before moving: "
+                            + ", ".join(sorted(unresolved)[:5])),
+                )
+
+    collisions = [f.name for f in files if (dst / f.name).exists()]
+    if collisions:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{folder} already has: " + ", ".join(sorted(collisions)),
+        )
+
+    moved: list[tuple[Path, Path]] = []
+    try:
+        dst.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            target = dst / f.name
+            shutil.move(str(f), str(target))
+            moved.append((f, target))
+        # The settings file has moved with the rest; discovery finds it in its
+        # new home, so this writes the setting where it now lives.
+        config._vault_cfg_cache = None
+        config._vault_cfg_mtime = None
+        config.save_plan_folder(folder)
+    except Exception as exc:
+        for original, now in reversed(moved):
+            try:
+                shutil.move(str(now), str(original))
+            except OSError:
+                pass
+        config._vault_cfg_cache = None
+        config._vault_cfg_mtime = None
+        raise HTTPException(status_code=500, detail=f"Move failed and was undone: {exc}")
+
+    renamed = _tidy_settings_file()
+    plan_readme.ensure()
+    return {
+        "status": "moved",
+        "folder": folder,
+        "settings_file": str(config._vault_settings_path.relative_to(config.vault_root)),
+        "settings_renamed": renamed,
+        "from": str(src.relative_to(config.vault_root)),
+        "moved": [f.name for _, f in moved],
+    }

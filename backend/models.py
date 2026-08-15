@@ -18,7 +18,12 @@ from pydantic import BaseModel, ConfigDict
 # format unchanged, so mixed patch levels interoperate freely and
 # upgrading is optional; a schema bump is what makes an upgrade mandatory
 # across every instance. Bump the two together, or not at all.
-BUCKET_SCHEMA_VERSION = 3
+# 4: the plan folder is a vault setting (plan.folder), so where these files
+#    live is decided by the vault rather than by each installation. The wire
+#    format is unchanged — the bump exists so an installation too old to read
+#    that setting refuses to write rather than carrying on in the folder it
+#    knows, leaving two live week files for Syncthing to keep.
+BUCKET_SCHEMA_VERSION = 4
 
 
 class Subtask(BaseModel):

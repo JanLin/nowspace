@@ -42,7 +42,18 @@ DEFAULT_ARCHIVE_FOLDER = "4-Archive/a0-Inbox"
 # own location — but it is not per-device either: the list is the same in
 # every installation, so two instances on one vault find the same file. New
 # locations go FIRST; the last entry is where every existing vault has it.
-SETTINGS_FILE_NAME = "Plan Week Configuration.md"
+# The file holds contexts, app mode, funnel limits, the diary folder and any
+# extension's settings — almost nothing about Plan Week. It is named for what
+# it configures now. The old name is still read, forever: renaming is an
+# explicit step, and a vault that never takes it must keep working.
+SETTINGS_FILE_NAME = "Nowspace Configuration.md"
+LEGACY_SETTINGS_FILE_NAME = "Plan Week Configuration.md"
+SETTINGS_FILE_NAMES = [SETTINGS_FILE_NAME, LEGACY_SETTINGS_FILE_NAME]
+
+# Where the settings file is looked for, in order, relative to the vault root.
+# The plan files can live anywhere the vault says — but only because THIS file
+# is always findable, and it is findable because these two locations are
+# compiled in rather than configured.
 SETTINGS_SEARCH_FOLDERS = ["5-Meta/Nowspace", DEFAULT_PLAN_FOLDER]
 
 
@@ -231,9 +242,12 @@ class Config:
         if self.plan_week_config_file:
             return self.vault_root / self.plan_week_config_file
         for folder in SETTINGS_SEARCH_FOLDERS:
-            candidate = self.vault_root / folder / SETTINGS_FILE_NAME
-            if candidate.exists():
-                return candidate
+            for name in SETTINGS_FILE_NAMES:
+                candidate = self.vault_root / folder / name
+                if candidate.exists():
+                    return candidate
+        # Nothing yet: a fresh vault gets the current name, in the folder every
+        # vault has always had it.
         return self.vault_root / SETTINGS_SEARCH_FOLDERS[-1] / SETTINGS_FILE_NAME
 
     # ------------------------------------------------------------------
@@ -275,6 +289,16 @@ class Config:
     @vault_path.setter
     def vault_path(self, value) -> None:
         self._plan_folder_override = Path(value) if value is not None else None
+
+    def save_plan_folder(self, folder: str) -> None:
+        """Record where the plan files live, in the vault's own settings.
+
+        Merged into any existing `plan:` block so archive_folder survives.
+        """
+        plan = dict(self._vault_settings().get("plan") or {})
+        plan["folder"] = folder.strip().strip("/")
+        self._save_vault_settings({"plan": plan})
+        self._plan_folder_override = None      # resolve from the setting now
 
     @property
     def archive_path(self) -> Path:

@@ -343,7 +343,7 @@ YourVault/
     Plan Week README.md   <-- what every file here is (generated)
     Plan Week.md          <-- Your weekly plan
     Plan Week Bucket.md   <-- Parked tasks (bucket list)
-    Plan Week Configuration.md  <-- settings shared by every installation
+    Nowspace Configuration.md   <-- settings shared by every installation
   1-Projects/
   2-Areas/
   3-Resources/
@@ -354,9 +354,19 @@ YourVault/
 `Plan Week README.md` is written into the folder and kept current, so the
 files explain themselves in Obsidian without the app running.
 
-**Moving the plan files.** Which folder they live in is a *vault* setting, not
-a per-device one — two installations sharing a vault must agree, and only the
-vault's own location differs between them. In `Plan Week Configuration.md`:
+**Moving the plan files.** Settings → *Nowspace's files* moves them to any
+folder in the vault — `0-Plan`, say — and records it, so every installation
+follows. Update all of them first: one still on an older release refuses to
+write once the vault is stamped, rather than carrying on in the folder it knows.
+
+The configuration file does **not** move with them. It stays in `5-Meta/Nowspace/`
+(or `0-Inbox/`, where older vaults have it), which is what lets the plan files
+go anywhere: a file cannot record its own location, so that one stays findable
+and records where everything else lives.
+
+The setting behind it is a *vault* setting, not a per-device one — two
+installations sharing a vault must agree, and only the vault's own location
+differs between them. In `Plan Week Configuration.md`:
 
 ```yaml
 plan:

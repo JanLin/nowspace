@@ -36,6 +36,11 @@ class ApiKeyStatus(BaseModel):
 
 
 class SettingsResponse(BaseModel):
+    # Where Nowspace keeps its own files, relative to the vault root — a
+    # vault setting, so every installation sharing the vault agrees.
+    plan_folder: str = ""
+    plan_folder_target: str = ""      # where "move" would put them
+    archive_folder: str = ""
     vault_path: str
     vault_root: str
     reference_links: Dict[str, str]
@@ -239,7 +244,11 @@ def _write_reference_links(links: Dict[str, str]) -> None:
 async def get_settings():
     """Return current settings with vault status."""
     key_status = _get_api_key_status()
+    from backend.routers.plan import MOVE_DESTINATION
     return SettingsResponse(
+        plan_folder=config.plan_folder,
+        plan_folder_target=MOVE_DESTINATION,
+        archive_folder=config.archive_folder,
         vault_path=str(config.vault_path),
         vault_root=str(config.vault_root),
         reference_links=_read_reference_links(),
