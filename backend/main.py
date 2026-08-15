@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,7 +17,21 @@ from backend.config import config
 from backend.routers import plan, coach, memory, vault, notes, settings, habits, timelog, handoff, recurrence
 from backend.addons import mount_addons
 
-app = FastAPI(title="Nowspace", version="0.1.0")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Keep the vault's own README beside the plan files.
+
+    The plan is a folder of markdown someone will open in Obsidian without
+    Nowspace running, so the folder explains itself. Written only when it
+    differs, so it never becomes a file Syncthing ships on every start, and
+    never worth failing a startup for.
+    """
+    from backend.plan_readme import ensure
+    ensure()
+    yield
+
+
+app = FastAPI(title="Nowspace", version="0.1.0", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,

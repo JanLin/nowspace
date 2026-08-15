@@ -340,13 +340,33 @@ The app expects an Obsidian vault with PARA folders:
 ```
 YourVault/
   0-Inbox/
+    Plan Week README.md   <-- what every file here is (generated)
     Plan Week.md          <-- Your weekly plan
     Plan Week Bucket.md   <-- Parked tasks (bucket list)
+    Plan Week Configuration.md  <-- settings shared by every installation
   1-Projects/
   2-Areas/
   3-Resources/
   4-Archive/
+    a0-Inbox/             <-- finished weeks
 ```
+
+`Plan Week README.md` is written into the folder and kept current, so the
+files explain themselves in Obsidian without the app running.
+
+**Moving the plan files.** Which folder they live in is a *vault* setting, not
+a per-device one — two installations sharing a vault must agree, and only the
+vault's own location differs between them. In `Plan Week Configuration.md`:
+
+```yaml
+plan:
+  folder: 0-Inbox                     # default; where the Plan Week files live
+  archive_folder: 4-Archive/a0-Inbox  # default; where finished weeks go
+```
+
+Both are relative to the vault root. Change them and move the files together,
+and make sure every installation is on a release that understands the setting
+first — an older one keeps writing the folder it knows.
 
 ## Task Icons
 

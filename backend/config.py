@@ -2,7 +2,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 import yaml
 
 
@@ -28,6 +28,22 @@ def _project_root() -> Path:
         return home_config
     # Normal mode: backend/ is a subdirectory of project root
     return Path(__file__).resolve().parent.parent
+
+
+# The folder the Plan Week files have always lived in, and the archive that
+# has always received finished weeks. Defaults only: both are vault settings
+# now (plan.folder / plan.archive_folder in Plan Week Configuration.md), so a
+# vault can move them once and every instance sharing it follows.
+DEFAULT_PLAN_FOLDER = "0-Inbox"
+DEFAULT_ARCHIVE_FOLDER = "4-Archive/a0-Inbox"
+
+# Where the settings file itself is looked for, in order, relative to the
+# vault root. This is deliberately NOT a setting — a file cannot record its
+# own location — but it is not per-device either: the list is the same in
+# every installation, so two instances on one vault find the same file. New
+# locations go FIRST; the last entry is where every existing vault has it.
+SETTINGS_FILE_NAME = "Plan Week Configuration.md"
+SETTINGS_SEARCH_FOLDERS = ["5-Meta/Nowspace", DEFAULT_PLAN_FOLDER]
 
 
 def _create_default_config(path: Path) -> None:
@@ -77,18 +93,32 @@ class Config:
         # VAULT_PATH env var takes precedence over config.yaml
         vault_env = os.environ.get("VAULT_PATH")
         if vault_env:
-            self.vault_path = Path(vault_env)
+            configured_path = Path(vault_env)
         else:
-            self.vault_path = Path(raw["vault_path"]).expanduser()
+            configured_path = Path(raw["vault_path"]).expanduser()
 
-        # Vault root — full vault directory (parent of PARA folders)
+        # Vault root — full vault directory (parent of PARA folders). This is
+        # the one path that cannot be a vault setting: it is where the vault
+        # IS, and it differs per installation (~/Obsidian/Home on a Mac,
+        # /vault in a container). Everything inside the vault is settable in
+        # the vault, so two instances sharing one vault agree by construction.
         vault_root_raw = raw.get("vault_root")
         if vault_root_raw:
             self.vault_root = Path(vault_root_raw).expanduser()
-        elif self.vault_path.name == "0-Inbox":
-            self.vault_root = self.vault_path.parent
+        elif configured_path.name == DEFAULT_PLAN_FOLDER:
+            self.vault_root = configured_path.parent
         else:
-            self.vault_root = self.vault_path
+            self.vault_root = configured_path
+
+        # Where the Plan Week files live, as a folder RELATIVE to the vault
+        # root — see the plan_folder property. The configured absolute path is
+        # kept only as the legacy fallback: a config.yaml that predates the
+        # setting still resolves to exactly the folder it always did.
+        try:
+            self._legacy_plan_folder = str(configured_path.relative_to(self.vault_root))
+        except ValueError:
+            self._legacy_plan_folder = DEFAULT_PLAN_FOLDER
+        self._plan_folder_override: Optional[Path] = None
 
         # Vault sections — PARA folder names relative to vault_root
         self.vault_sections: Dict[str, str] = raw.get("vault_sections", {
@@ -113,7 +143,9 @@ class Config:
         self.plan_week_bucket_file = plan.get("bucket_file", "Plan Week Bucket.md")
         self.plan_week_habits_file = plan.get("habits_file", "Plan Week Habits.md")
         self.plan_week_recurring_file = plan.get("recurring_file", "Plan Week Recurring.md")
-        self.plan_week_config_file = plan.get("config_file", "0-Inbox/Plan Week Configuration.md")
+        # An explicit config.yaml value still wins; otherwise the file is
+        # discovered (see _vault_settings_path).
+        self.plan_week_config_file = plan.get("config_file") or ""
 
         # Reference links (group → vault folder path). Shared settings like
         # this live in Plan Week Configuration.md inside the vault (synced to
@@ -189,7 +221,65 @@ class Config:
 
     @property
     def _vault_settings_path(self) -> Path:
-        return self.vault_root / self.plan_week_config_file
+        """Where the vault's settings file is.
+
+        An explicit config.yaml `plan.config_file` wins. Otherwise the search
+        order decides: the first folder that already has the file, falling
+        back to the last candidate so a fresh vault gets it where every vault
+        has always had it.
+        """
+        if self.plan_week_config_file:
+            return self.vault_root / self.plan_week_config_file
+        for folder in SETTINGS_SEARCH_FOLDERS:
+            candidate = self.vault_root / folder / SETTINGS_FILE_NAME
+            if candidate.exists():
+                return candidate
+        return self.vault_root / SETTINGS_SEARCH_FOLDERS[-1] / SETTINGS_FILE_NAME
+
+    # ------------------------------------------------------------------
+    # Where the Plan Week files live. Vault settings, not device settings:
+    # two instances on one vault must agree, and only the vault root can
+    # differ between them.
+    # ------------------------------------------------------------------
+
+    def _plan_setting(self, key: str, default: str) -> str:
+        raw = self._vault_settings().get("plan")
+        if isinstance(raw, dict):
+            val = raw.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip().strip("/")
+        return default
+
+    @property
+    def plan_folder(self) -> str:
+        """Vault-relative folder holding Plan Week.md and its siblings."""
+        return self._plan_setting("folder", self._legacy_plan_folder)
+
+    @property
+    def archive_folder(self) -> str:
+        """Vault-relative folder that finished weeks are moved into."""
+        return self._plan_setting("archive_folder", DEFAULT_ARCHIVE_FOLDER)
+
+    @property
+    def vault_path(self) -> Path:
+        """Absolute path of the plan folder — vault_root + plan_folder.
+
+        Still assignable: the tests point the whole config at a throwaway
+        vault by setting this, and a caller that sets it means the folder
+        itself, not a setting to be re-resolved.
+        """
+        if self._plan_folder_override is not None:
+            return self._plan_folder_override
+        return self.vault_root / self.plan_folder
+
+    @vault_path.setter
+    def vault_path(self, value) -> None:
+        self._plan_folder_override = Path(value) if value is not None else None
+
+    @property
+    def archive_path(self) -> Path:
+        """Absolute path of the archive folder."""
+        return self.vault_root / self.archive_folder
 
     def _vault_settings(self) -> dict:
         """Parse the yaml block from the vault settings file (mtime-cached)."""
