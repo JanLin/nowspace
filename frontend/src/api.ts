@@ -265,7 +265,7 @@ export interface DayNotesResponse {
 // BUCKET_SCHEMA_VERSION. Sent with every bucket write; the backend refuses
 // older senders (a stale PWA would otherwise flatten funnel fields), and
 // App.tsx compares it against /health to warn about skew at boot.
-export const CLIENT_SCHEMA_VERSION = 3;
+export const CLIENT_SCHEMA_VERSION = 4;
 
 export const api = {
   health: () => request<{ status: string; schema_version?: number }>("/health"),
@@ -500,6 +500,9 @@ export const api = {
   // Settings
   getSettings: () =>
     request<{
+      plan_folder: string;         // where Nowspace keeps its files, vault-relative
+      plan_folder_target: string;  // where "move" would put them
+      archive_folder: string;
       vault_path: string;
       vault_root: string;
       reference_links: Record<string, string>;
@@ -685,6 +688,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ vault_path }),
     }),
+
+  /** Move Nowspace's own files into the folder it keeps them in, and record
+   *  that in the vault settings so every installation follows. */
+  movePlanFolder: () =>
+    request<{ status: string; folder: string; from?: string; moved: string[] }>(
+      "/plan/move-plan-folder", { method: "POST" }),
 
   updateVaultPath: (vault_path: string, create_structure: boolean = false) =>
     request<{
