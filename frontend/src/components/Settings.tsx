@@ -46,6 +46,11 @@ export default function Settings({
   onOpenPhilosophy?: () => void;
 }) {
   const [vaultPath, setVaultPath] = useState("");
+  const [planFolder, setPlanFolder] = useState("");
+  const [planFolderTarget, setPlanFolderTarget] = useState("");
+  const [archiveFolder, setArchiveFolder] = useState("");
+  const [moving, setMoving] = useState(false);
+  const [moveResult, setMoveResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [vaultRoot, setVaultRoot] = useState("");
   const [referenceLinks, setReferenceLinks] = useState<Record<string, string>>({});
   const [diaryFolder, setDiaryFolder] = useState("");
@@ -139,6 +144,9 @@ export default function Settings({
     api.getSettings().then((s) => {
       setVaultPath(s.vault_path);
       setVaultRoot(s.vault_root);
+      setPlanFolder(s.plan_folder || "");
+      setPlanFolderTarget(s.plan_folder_target || "");
+      setArchiveFolder(s.archive_folder || "");
       setReferenceLinks(s.reference_links);
       setVaultStatus(s.vault_status);
       setCtxRows(buildCtxRows(s.contexts || {}, s.context_tags || {}));
@@ -698,6 +706,77 @@ export default function Settings({
             <span className="font-mono">{hasUnsavedChanges ? validationResult?.vault_root : vaultRoot}</span>
           </div>
         </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* Where Nowspace keeps its files                                   */}
+      {/* ================================================================ */}
+      <section
+        className="rounded-xl p-5 sm:p-6"
+        style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+      >
+        <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
+          Nowspace's files
+        </h2>
+        <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
+          Your week, bucket, habits and settings are markdown files in your vault.
+          Where they live is a <em>vault</em> setting, so every installation reading
+          this vault agrees — phone, desktop and server follow automatically.
+        </p>
+
+        <div className="flex items-center gap-2 text-xs mb-1" style={{ color: "var(--text-tertiary)" }}>
+          <span className="font-medium">Folder:</span>
+          <span className="font-mono">{planFolder || "0-Inbox"}/</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs mb-4" style={{ color: "var(--text-tertiary)" }}>
+          <span className="font-medium">Finished weeks:</span>
+          <span className="font-mono">{archiveFolder || "4-Archive/a0-Inbox"}/</span>
+        </div>
+
+        {planFolderTarget && planFolder !== planFolderTarget && (
+          <>
+            <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+              An inbox is meant to be emptied, and these files never can be — they
+              are the app's working state. Moving them to{" "}
+              <span className="font-mono">{planFolderTarget}/</span> leaves your inbox
+              for what you actually capture. Nowspace moves its own files only;
+              anything else in the folder stays where it is, and the archive of
+              finished weeks does not move.
+            </p>
+            <button
+              onClick={async () => {
+                setMoving(true); setMoveResult(null);
+                try {
+                  const r = await api.movePlanFolder();
+                  setMoveResult({ ok: true, text: r.status === "already-there"
+                    ? "Already there."
+                    : `Moved ${r.moved.length} files to ${r.folder}/.` });
+                  const fresh = await api.getSettings();
+                  setPlanFolder(fresh.plan_folder || "");
+                  setArchiveFolder(fresh.archive_folder || "");
+                  setVaultPath(fresh.vault_path);
+                } catch (e) {
+                  setMoveResult({ ok: false, text: e instanceof Error ? e.message : "Move failed" });
+                } finally { setMoving(false); }
+              }}
+              disabled={moving}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+              style={{ backgroundColor: "var(--accent-bg)", color: "var(--text-active)" }}
+            >
+              {moving ? "Moving…" : `Move to ${planFolderTarget}/`}
+            </button>
+            <p className="text-[11px] mt-2" style={{ color: "var(--text-tertiary)" }}>
+              Update your other installations first — an older one keeps writing the
+              folder it knows.
+            </p>
+          </>
+        )}
+
+        {moveResult && (
+          <p className="text-xs mt-3" style={{ color: moveResult.ok ? "var(--green-text)" : "var(--red-text)" }}>
+            {moveResult.text}
+          </p>
+        )}
       </section>
 
       {/* ================================================================ */}

@@ -11,8 +11,10 @@ from pydantic import BaseModel
 
 from backend.agents.obsidian_reader import scan_vault, scan_vault_with_carryover, scan_goals, get_day_type, parse_week_plan
 from backend.agents.prioritiser import prioritise_tasks
-from backend.config import config
-from backend import vault_io as _vault_io
+from backend.config import config, SETTINGS_FILE_NAME
+from backend import vault_io as _vault_io, plan_readme
+from backend.plan_readme import README_NAME
+from backend.vault_io import is_conflict_copy
 from backend.models import (
     ApproveRequest, PlanResponse, Task, WeekPlanResponse, SaveWeekRequest,
     BucketResponse, BucketSaveRequest, BucketMoveRequest, BucketTask,
@@ -2488,3 +2490,120 @@ for _abbr, _full in {
     "sunday": {"sunday", "sun"},
 }.items():
     _DAY_NORMALIZE_REVERSE[_abbr] = _full
+
+
+# ── Moving the plan folder ────────────────────────────────────────────
+#
+# One destination, deliberately. The settings file can only live where
+# discovery looks for it (config.SETTINGS_SEARCH_FOLDERS) — a file cannot
+# record its own location — so an arbitrary destination would strand it.
+# 5-Meta is a container for tools rather than a PARA category, which is why
+# the plan belongs there and the archive of finished weeks does not.
+
+MOVE_DESTINATION = "5-Meta/Nowspace"
+
+
+def _plan_folder_files(folder: Path) -> list[Path]:
+    """Nowspace's own files in a folder, and nothing else.
+
+    Everything here is a name Nowspace writes. Whatever else lives in the
+    folder is the user's, and a move that took their notes with it would be
+    unforgivable — so the list is by name, never "everything in the folder".
+    """
+    stem = config.plan_week_file.replace(".md", "")
+    exact = {
+        config.plan_week_file,
+        config.plan_week_bucket_file,
+        config.plan_week_habits_file,
+        config.plan_week_recurring_file,
+        SETTINGS_FILE_NAME,
+        "Plan Week Funnel Log.md",
+        README_NAME,
+    }
+    found: list[Path] = []
+    if not folder.is_dir():
+        return found
+    for p in sorted(folder.iterdir()):
+        if not p.is_file():
+            continue
+        if is_conflict_copy(p):
+            continue
+        if p.name in exact or _WEEK_COPY_RE.match(p.name) or _TIME_LOG_RE.match(p.name):
+            found.append(p)
+    return found
+
+
+_TIME_LOG_RE = re.compile(r"^Time Log - \d{4}-\d{2}\.md$")
+# Any "Plan Week - …" copy: next week's file, and the pre-dedupe style backup
+# someone parks beside it. Both are Nowspace's to move.
+_WEEK_COPY_RE = re.compile(re.escape(config.plan_week_file.replace('.md', '')) + r" - .+\.md$")
+
+
+@router.post("/move-plan-folder")
+async def move_plan_folder():
+    """Move Nowspace's files to 5-Meta/Nowspace and record it in the vault.
+
+    Order matters and is the whole safety argument: the files move first and
+    the setting is written last, so a failure at any point leaves the vault
+    exactly as it was — pointing at files that are still there. If the
+    setting write fails after the files moved, they are moved back.
+    """
+    _require_vault_not_newer()
+
+    src = config.vault_path
+    dst = config.vault_root / MOVE_DESTINATION
+    if src.resolve() == dst.resolve():
+        return {"status": "already-there", "folder": MOVE_DESTINATION, "moved": []}
+
+    files = _plan_folder_files(src)
+    if not files:
+        raise HTTPException(status_code=404, detail=f"No Nowspace files found in {src}")
+
+    # A conflict copy anywhere in either folder means a sync is unresolved.
+    # Moving now is how the resolution gets lost.
+    for folder in (src, dst):
+        if folder.is_dir():
+            unresolved = [p.name for p in folder.iterdir() if is_conflict_copy(p)]
+            if unresolved:
+                raise HTTPException(
+                    status_code=409,
+                    detail=("Unresolved sync conflicts here — resolve them before moving: "
+                            + ", ".join(sorted(unresolved)[:5])),
+                )
+
+    collisions = [f.name for f in files if (dst / f.name).exists()]
+    if collisions:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{MOVE_DESTINATION} already has: " + ", ".join(sorted(collisions)),
+        )
+
+    moved: list[tuple[Path, Path]] = []
+    try:
+        dst.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            target = dst / f.name
+            shutil.move(str(f), str(target))
+            moved.append((f, target))
+        # The settings file has moved with the rest; discovery finds it in its
+        # new home, so this writes the setting where it now lives.
+        config._vault_cfg_cache = None
+        config._vault_cfg_mtime = None
+        config.save_plan_folder(MOVE_DESTINATION)
+    except Exception as exc:
+        for original, now in reversed(moved):
+            try:
+                shutil.move(str(now), str(original))
+            except OSError:
+                pass
+        config._vault_cfg_cache = None
+        config._vault_cfg_mtime = None
+        raise HTTPException(status_code=500, detail=f"Move failed and was undone: {exc}")
+
+    plan_readme.ensure()
+    return {
+        "status": "moved",
+        "folder": MOVE_DESTINATION,
+        "from": str(src.relative_to(config.vault_root)),
+        "moved": [f.name for _, f in moved],
+    }

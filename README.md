@@ -354,9 +354,14 @@ YourVault/
 `Plan Week README.md` is written into the folder and kept current, so the
 files explain themselves in Obsidian without the app running.
 
-**Moving the plan files.** Which folder they live in is a *vault* setting, not
-a per-device one — two installations sharing a vault must agree, and only the
-vault's own location differs between them. In `Plan Week Configuration.md`:
+**Moving the plan files.** Settings → *Nowspace's files* moves them to
+`5-Meta/Nowspace/` and records it in the vault, so every installation follows.
+Update all of them first: one still on an older release refuses to write once
+the vault is stamped, rather than carrying on in the folder it knows.
+
+The setting behind it is a *vault* setting, not a per-device one — two
+installations sharing a vault must agree, and only the vault's own location
+differs between them. In `Plan Week Configuration.md`:
 
 ```yaml
 plan:
