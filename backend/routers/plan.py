@@ -2504,6 +2504,19 @@ for _abbr, _full in {
 MOVE_DESTINATION = "0-Plan"          # what the UI offers; not a limit
 
 
+def mirrored_archive_folder(plan_folder: str) -> str:
+    """Where finished weeks belong when the plan lives in `plan_folder`.
+
+    The vault's own convention: 4-Archive holds a0-Inbox, a1-Project,
+    a2-Areas — an "a" and the folder it archives. So the archive of 0-Plan is
+    a0-Plan, and "a0-Inbox" stops being a lie the moment the plan leaves the
+    inbox. Nested folders archive under their last segment: 5-Meta/Nowspace →
+    aNowspace.
+    """
+    leaf = Path(plan_folder).name or plan_folder
+    return f"4-Archive/a{leaf}"
+
+
 def _plan_folder_files(folder: Path) -> list[Path]:
     """Nowspace's own files in a folder, and nothing else.
 
@@ -2617,12 +2630,30 @@ async def move_plan_folder(req: Optional[MovePlanFolderRequest] = None):
 
     folder, dst = _validated_destination(req.folder if req else "")
     src = config.vault_path
-    if src.resolve() == dst:
-        return {"status": "already-there", "folder": folder, "moved": []}
+    plan_in_place = src.resolve() == dst
 
-    files = _plan_folder_files(src)
-    if not files:
+    # The archive mirrors the plan folder, by the vault's own naming: the
+    # weeks from 0-Plan belong in a0-Plan, not in a folder still named after
+    # the inbox. Computed even when the plan files are already where they
+    # should be, so a vault moved before this existed can be finished off.
+    archive_rel = mirrored_archive_folder(folder)
+    archive_src = config.archive_path
+    archive_dst = (config.vault_root / archive_rel).resolve()
+    archive_in_place = archive_src.resolve() == archive_dst
+
+    if plan_in_place and archive_in_place:
+        return {"status": "already-there", "folder": folder, "moved": [],
+                "archive_folder": archive_rel, "archive_moved": False}
+
+    files = [] if plan_in_place else _plan_folder_files(src)
+    if not plan_in_place and not files:
         raise HTTPException(status_code=404, detail=f"No Nowspace files found in {src}")
+
+    if not archive_in_place and archive_src.is_dir() and archive_dst.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"{archive_rel} already exists — move or rename it first",
+        )
 
     # A conflict copy anywhere in either folder means a sync is unresolved.
     # Moving now is how the resolution gets lost.
@@ -2644,18 +2675,29 @@ async def move_plan_folder(req: Optional[MovePlanFolderRequest] = None):
         )
 
     moved: list[tuple[Path, Path]] = []
+    archive_moved = False
     try:
-        dst.mkdir(parents=True, exist_ok=True)
+        if files:
+            dst.mkdir(parents=True, exist_ok=True)
         for f in files:
             target = dst / f.name
             shutil.move(str(f), str(target))
             moved.append((f, target))
-        # The settings file has moved with the rest; discovery finds it in its
-        # new home, so this writes the setting where it now lives.
+        # The whole archive folder in one move — 69 weeks in a mature vault,
+        # and every one of them still readable from the week navigation.
+        if not archive_in_place and archive_src.is_dir():
+            archive_dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(archive_src), str(archive_dst))
+            archive_moved = True
         config._vault_cfg_cache = None
         config._vault_cfg_mtime = None
-        config.save_plan_folder(folder)
+        config.save_plan_folder(folder, archive_rel)
     except Exception as exc:
+        if archive_moved:
+            try:
+                shutil.move(str(archive_dst), str(archive_src))
+            except OSError:
+                pass
         for original, now in reversed(moved):
             try:
                 shutil.move(str(now), str(original))
@@ -2672,6 +2714,8 @@ async def move_plan_folder(req: Optional[MovePlanFolderRequest] = None):
         "folder": folder,
         "settings_file": str(config._vault_settings_path.relative_to(config.vault_root)),
         "settings_renamed": renamed,
+        "archive_folder": archive_rel,
+        "archive_moved": archive_moved,
         "from": str(src.relative_to(config.vault_root)),
         "moved": [f.name for _, f in moved],
     }

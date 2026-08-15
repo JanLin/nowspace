@@ -740,8 +740,10 @@ export default function Settings({
             <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
               Move them anywhere in the vault — the settings file stays with the
               tools and records where they went, which is what lets the rest go
-              wherever you like. Nowspace moves its own files only; anything else
-              in the folder stays, and the archive of finished weeks does not move.
+              wherever you like. Finished weeks come too: the archive is named
+              after the folder it archives, so <span className="font-mono">0-Plan</span>{" "}
+              archives to <span className="font-mono">4-Archive/a0-Plan</span>.
+              Nowspace moves its own files only — anything else in the folder stays.
             </p>
             <div className="flex items-center gap-2 mb-2">
               <input
@@ -759,10 +761,16 @@ export default function Settings({
                 setMoving(true); setMoveResult(null);
                 try {
                   const r = await api.movePlanFolder(moveTarget.trim() || planFolderTarget);
-                  setMoveResult({ ok: true, text: r.status === "already-there"
-                    ? "Already there."
-                    : `Moved ${r.moved.length} files to ${r.folder}/.`
-                      + (r.settings_renamed ? ` Settings now at ${r.settings_file}.` : "") });
+                  // Say what actually happened. "Moved 0 files" while 69
+                  // archived weeks changed folder is technically true and
+                  // completely useless.
+                  const parts: string[] = [];
+                  if (r.moved.length) parts.push(`Moved ${r.moved.length} file${r.moved.length === 1 ? "" : "s"} to ${r.folder}/`);
+                  if (r.archive_moved) parts.push(`archived weeks to ${r.archive_folder}/`);
+                  if (r.settings_renamed) parts.push(`settings to ${r.settings_file}`);
+                  setMoveResult({ ok: true, text: parts.length
+                    ? parts.join(", ").replace(/^./, (c) => c.toUpperCase()) + "."
+                    : "Everything is already where it should be." });
                   const fresh = await api.getSettings();
                   setPlanFolder(fresh.plan_folder || "");
                   setArchiveFolder(fresh.archive_folder || "");
@@ -804,7 +812,7 @@ export default function Settings({
         <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
           Vault folder for daily diary files (<span className="font-mono">&lt;date&gt; diary.md</span>).
           Shown as a Diary button in day view; leave empty to hide the feature.
-          Stored in <span className="font-mono">Plan Week Configuration.md</span>, shared by every installation.
+          Stored in the Nowspace configuration file, shared by every installation.
         </p>
         <div className="flex items-center gap-2">
           <input
@@ -839,7 +847,7 @@ export default function Settings({
         <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
           The Shaping limit is what makes it a priority list rather than a pile — raise it
           reluctantly. The evening cutoff hides open problems from the Slate before sleep.
-          Stored in <span className="font-mono">Plan Week Configuration.md</span>, shared by every installation.
+          Stored in the Nowspace configuration file, shared by every installation.
         </p>
         <div className="flex items-center gap-3 flex-wrap">
           <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -990,7 +998,7 @@ export default function Settings({
           )}
         </div>
         <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
-          Stored in <span className="font-mono">Plan Week Configuration.md</span> in the vault, so every installation shares them. Map group names to vault folders for project files and notes.
+          Stored in the Nowspace configuration file in the vault, so every installation shares them. Map group names to vault folders for project files and notes.
         </p>
 
         {/* Existing links */}
@@ -1159,7 +1167,7 @@ export default function Settings({
           </button>
         </div>
         <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
-          Stored in <span className="font-mono">Plan Week Configuration.md</span> in the vault, shared by every installation. Each context has a single-letter tag
+          Stored in the Nowspace configuration file in the vault, shared by every installation. Each context has a single-letter tag
           (used as <span className="font-mono">@w</span> in task text) and a list of task group prefixes.
           Unknown tags typed in tasks (e.g. <span className="font-mono">@f</span>) are created automatically —
           rename them here. Work, volunteer and personal are built in; ungrouped tasks are personal.
