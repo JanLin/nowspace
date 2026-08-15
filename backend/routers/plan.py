@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from backend.agents.obsidian_reader import scan_vault, scan_vault_with_carryover, scan_goals, get_day_type, parse_week_plan
 from backend.agents.prioritiser import prioritise_tasks
-from backend.config import config, SETTINGS_FILE_NAME
+from backend.config import config, SETTINGS_FILE_NAME, SETTINGS_SEARCH_FOLDERS
 from backend import vault_io as _vault_io, plan_readme
 from backend.plan_readme import README_NAME
 from backend.vault_io import is_conflict_copy
@@ -2494,13 +2494,14 @@ for _abbr, _full in {
 
 # ── Moving the plan folder ────────────────────────────────────────────
 #
-# One destination, deliberately. The settings file can only live where
-# discovery looks for it (config.SETTINGS_SEARCH_FOLDERS) — a file cannot
-# record its own location — so an arbitrary destination would strand it.
-# 5-Meta is a container for tools rather than a PARA category, which is why
-# the plan belongs there and the archive of finished weeks does not.
+# The destination is yours to choose, and that is only safe because the
+# settings file does NOT go with it. That file can live only where discovery
+# looks (config.SETTINGS_SEARCH_FOLDERS) — a file cannot record its own
+# location — so it stays put, in 5-Meta with the other tool files, and
+# records where the plan went. Split that way, the plan folder can be
+# anything: 0-Plan, 2-Areas/Planning, whatever the vault prefers.
 
-MOVE_DESTINATION = "5-Meta/Nowspace"
+MOVE_DESTINATION = "0-Plan"          # what the UI offers; not a limit
 
 
 def _plan_folder_files(folder: Path) -> list[Path]:
@@ -2511,12 +2512,13 @@ def _plan_folder_files(folder: Path) -> list[Path]:
     unforgivable — so the list is by name, never "everything in the folder".
     """
     stem = config.plan_week_file.replace(".md", "")
+    # The settings file is deliberately absent: it stays where discovery can
+    # find it and records where everything else went.
     exact = {
         config.plan_week_file,
         config.plan_week_bucket_file,
         config.plan_week_habits_file,
         config.plan_week_recurring_file,
-        SETTINGS_FILE_NAME,
         "Plan Week Funnel Log.md",
         README_NAME,
     }
@@ -2539,9 +2541,72 @@ _TIME_LOG_RE = re.compile(r"^Time Log - \d{4}-\d{2}\.md$")
 _WEEK_COPY_RE = re.compile(re.escape(config.plan_week_file.replace('.md', '')) + r" - .+\.md$")
 
 
+def _tidy_settings_file() -> bool:
+    """Give the settings file its current name, and its tool-folder home.
+
+    Only ever from an explicit move — never silently at startup, because a
+    synced file changing name underneath another instance is exactly the kind
+    of surprise this codebase avoids. The old name stays readable forever, so
+    a vault that never takes this step keeps working.
+    """
+    current = config._vault_settings_path
+    if not current.exists():
+        return False
+    home = config.vault_root / SETTINGS_SEARCH_FOLDERS[0]
+    target = home / SETTINGS_FILE_NAME
+    if current == target:
+        return False
+    if target.exists():
+        return False        # something is already there; leave both alone
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(current), str(target))
+    except OSError:
+        return False
+    config._vault_cfg_cache = None
+    config._vault_cfg_mtime = None
+    return True
+
+
+class MovePlanFolderRequest(BaseModel):
+    # Vault-relative, e.g. "0-Plan". Empty means the offered default.
+    folder: str = ""
+
+
+def _validated_destination(raw: str) -> tuple[str, Path]:
+    """A vault-relative folder, or a 400 saying why not."""
+    typed = (raw or MOVE_DESTINATION).strip()
+    if not typed:
+        raise HTTPException(status_code=400, detail="A destination folder is required")
+    # Check before stripping slashes, or "/etc" quietly becomes "<vault>/etc" —
+    # harmless but not what anyone typing an absolute path meant.
+    if typed.startswith("/") or Path(typed).is_absolute():
+        raise HTTPException(
+            status_code=400,
+            detail="Write the folder relative to the vault root, without a leading slash (e.g. 0-Plan)",
+        )
+    folder = typed.strip("/")
+    candidate = Path(folder)
+    if ".." in candidate.parts:
+        raise HTTPException(
+            status_code=400,
+            detail="The folder must be inside the vault, written relative to its root (e.g. 0-Plan)",
+        )
+    dst = (config.vault_root / candidate).resolve()
+    try:
+        dst.relative_to(config.vault_root.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="That folder is outside the vault")
+    return folder, dst
+
+
 @router.post("/move-plan-folder")
-async def move_plan_folder():
-    """Move Nowspace's files to 5-Meta/Nowspace and record it in the vault.
+async def move_plan_folder(req: Optional[MovePlanFolderRequest] = None):
+    """Move Nowspace's plan files to the folder the vault chooses.
+
+    The settings file does not come: it stays where discovery can find it and
+    records where the rest went — which is exactly what lets the destination
+    be anything.
 
     Order matters and is the whole safety argument: the files move first and
     the setting is written last, so a failure at any point leaves the vault
@@ -2550,10 +2615,10 @@ async def move_plan_folder():
     """
     _require_vault_not_newer()
 
+    folder, dst = _validated_destination(req.folder if req else "")
     src = config.vault_path
-    dst = config.vault_root / MOVE_DESTINATION
-    if src.resolve() == dst.resolve():
-        return {"status": "already-there", "folder": MOVE_DESTINATION, "moved": []}
+    if src.resolve() == dst:
+        return {"status": "already-there", "folder": folder, "moved": []}
 
     files = _plan_folder_files(src)
     if not files:
@@ -2561,9 +2626,9 @@ async def move_plan_folder():
 
     # A conflict copy anywhere in either folder means a sync is unresolved.
     # Moving now is how the resolution gets lost.
-    for folder in (src, dst):
-        if folder.is_dir():
-            unresolved = [p.name for p in folder.iterdir() if is_conflict_copy(p)]
+    for check_dir in (src, dst):
+        if check_dir.is_dir():
+            unresolved = [p.name for p in check_dir.iterdir() if is_conflict_copy(p)]
             if unresolved:
                 raise HTTPException(
                     status_code=409,
@@ -2575,7 +2640,7 @@ async def move_plan_folder():
     if collisions:
         raise HTTPException(
             status_code=409,
-            detail=f"{MOVE_DESTINATION} already has: " + ", ".join(sorted(collisions)),
+            detail=f"{folder} already has: " + ", ".join(sorted(collisions)),
         )
 
     moved: list[tuple[Path, Path]] = []
@@ -2589,7 +2654,7 @@ async def move_plan_folder():
         # new home, so this writes the setting where it now lives.
         config._vault_cfg_cache = None
         config._vault_cfg_mtime = None
-        config.save_plan_folder(MOVE_DESTINATION)
+        config.save_plan_folder(folder)
     except Exception as exc:
         for original, now in reversed(moved):
             try:
@@ -2600,10 +2665,13 @@ async def move_plan_folder():
         config._vault_cfg_mtime = None
         raise HTTPException(status_code=500, detail=f"Move failed and was undone: {exc}")
 
+    renamed = _tidy_settings_file()
     plan_readme.ensure()
     return {
         "status": "moved",
-        "folder": MOVE_DESTINATION,
+        "folder": folder,
+        "settings_file": str(config._vault_settings_path.relative_to(config.vault_root)),
+        "settings_renamed": renamed,
         "from": str(src.relative_to(config.vault_root)),
         "moved": [f.name for _, f in moved],
     }

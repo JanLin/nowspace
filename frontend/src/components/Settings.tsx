@@ -51,6 +51,7 @@ export default function Settings({
   const [archiveFolder, setArchiveFolder] = useState("");
   const [moving, setMoving] = useState(false);
   const [moveResult, setMoveResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [moveTarget, setMoveTarget] = useState("");
   const [vaultRoot, setVaultRoot] = useState("");
   const [referenceLinks, setReferenceLinks] = useState<Record<string, string>>({});
   const [diaryFolder, setDiaryFolder] = useState("");
@@ -146,6 +147,7 @@ export default function Settings({
       setVaultRoot(s.vault_root);
       setPlanFolder(s.plan_folder || "");
       setPlanFolderTarget(s.plan_folder_target || "");
+      setMoveTarget(s.plan_folder_target || "");
       setArchiveFolder(s.archive_folder || "");
       setReferenceLinks(s.reference_links);
       setVaultStatus(s.vault_status);
@@ -733,24 +735,34 @@ export default function Settings({
           <span className="font-mono">{archiveFolder || "4-Archive/a0-Inbox"}/</span>
         </div>
 
-        {planFolderTarget && planFolder !== planFolderTarget && (
+        {planFolderTarget && (
           <>
             <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-              An inbox is meant to be emptied, and these files never can be — they
-              are the app's working state. Moving them to{" "}
-              <span className="font-mono">{planFolderTarget}/</span> leaves your inbox
-              for what you actually capture. Nowspace moves its own files only;
-              anything else in the folder stays where it is, and the archive of
-              finished weeks does not move.
+              Move them anywhere in the vault — the settings file stays with the
+              tools and records where they went, which is what lets the rest go
+              wherever you like. Nowspace moves its own files only; anything else
+              in the folder stays, and the archive of finished weeks does not move.
             </p>
+            <div className="flex items-center gap-2 mb-2">
+              <input
+                type="text"
+                value={moveTarget}
+                onChange={(e) => setMoveTarget(e.target.value)}
+                placeholder={planFolderTarget}
+                spellCheck={false}
+                className="flex-1 px-3 py-1.5 rounded-lg text-xs font-mono outline-none"
+                style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
+              />
+            </div>
             <button
               onClick={async () => {
                 setMoving(true); setMoveResult(null);
                 try {
-                  const r = await api.movePlanFolder();
+                  const r = await api.movePlanFolder(moveTarget.trim() || planFolderTarget);
                   setMoveResult({ ok: true, text: r.status === "already-there"
                     ? "Already there."
-                    : `Moved ${r.moved.length} files to ${r.folder}/.` });
+                    : `Moved ${r.moved.length} files to ${r.folder}/.`
+                      + (r.settings_renamed ? ` Settings now at ${r.settings_file}.` : "") });
                   const fresh = await api.getSettings();
                   setPlanFolder(fresh.plan_folder || "");
                   setArchiveFolder(fresh.archive_folder || "");
@@ -763,7 +775,7 @@ export default function Settings({
               className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
               style={{ backgroundColor: "var(--accent-bg)", color: "var(--text-active)" }}
             >
-              {moving ? "Moving…" : `Move to ${planFolderTarget}/`}
+              {moving ? "Moving…" : `Move to ${(moveTarget.trim() || planFolderTarget)}/`}
             </button>
             <p className="text-[11px] mt-2" style={{ color: "var(--text-tertiary)" }}>
               Update your other installations first — an older one keeps writing the

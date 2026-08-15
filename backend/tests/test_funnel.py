@@ -351,12 +351,12 @@ def test_vault_marker_written_and_advertised(client, vault):
     """A successful save stamps the vault-shared marker so other (isolated)
     installations can see the format from the synced files."""
     from backend.models import BUCKET_SCHEMA_VERSION
-    from backend.config import config
+    from backend.config import config, SETTINGS_FILE_NAME
     _write_bucket(vault, "# Planning Bucket\n\n- topic\n")
     r = _save(client, [BucketTask(text="topic")])
     assert r.status_code == 200
     assert config.bucket_schema_marker == BUCKET_SCHEMA_VERSION
-    assert "bucket_schema" in (vault / "0-Inbox" / "Plan Week Configuration.md").read_text()
+    assert "bucket_schema" in (vault / "0-Inbox" / SETTINGS_FILE_NAME).read_text()
     assert client.get("/health").json()["vault_schema"] == BUCKET_SCHEMA_VERSION
 
 

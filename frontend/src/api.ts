@@ -691,9 +691,10 @@ export const api = {
 
   /** Move Nowspace's own files into the folder it keeps them in, and record
    *  that in the vault settings so every installation follows. */
-  movePlanFolder: () =>
-    request<{ status: string; folder: string; from?: string; moved: string[] }>(
-      "/plan/move-plan-folder", { method: "POST" }),
+  movePlanFolder: (folder: string) =>
+    request<{ status: string; folder: string; from?: string; moved: string[];
+              settings_file?: string; settings_renamed?: boolean }>(
+      "/plan/move-plan-folder", { method: "POST", body: JSON.stringify({ folder }) }),
 
   updateVaultPath: (vault_path: string, create_structure: boolean = false) =>
     request<{
