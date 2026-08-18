@@ -24,9 +24,13 @@ relay:
 """
 
 
-def _settings_file(vault):
+def _settings_file(vault, extra: str = ""):
     p = vault / "0-Inbox" / "Plan Week Configuration.md"
-    p.write_text(SETTINGS_WITH_ADDON, encoding="utf-8")
+    content = SETTINGS_WITH_ADDON
+    if extra:
+        # Inside the yaml fence, where settings actually parse.
+        content = content.replace("```\n", extra.rstrip() + "\n```\n", 1)
+    p.write_text(content, encoding="utf-8")
     config._vault_cfg_cache = None
     config._vault_cfg_mtime = None
     return p
@@ -169,3 +173,21 @@ def test_the_host_module_exposes_no_setter():
     """The contract is read-only; a settings panel is a seam of its own."""
     from backend import host
     assert not [n for n in dir(host) if n.startswith(("save_", "set_", "write_"))]
+
+
+def test_plan_paths_follow_the_vault_settings(vault):
+    """The paths an extension needs to read scheduled/parked state — resolved
+    by the baseline's own parse, so a moved plan folder moves them too."""
+    from backend import host
+    _settings_file(vault, extra="plan:\n  folder: 0-Plan\n")
+    paths = host.plan_paths()
+    assert paths["folder"] == "0-Plan"
+    assert paths["week_file"] == "0-Plan/Plan Week.md"
+    assert paths["bucket_file"] == "0-Plan/Plan Week Bucket.md"
+
+
+def test_plan_paths_default_without_a_plan_block(vault):
+    from backend import host
+    _settings_file(vault)
+    paths = host.plan_paths()
+    assert paths["week_file"].endswith("/Plan Week.md")

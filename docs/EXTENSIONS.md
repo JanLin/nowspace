@@ -21,13 +21,21 @@ frontend   (nothing)            The host is passed to your register(host) —
 backend    backend.vault_io     read_text, write_text_guarded,
                                 write_guard, is_conflict_copy
            backend.host         HOST_API, AddonRouter,
-                                vault_root, addon_settings
+                                vault_root, addon_settings,
+                                plan_paths
 ```
 
 `vault_root()` is for **resolving** a configured path against the vault this
 server is pointed at. Every write still goes through `vault_io` — a path from
 here plus a direct `open(..., "w")` bypasses the atomic write, the mtime
 guard and the conflict-copy rule in one line.
+
+`plan_paths()` returns where the plan files live, vault-relative and
+resolved by the baseline's own settings parse — `{"folder", "week_file",
+"bucket_file"}`. It exists because the first extension needed exactly this
+and had to re-read the configuration file with a second parser; when the
+owner moved the plan folder, the two parsers disagreed and the extension's
+scheduled-state display silently emptied. Read-only like everything here.
 
 `addon_settings("<id>")` returns your own top-level block from the vault
 settings file, or `{}`. It is the server-side mirror of the `addons` block

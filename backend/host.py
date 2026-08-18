@@ -54,6 +54,31 @@ def addon_settings(addon_id: str) -> dict:
     return dict(block) if isinstance(block, dict) else {}
 
 
+def plan_paths() -> dict:
+    """Where the plan files live, resolved from the vault's own settings.
+
+    Vault-relative, ready to join onto `vault_root()`:
+
+        {"folder": "0-Plan",
+         "week_file": "0-Plan/Plan Week.md",
+         "bucket_file": "0-Plan/Plan Week Bucket.md"}
+
+    Exists because the first extension needed exactly this and had to
+    re-read the configuration file with a second parser to get it — two
+    parsers over one file drift, and when the owner moved the plan folder
+    the extension's scheduled-state display silently emptied. Read-only,
+    like everything on this module: writes to the week and bucket still go
+    through the plan routes, never through paths.
+    """
+    from backend.config import config
+    folder = config.plan_folder
+    return {
+        "folder": folder,
+        "week_file": f"{folder}/{config.plan_week_file}",
+        "bucket_file": f"{folder}/{config.plan_week_bucket_file}",
+    }
+
+
 @runtime_checkable
 class AddonRouter(Protocol):
     """What `mount_addons` expects back from an extension module.
