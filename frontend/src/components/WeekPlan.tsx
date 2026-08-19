@@ -3852,7 +3852,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       {/* Right column — Notes Panel. Sticky + viewport-fitted so its own
           scrollbar reaches the bottom without scrolling the page. */}
       {showNotesPanel && (
-        <div id="day-notes-panel" className="notes-panel-box min-w-0 md:pl-2 overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)] max-md:flex max-md:flex-col max-md:overflow-hidden"
+        <div id="day-notes-panel" className="notes-panel-box min-w-0 md:pl-2 overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)] max-md:flex max-md:flex-col max-md:overflow-y-auto"
           style={{ "--notes-w": `${notesPanelPct}%` } as React.CSSProperties}>
           {diaryOpen && diaryFolder ? (
             <DiaryPanel key={`diary-${weekOffset}-${selectedDayIdx}`} date={viewedDateISO(weekOffset, selectedDayIdx)} folder={diaryFolder} />
