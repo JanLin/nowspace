@@ -41,14 +41,16 @@ function WikiSuggestions({
 
   return (
     <div
-      className="fixed z-[60] bg-white rounded-lg shadow-xl border p-1 min-w-[220px] max-h-48 overflow-y-auto"
-      style={{ top: position.top, left: position.left }}
+      className="fixed z-[60] rounded-lg shadow-xl border p-1 min-w-[220px] max-h-48 overflow-y-auto"
+      style={{ top: position.top, left: position.left,
+               backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}
     >
       {results.map((r) => (
         <button
           key={r.path}
           onMouseDown={(e) => { e.preventDefault(); onSelect(r.name); }}
-          className="w-full text-left px-2 py-1 text-xs rounded hover:bg-blue-50 hover:text-blue-700 text-gray-700 truncate"
+          className="w-full text-left px-2 py-1 text-xs rounded hover:bg-blue-50 hover:text-blue-700 truncate"
+          style={{ color: "var(--text)" }}
         >
           {r.name}
           <span className="text-[10px] text-gray-400 ml-1">
@@ -540,6 +542,13 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
   useEffect(() => {
     const vv = window.visualViewport;
     const refit = () => { fitEditorToViewport(); keepCaretVisible(); };
+    // Scrolling is you saying where you want to look, and chasing the caret
+    // from a scroll event undoes that on the spot. On a phone every scroll
+    // fires visualViewport's, and the chase scrolls back BOTH ways — up when
+    // the caret is below the band, down when it is above — so a note you were
+    // editing could not be scrolled away from at all. The box still refits,
+    // because a keyboard opening mid-scroll must not leave it off-screen.
+    const refitOnly = () => { fitEditorToViewport(); };
     // At mount the card is measured before the layout has settled, so fit
     // again once it has; an observer then keeps it honest through window
     // resizes and a phone keyboard opening.
@@ -555,14 +564,14 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
     if (cardRef.current) ro.observe(cardRef.current);
     window.addEventListener("resize", refit);
     vv?.addEventListener("resize", refit);
-    vv?.addEventListener("scroll", refit);
+    vv?.addEventListener("scroll", refitOnly);
     return () => {
       cancelAnimationFrame(raf);
       clearTimeout(settle);
       ro?.disconnect();
       window.removeEventListener("resize", refit);
       vv?.removeEventListener("resize", refit);
-      vv?.removeEventListener("scroll", refit);
+      vv?.removeEventListener("scroll", refitOnly);
     };
   }, [fitEditorToViewport, keepCaretVisible, loading]);
 
@@ -805,22 +814,27 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
       <div
         ref={cardRef}
         className={embedded
-          ? "bg-white w-full max-w-4xl rounded-xl shadow border border-gray-200 flex flex-col overflow-hidden note-editor-box"
-          : "bg-white w-full max-w-4xl m-4 rounded-xl shadow-2xl flex flex-col overflow-hidden"}
+          ? "w-full max-w-4xl rounded-xl shadow border flex flex-col overflow-hidden note-editor-box"
+          : "w-full max-w-4xl m-4 rounded-xl shadow-2xl flex flex-col overflow-hidden"}
+        style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)", color: "var(--text)" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 bg-gray-50">
+        <div className="flex items-center gap-2 px-4 py-2 border-b"
+          style={{ backgroundColor: "var(--bg-secondary)", borderColor: "var(--border-strong)" }}>
           {/* Nav buttons */}
           <button onClick={goBack} disabled={!canGoBack}
-            className={`text-sm px-1.5 py-0.5 rounded ${canGoBack ? "text-gray-600 hover:bg-gray-200" : "text-gray-300"}`}
+            className="text-sm px-1.5 py-0.5 rounded"
+            style={{ color: canGoBack ? "var(--text-secondary)" : "var(--text-muted)" }}
             title="Back">&larr;</button>
           <button onClick={goForward} disabled={!canGoForward}
-            className={`text-sm px-1.5 py-0.5 rounded ${canGoForward ? "text-gray-600 hover:bg-gray-200" : "text-gray-300"}`}
+            className="text-sm px-1.5 py-0.5 rounded"
+            style={{ color: canGoForward ? "var(--text-secondary)" : "var(--text-muted)" }}
             title="Forward">&rarr;</button>
 
           {/* Breadcrumbs */}
-          <div className="flex items-center gap-1 text-xs text-gray-400 flex-1 min-w-0 overflow-hidden">
+          <div className="flex items-center gap-1 text-xs flex-1 min-w-0 overflow-hidden"
+            style={{ color: "var(--text-tertiary)" }}>
             {pathParts.map((part, i) => {
               const isLast = i === pathParts.length - 1;
               // Folder segments open that folder in the host's vault panel —
@@ -828,9 +842,10 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
               const folder = pathParts.slice(0, i + 1).join("/");
               return (
                 <React.Fragment key={i}>
-                  {i > 0 && <span className="text-gray-300">/</span>}
+                  {i > 0 && <span style={{ color: "var(--text-muted)" }}>/</span>}
                   {isLast || !onOpenFolder ? (
-                    <span className={isLast ? "text-gray-700 font-medium truncate" : "truncate"}>{part}</span>
+                    <span className={isLast ? "font-medium truncate" : "truncate"}
+                      style={isLast ? { color: "var(--text)" } : undefined}>{part}</span>
                   ) : (
                     <button onClick={() => onOpenFolder(folder)} title={`Show ${folder} in the vault panel`}
                       className="truncate hover:text-blue-600 hover:underline transition-colors">
@@ -855,7 +870,7 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
             {narrow && (
               <button onClick={() => setMobilePreview((p) => !p)}
                 className={`px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors ${
-                  mobilePreview ? "bg-blue-50 text-blue-700 border-blue-200" : "text-gray-500 border-gray-200"
+                  mobilePreview ? "bg-blue-50 text-blue-700 border-blue-200" : ""
                 }`}
                 title={mobilePreview ? "Back to editing" : "Preview the rendered note"}>
                 {mobilePreview ? "✎ Edit" : "👁 Preview"}
@@ -864,10 +879,12 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
             {saving && <span className="text-[10px] text-blue-500">Saving...</span>}
             {hasUnsaved && !saving && <span className="text-[10px] text-amber-500">Unsaved</span>}
             {!hasUnsaved && !saving && !loading && <span className="text-[10px] text-green-500">Saved</span>}
-            <a href={obsidianUri(currentPath)} className="text-[10px] text-gray-400 hover:text-blue-600" title="Open in Obsidian">
+            <a href={obsidianUri(currentPath)} className="text-[10px] hover:text-blue-600"
+              style={{ color: "var(--text-tertiary)" }} title="Open in Obsidian">
               Obsidian &rarr;
             </a>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+            <button onClick={onClose} className="text-lg leading-none"
+              style={{ color: "var(--text-tertiary)" }}>&times;</button>
           </div>
         </div>
 
@@ -958,9 +975,9 @@ export default function NoteEditor({ initialPath, initialName, onClose, embedded
         })()}
 
         {/* Editor */}
-        <div ref={editorRef} className="flex-1 overflow-hidden" onKeyUp={handleEditorKeyUp} data-color-mode="light">
+        <div ref={editorRef} className="flex-1 overflow-hidden" onKeyUp={handleEditorKeyUp}>
           {loading ? (
-            <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading...</div>
+            <div className="flex items-center justify-center h-full text-sm" style={{ color: "var(--text-tertiary)" }}>Loading...</div>
           ) : (
             <MDEditor
               value={content}

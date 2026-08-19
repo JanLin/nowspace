@@ -295,8 +295,9 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           onBlur={handleBlur}
           readOnly={isArchive}
           placeholder="Add notes..."
-          className="w-full text-sm leading-[21px] px-2 py-2 border border-gray-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 resize-none min-h-[45vh]"
-          style={{ height: "auto" }}
+          className="w-full text-sm leading-[21px] px-2 py-2 border rounded-lg outline-none focus:ring-1 focus:ring-blue-400 resize-none min-h-[45vh]"
+          style={{ height: "auto", backgroundColor: "var(--bg)", color: "var(--text)",
+                   borderColor: "var(--border-strong)" }}
         />
       ) : (
         <div
@@ -340,10 +341,10 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
             pendingEditRef.current = { caret: caretPos, scroll: panel?.scrollTop ?? 0 };
             setFocused(true);
           }}
-          className={`w-full text-sm px-2 py-2 border border-gray-200 rounded-lg bg-white min-h-[45vh] transition-colors scratchpad-preview ${
+          style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border-strong)" }}
+          className={`w-full text-sm px-2 py-2 border rounded-lg min-h-[45vh] transition-colors scratchpad-preview ${
             isArchive ? "cursor-default" : "cursor-text hover:border-blue-300"
           }`}
-          data-color-mode="light"
         >
           {content ? (
             <>
@@ -505,7 +506,8 @@ function APHarvest({ dayName, weekOffset, manualFile }: {
         <span className="text-[9px]">{open ? "▾" : "▸"}</span>
       </button>
       {open && (
-        <div className="mt-1 border border-amber-200 rounded-lg p-2 space-y-1.5 bg-white">
+        <div className="mt-1 border border-amber-200 rounded-lg p-2 space-y-1.5"
+          style={{ backgroundColor: "var(--card)" }}>
           {files.map((f) => {
             const sections = [...new Set(f.aps.map((a) => a.section))];
             return (
@@ -546,7 +548,8 @@ function APHarvest({ dayName, weekOffset, manualFile }: {
                     {(isExpanded || !sec) && secAPs.map((a) => {
                       const key = `${f.path}|${a.line}`;
                       return (
-                        <label key={key} className={`flex items-start gap-1.5 text-[11px] py-0.5 cursor-pointer text-gray-700 ${sec ? "ml-4" : ""}`}>
+                        <label key={key} className={`flex items-start gap-1.5 text-[11px] py-0.5 cursor-pointer ${sec ? "ml-4" : ""}`}
+                          style={{ color: "var(--text)" }}>
                           <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} className="mt-0.5" />
                           <span className="flex-1">{a.text}</span>
                         </label>
@@ -611,7 +614,7 @@ export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote 
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold text-gray-700">Notes — {dayLabel}</h3>
+        <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Notes — {dayLabel}</h3>
       </div>
 
       {/* Scratchpad */}
