@@ -2754,16 +2754,23 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     // the note.
     const later = () => { setTimeout(() => fitNotesPanel(), 60); setTimeout(() => fitNotesPanel(), 350); };
     const onViewport = () => fitNotesPanel();   // never passes the event as opts
+    // A viewport SCROLL must only re-fit the height, never re-position the
+    // page. While the note has focus the default is to pull the panel's top
+    // to the top of the page area — right when a keyboard opens, a trap on
+    // every scroll: the tasks above could not be scrolled back to, because
+    // each scroll snapped the note back up. Same fault the Notes tab had,
+    // in a different component and by a different route.
+    const onViewportScroll = () => fitNotesPanel({ scroll: false });
     const vv = window.visualViewport;
     vv?.addEventListener("resize", onViewport);
-    vv?.addEventListener("scroll", onViewport);
+    vv?.addEventListener("scroll", onViewportScroll);
     window.addEventListener("resize", onViewport);
     document.addEventListener("focusin", later);
     document.addEventListener("focusout", later);
     return () => {
       timers.forEach(clearTimeout);
       vv?.removeEventListener("resize", onViewport);
-      vv?.removeEventListener("scroll", onViewport);
+      vv?.removeEventListener("scroll", onViewportScroll);
       window.removeEventListener("resize", onViewport);
       document.removeEventListener("focusin", later);
       document.removeEventListener("focusout", later);
@@ -3845,7 +3852,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       {/* Right column — Notes Panel. Sticky + viewport-fitted so its own
           scrollbar reaches the bottom without scrolling the page. */}
       {showNotesPanel && (
-        <div id="day-notes-panel" className="notes-panel-box min-w-0 md:pl-2 overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)] max-md:flex max-md:flex-col max-md:overflow-hidden"
+        <div id="day-notes-panel" className="notes-panel-box min-w-0 md:pl-2 overflow-y-auto md:sticky top-[80px] self-start w-full md:w-[var(--notes-w)] max-md:flex max-md:flex-col max-md:overflow-y-auto"
           style={{ "--notes-w": `${notesPanelPct}%` } as React.CSSProperties}>
           {diaryOpen && diaryFolder ? (
             <DiaryPanel key={`diary-${weekOffset}-${selectedDayIdx}`} date={viewedDateISO(weekOffset, selectedDayIdx)} folder={diaryFolder} />
