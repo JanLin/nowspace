@@ -196,6 +196,10 @@ class Config:
         # Cache for the parsed vault settings file (invalidated by mtime)
         self._vault_cfg_cache = None
         self._vault_cfg_mtime = None
+        # Which candidate the search settled on. Remembered so a file that
+        # blinks out mid-sync cannot silently demote us to a leftover below
+        # it — see _vault_settings_path.
+        self._vault_cfg_path = None
 
         api = raw.get("api", {})
         self.model = api.get("model", "claude-sonnet-4-6")
@@ -238,14 +242,33 @@ class Config:
         order decides: the first folder that already has the file, falling
         back to the last candidate so a fresh vault gets it where every vault
         has always had it.
+
+        **The search never demotes.** A vault that has been through the move
+        keeps a `0-Inbox/Plan Week Configuration.md` sitting below the real
+        `5-Meta/Nowspace/Nowspace Configuration.md`, and this file syncs — so
+        for the instant of a Syncthing rename the real one does not exist and
+        a plain search hands back the leftover, which parses fine and is
+        wrong. Promotion still works, because a higher-priority file
+        appearing IS the move arriving from another instance.
         """
         if self.plan_week_config_file:
             return self.vault_root / self.plan_week_config_file
-        for folder in SETTINGS_SEARCH_FOLDERS:
-            for name in SETTINGS_FILE_NAMES:
-                candidate = self.vault_root / folder / name
-                if candidate.exists():
-                    return candidate
+        candidates = [
+            self.vault_root / folder / name
+            for folder in SETTINGS_SEARCH_FOLDERS
+            for name in SETTINGS_FILE_NAMES
+        ]
+        remembered = self._vault_cfg_path
+        if remembered is not None and remembered not in candidates:
+            remembered = None  # the vault root moved under us (tests do this)
+        found = next((c for c in candidates if c.exists()), None)
+        if found is not None:
+            if remembered is None or candidates.index(found) <= candidates.index(remembered):
+                self._vault_cfg_path = found
+                return found
+            return remembered
+        if remembered is not None:
+            return remembered
         # Nothing yet: a fresh vault gets the current name, in the folder every
         # vault has always had it.
         return self.vault_root / SETTINGS_SEARCH_FOLDERS[-1] / SETTINGS_FILE_NAME
@@ -309,26 +332,50 @@ class Config:
         return self.vault_root / self.archive_folder
 
     def _vault_settings(self) -> dict:
-        """Parse the yaml block from the vault settings file (mtime-cached)."""
+        """Parse the yaml block from the vault settings file (mtime-cached).
+
+        **A read that fails is not an empty settings file.** Every failure
+        here used to return `{}`, and `{}` does not mean "nothing
+        configured" — it means every setting at its default: the plan folder
+        back to `0-Inbox`, an extension's tab gone, `app` back to its
+        built-ins. This file syncs, so it is absent for the instant of a
+        Syncthing rename and can be read while half-written; a save landing
+        in that instant would write to the wrong folder.
+
+        So a failure serves the last good parse instead, and caches nothing
+        against itself — the next call reads again, and the moment the file
+        is whole the real settings are back. Only a successful parse
+        replaces what we know.
+        """
         path = self._vault_settings_path
+        last_good = self._vault_cfg_cache if self._vault_cfg_cache is not None else {}
         try:
             mtime = path.stat().st_mtime
         except OSError:
-            return {}
+            return last_good
         if self._vault_cfg_cache is not None and self._vault_cfg_mtime == mtime:
             return self._vault_cfg_cache
-        parsed: dict = {}
         try:
-            m = self._YAML_BLOCK_RE.search(path.read_text(encoding="utf-8"))
-            if m:
-                loaded = yaml.safe_load(m.group(1))
-                if isinstance(loaded, dict):
-                    parsed = loaded
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return last_good
+        m = self._YAML_BLOCK_RE.search(text)
+        if m is None:
+            # No block at all: a truncated write, or a hand-edit that removed
+            # it. Neither is worth throwing known settings away for — the next
+            # save writes the block back.
+            return last_good
+        try:
+            loaded = yaml.safe_load(m.group(1))
         except Exception:
-            return {}
-        self._vault_cfg_cache = parsed
+            return last_good
+        if not isinstance(loaded, dict):
+            # An empty or non-mapping block reads the same as a half-written
+            # one. Hold what we had rather than fall to defaults.
+            return last_good
+        self._vault_cfg_cache = loaded
         self._vault_cfg_mtime = mtime
-        return parsed
+        return loaded
 
     def _save_vault_settings(self, updates: dict) -> None:
         """Merge updates into the yaml block, preserving surrounding markdown."""
@@ -355,7 +402,10 @@ class Config:
             )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-        self._vault_cfg_cache = None
+        # Keep what we just wrote as the last good parse and force a re-read:
+        # clearing the cache outright would leave the next read with nothing
+        # to fall back on if it landed mid-sync.
+        self._vault_cfg_cache = merged
         self._vault_cfg_mtime = None
 
     @property
