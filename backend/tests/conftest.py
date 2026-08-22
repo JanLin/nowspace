@@ -15,6 +15,7 @@ def vault(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "vault_root", tmp_path)
     monkeypatch.setattr(config, "_vault_cfg_cache", None)
     monkeypatch.setattr(config, "_vault_cfg_mtime", None)
+    monkeypatch.setattr(config, "_vault_cfg_path", None, raising=False)
     return tmp_path
 
 
