@@ -718,9 +718,9 @@ async def get_week_modified(offset: int = 0):
 async def get_week_plan(offset: int = 0):
     """Return all days' tasks from a week plan.
 
-    offset=0  → current week (Plan Week.md)
-    offset=-1 → previous week (from 4-Archive/a0-Inbox)
-    offset=1  → next week (from 0-Inbox, max 1 week forward)
+    offset=0  → current week (Plan Week.md, in the configured plan folder)
+    offset=-1 → previous week (from the configured archive folder)
+    offset=1  → next week (from the plan folder, max 1 week forward)
     """
     if offset > 1:
         raise HTTPException(status_code=400, detail="Cannot look more than 1 week ahead")
@@ -731,22 +731,38 @@ async def get_week_plan(offset: int = 0):
         # Recurrence bookkeeping rides the same lazy seam (idempotent)
         from backend.recurrence import run_recurrence_pass
         run_recurrence_pass()
-        # Current week — Plan Week.md in vault_path (0-Inbox)
+        # Current week — Plan Week.md in the plan folder
         plan_file = config.vault_path / config.plan_week_file
         if not plan_file.exists():
             raise HTTPException(status_code=404, detail="Plan Week.md not found in vault")
     elif offset > 0:
-        # Future week — look in 0-Inbox
+        # Future week — look in the plan folder
         year, week = _week_info_for_offset(offset)
         plan_file = _next_week_file(year, week)
         if not plan_file.exists():
             raise HTTPException(status_code=404, detail=f"Next week file not found. Use create-next-week first.")
     else:
-        # Past week — look in archive (handles both wk08 and wk8 naming)
+        # Past week — look in archive (handles both wk08 and wk8 naming).
+        #
+        # Transition first. A client left open across the rollover still
+        # believes last week is this week, so the week it asks to look BACK
+        # at is the one Plan Week.md is still holding — and it is missing
+        # from the archive for the honest reason that it has not been
+        # archived yet. The seam is idempotent and already runs on a read;
+        # running it here too means a look back heals the rollover instead
+        # of reporting it as a missing file.
+        _auto_transition_if_needed()
         year, week = _week_info_for_offset(offset)
         found = _find_archived_week(year, week)
         if not found:
-            raise HTTPException(status_code=404, detail=f"Archived week {year}-wk{week:02d} not found in 4-Archive/a0-Inbox")
+            # Name the folder that was actually searched. The message used to
+            # hardcode 4-Archive/a0-Inbox, which since 0.7.0 is not where the
+            # archive is for anyone who moved the plan folder — it sent you
+            # looking in a directory the app had not opened.
+            raise HTTPException(
+                status_code=404,
+                detail=f"Archived week {year}-wk{week:02d} not found in {config.archive_folder}",
+            )
         plan_file = found
 
     content = plan_file.read_text(encoding="utf-8")
@@ -1044,7 +1060,7 @@ async def bucket_item(req: BucketItemRequest):
 
 @router.post("/create-next-week")
 async def create_next_week():
-    """Create a blank Plan Week file for next week in 0-Inbox.
+    """Create a blank Plan Week file for next week in the plan folder.
 
     Returns the week label and confirms creation.
     """
@@ -1054,7 +1070,7 @@ async def create_next_week():
     if next_file.exists():
         return {"status": "exists", "week_label": f"Week {year}-wk{week:02d}", "file": str(next_file)}
 
-    # Ensure 0-Inbox directory exists
+    # Ensure the plan folder exists
     next_file.parent.mkdir(parents=True, exist_ok=True)
     content = _create_week_template(year, week)
     _vault_io.write_text_guarded(next_file, content)
@@ -1066,8 +1082,8 @@ async def create_next_week():
 async def transition_week():
     """Archive current Plan Week.md and promote next week's file.
 
-    1. Move Plan Week.md → 4-Archive/a0-Inbox/Plan Week - {year}-wk{week}.md
-    2. If next week file exists in 0-Inbox, rename to Plan Week.md
+    1. Move Plan Week.md → <archive folder>/Plan Week - {year}-wk{week}.md
+    2. If next week file exists in the plan folder, rename to Plan Week.md
     """
     current_file = config.vault_path / config.plan_week_file
     if not current_file.exists():

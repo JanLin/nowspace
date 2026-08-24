@@ -721,6 +721,13 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // mid-navigation save/compare can hit the wrong week's file.
   const dataOffsetRef = useRef(0);
   const fetchSeq = useRef(0);
+  // The calendar day the displayed week was loaded on. The week file's mtime
+  // cannot show the calendar moving on, so an app left open across midnight
+  // goes on believing last week is this week — and the week it then offers
+  // to look BACK at is the one Plan Week.md is still holding, which is why
+  // the archive reported it missing. Nothing rolls the week over but a read
+  // of it, so the read has to happen.
+  const loadedOn = useRef(new Date().toDateString());
 
   // Record mtime after every save or fetch
   const recordMtime = async (ofs: number = dataOffsetRef.current) => {
@@ -771,6 +778,21 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   useEffect(() => {
     const check = async () => {
       if (document.hidden || !data) return;
+      // A day has passed since this week was loaded: the highlighted day is
+      // wrong, and if a week boundary went with it the whole view is a week
+      // behind. Re-read the current week — that read is also what archives
+      // the finished one. Only for the live week: an archived week is a
+      // fixed thing and the calendar has no bearing on it.
+      if (dataOffsetRef.current === 0 && new Date().toDateString() !== loadedOn.current) {
+        const el = document.activeElement as HTMLElement | null;
+        const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+        if (dirty || addingAt || typing) setExternalChange(true);
+        else {
+          fetchWeek(0);
+          window.dispatchEvent(new CustomEvent("week-external-reload"));
+        }
+        return;
+      }
       try {
         const r = await api.getWeekModified(dataOffsetRef.current);
         if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
@@ -1350,6 +1372,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       if (seq !== fetchSeq.current) return; // superseded by a newer navigation
       setData(result);
       dataOffsetRef.current = ofs;
+      loadedOn.current = new Date().toDateString();
       recordMtime(ofs);
     } catch (e) {
       if (seq !== fetchSeq.current) return;
