@@ -631,7 +631,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       setDirty(true);
       // Immediate save for undo (don't wait for debounce)
       try {
-        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current);
+        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current, isArchive);
         if (res.mtime) lastKnownMtime.current = res.mtime;
       } catch (e) {
         if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
@@ -663,7 +663,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (entry.type === "tasks" || entry.type === "both") {
       setDirty(true);
       try {
-        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current);
+        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current, isArchive);
         if (res.mtime) lastKnownMtime.current = res.mtime;
       } catch (e) {
         if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
@@ -997,7 +997,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const pullFromCarry = async (carryIdx: number, dayIdx: number) => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     const task = carryTasks[carryIdx];
     if (!task) return;
     try {
@@ -1021,7 +1021,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const pullCarryGroup = async (groupName: string, dayIdx: number) => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     const dayName = data.days[dayIdx]?.day || "monday";
     const groupTasks = carryTasks.filter((t) => parseGroup(t.text).group === groupName);
     if (groupTasks.length === 0) return;
@@ -1430,7 +1430,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    if (dirty && data && !isArchive) {
+    if (dirty && data && !readOnly) {
       await saveWeek();
     }
   };
@@ -1544,13 +1544,24 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (d) setCarryDaySel(d);
   }, [carryTargetIdx, data]);
 
+  // A past week is read-only until the owner says otherwise. The archive is
+  // not sacred — it is their own notes, and taking something out of a
+  // finished week or adding a link into it is ordinary work. What it should
+  // not be is something you do by accident, so the unlock is one deliberate
+  // press and it does not survive leaving the week.
   const isArchive = weekOffset < 0;
+  const [archiveUnlocked, setArchiveUnlocked] = useState(false);
+  useEffect(() => { setArchiveUnlocked(false); }, [weekOffset]);
+  // What every editing path actually asks. `isArchive` stays the plain fact
+  // of which week this is, for the things that are about the week rather
+  // than about editing it.
+  const readOnly = isArchive && !archiveUnlocked;
 
   const saveWeek = async () => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     setSaving(true);
     try {
-      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, lastKnownMtime.current);
+      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, lastKnownMtime.current, isArchive);
       setSaved(true);
       setDirty(false);
       setExternalChange(false);
@@ -1576,10 +1587,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // null skips the expected_mtime guard; the returned mtime becomes the
   // new baseline so the change poll quiets down.
   const forceSaveWeek = async () => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     setSaving(true);
     try {
-      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, null);
+      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, null, isArchive);
       setSaved(true);
       setDirty(false);
       setExternalChange(false);
@@ -1600,7 +1611,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    if (dirty && !autoSavePaused && !saving && data && !isArchive && !externalChange) {
+    if (dirty && !autoSavePaused && !saving && data && !readOnly && !externalChange) {
       autoSaveTimerRef.current = setTimeout(() => {
         saveWeek();
       }, 2000);
@@ -2022,7 +2033,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const sendToBucket = async (dayIdx: number, taskIdx: number, horizon: string = "") => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     pushUndo("tasks");
     try {
       const result = await api.moveToBucket(taskIdx, dayIdx, weekOffset, horizon);
@@ -2043,7 +2054,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const sendGroupToBucket = async (dayIdx: number, groupName: string) => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     const day = data.days[dayIdx];
     if (!day) return;
     // Collect indices of tasks in this group (reverse order to avoid index shifting)
@@ -2070,7 +2081,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const pullFromBucket = async (bucketIdx: number, dayIdx: number, targetGroup?: string | null) => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     try {
       // Flush pending edits + cancel the autosave first so a stale whole-file save
       // can't revert this partial backend write (same class of bug as carry-forward).
@@ -3883,7 +3894,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             <NotesPanel
               dayName={day.day}
               weekOffset={weekOffset}
-              isArchive={isArchive}
+              readOnly={readOnly}
               onOpenNote={onOpenNote}
             />
           )}
@@ -4126,8 +4137,30 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
              away and comes back when you're done. */
           <div data-plan-toolbar className={`relative ${pinned ? "sticky -top-2 sm:-top-4 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinned ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
           {isArchive && (
-            <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium text-center">
-              📁 Archive — read only
+            <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium flex items-center justify-center gap-2">
+              {archiveUnlocked ? (
+                <>
+                  <span>📝 Archive — editing</span>
+                  <button
+                    onClick={async () => { await flushIfDirty(); setArchiveUnlocked(false); }}
+                    className="underline underline-offset-2 opacity-70 hover:opacity-100 transition-opacity"
+                    title="Save anything outstanding and put this week back to read only"
+                  >
+                    done
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span>📁 Archive — read only</span>
+                  <button
+                    onClick={() => setArchiveUnlocked(true)}
+                    className="underline underline-offset-2 opacity-60 hover:opacity-100 transition-opacity"
+                    title="Edit this finished week — take something out of it, or add a link. Read only again when you leave."
+                  >
+                    edit
+                  </button>
+                </>
+              )}
             </div>
           )}
           <div className="flex items-center justify-between text-sm">
@@ -4395,7 +4428,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       {data && (
         <>
           {/* Goals Banner */}
-          {!isArchive && (
+          {!readOnly && (
             <div className="rounded-lg border transition-all" style={{ backgroundColor: "var(--amber-bg)", borderColor: "var(--amber-border)" }}>
               {/* Header row — always visible */}
               <button
@@ -4873,7 +4906,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         {/* flex-wrap: on phones the running-timer pill drops to its own row
             instead of pushing the stop button off the right edge */}
         <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-x-2 gap-y-1">
-          {!isArchive && (
+          {!readOnly && (
             <button
               onClick={() => {
                 if (autoSavePaused) { saveWeek(); setAutoSavePaused(false); }
@@ -4891,7 +4924,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               {saved ? "✓ Saved" : saving ? "Saving…" : autoSavePaused ? "⏸ Paused" : dirty ? "Saving…" : "Auto-save"}
             </button>
           )}
-          {!isArchive && (
+          {!readOnly && (
             <div className="flex items-center gap-0.5">
               <button onClick={performUndo} disabled={undoStack.current.length === 0}
                 className="px-1 py-0.5 rounded text-xs text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-20 transition-colors"

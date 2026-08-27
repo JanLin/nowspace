@@ -783,8 +783,26 @@ async def save_week_plan(req: SaveWeekRequest):
     _require_vault_not_newer()
     offset = getattr(req, "offset", 0) or 0
     if offset < 0:
-        raise HTTPException(status_code=400, detail="Cannot save to archived weeks")
-    if offset == 0:
+        # A past week is editable, but only on purpose. The archive is not
+        # sacred — it is the owner's own notes, and taking something out of a
+        # finished week or adding a link into it is ordinary work. What it is
+        # not is something a client should be able to do while believing it is
+        # somewhere else, because this route replaces every day section of the
+        # file it is given.
+        if not getattr(req, "allow_archive", False):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot save to archived weeks without the archive edit override",
+            )
+        year, week = _week_info_for_offset(offset)
+        found = _find_archived_week(year, week)
+        if not found:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Archived week {year}-wk{week:02d} not found in {config.archive_folder}",
+            )
+        plan_file = found
+    elif offset == 0:
         plan_file = config.vault_path / config.plan_week_file
     else:
         year, week = _week_info_for_offset(offset)
@@ -1990,6 +2008,16 @@ async def move_bucket_task(req: BucketMoveRequest):
     bucket = _bucket_path()
     if req.week_offset == 0:
         plan_file = config.vault_path / config.plan_week_file
+    elif req.week_offset < 0:
+        # Taking something out of a finished week and into the bucket is the
+        # whole point of being able to edit one. This route touches a single
+        # task, so unlike save-week it needs no intent flag — a client that
+        # cannot see an archived week cannot name one.
+        year, week = _week_info_for_offset(req.week_offset)
+        found = _find_archived_week(year, week)
+        if not found:
+            raise HTTPException(status_code=404, detail="Week plan file not found")
+        plan_file = found
     else:
         year, week = _week_info_for_offset(req.week_offset)
         plan_file = _next_week_file(year, week)
@@ -2264,12 +2292,15 @@ class AppendNoteRequest(BaseModel):
     group: str = ""  # optional group name (e.g., "iGrant")
     timestamp: bool = True  # auto-add timestamp?
     offset: int = 0  # week offset
+    #: The owner has unlocked a past week — see SaveWeekRequest.allow_archive.
+    allow_archive: bool = False
 
 
 class PutNotesRequest(BaseModel):
     day: str  # "monday", "tuesday", etc.
     content: str  # full notes content for this day
     offset: int = 0  # week offset
+    allow_archive: bool = False
 
 
 def _get_plan_file(offset: int) -> Path:
@@ -2322,8 +2353,11 @@ async def append_plan_note(req: AppendNoteRequest):
     Creates the #### Notes and ##### <Day> headings if they don't exist.
     Auto-timestamps the entry if requested.
     """
-    if req.offset < 0:
-        raise HTTPException(status_code=400, detail="Cannot append notes to archived weeks")
+    if req.offset < 0 and not req.allow_archive:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot append notes to archived weeks without the archive edit override",
+        )
 
     plan_file = _get_plan_file(req.offset)
     if not plan_file.exists():
@@ -2419,8 +2453,11 @@ async def append_plan_note(req: AppendNoteRequest):
 @router.put("/notes")
 async def put_plan_notes(req: PutNotesRequest):
     """Replace the full notes content for a specific day in Plan Week.md."""
-    if req.offset < 0:
-        raise HTTPException(status_code=400, detail="Cannot modify notes in archived weeks")
+    if req.offset < 0 and not req.allow_archive:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot modify notes in archived weeks without the archive edit override",
+        )
 
     plan_file = _get_plan_file(req.offset)
     if not plan_file.exists():

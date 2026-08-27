@@ -48,12 +48,12 @@ function WikiLinkHandler({ onOpenNote }: { onOpenNote?: (path: string, name: str
 interface ScratchpadProps {
   dayName: string;
   weekOffset: number;
-  isArchive?: boolean;
+  readOnly?: boolean;
   onOpenNote?: (path: string, name: string) => void;
   insertRef: React.MutableRefObject<((text: string) => void) | null>;
 }
 
-function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: ScratchpadProps) {
+function Scratchpad({ dayName, weekOffset, readOnly, onOpenNote, insertRef }: ScratchpadProps) {
   const [content, setContent] = useState("");
   const [lastSaved, setLastSaved] = useState("");
   const [saving, setSaving] = useState(false);
@@ -93,17 +93,19 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
 
   // Auto-save with debounce
   const save = useCallback(async (text: string) => {
-    // Archive weeks are read only — no path here may write an old week file
-    if (isArchive) return;
+    // A past week is read only until the owner unlocks it in the week view;
+    // `readOnly` is already the answer to that, so reaching this line on a
+    // negative offset means the unlock happened and the write must say so.
+    if (readOnly) return;
     if (text === lastSaved) return;
     setSaving(true);
     try {
-      await api.putNotes(dayName, text, weekOffset);
+      await api.putNotes(dayName, text, weekOffset, weekOffset < 0);
       setLastSaved(text);
       window.dispatchEvent(new CustomEvent("notes-saved"));
     } catch { /* silent */ }
     finally { setSaving(false); }
-  }, [dayName, weekOffset, lastSaved, isArchive]);
+  }, [dayName, weekOffset, lastSaved, readOnly]);
 
   // On phones the floating corner buttons and bottom bar overlap the text
   // being typed — broadcast editing state so WeekPlan can hide them there
@@ -263,10 +265,10 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
     <div
       className="relative"
       onDragOver={(e) => {
-        if (!isArchive && e.dataTransfer.types.includes("vault-note-name")) e.preventDefault();
+        if (!readOnly && e.dataTransfer.types.includes("vault-note-name")) e.preventDefault();
       }}
       onDrop={(e) => {
-        if (isArchive) return;
+        if (readOnly) return;
         const name = e.dataTransfer.getData("vault-note-name");
         if (name) {
           e.preventDefault();
@@ -293,7 +295,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           onChange={handleChange}
           onFocus={() => { setFocused(true); keepCaretVisible(); }}
           onBlur={handleBlur}
-          readOnly={isArchive}
+          readOnly={readOnly}
           placeholder="Add notes..."
           className="w-full text-sm leading-[21px] px-2 py-2 border rounded-lg outline-none focus:ring-1 focus:ring-blue-400 resize-none min-h-[45vh]"
           style={{ height: "auto", backgroundColor: "var(--bg)", color: "var(--text)",
@@ -304,7 +306,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           onClick={(e) => {
             // Archive weeks render the same preview so links stay clickable,
             // but tapping the text must never open the editor.
-            if (isArchive) return;
+            if (readOnly) return;
             // Don't enter edit mode when clicking a wiki link
             if ((e.target as HTMLElement).closest("a.wiki-link")) return;
             // Map the tapped point to a source position so the caret lands
@@ -343,7 +345,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           }}
           style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border-strong)" }}
           className={`w-full text-sm px-2 py-2 border rounded-lg min-h-[45vh] transition-colors scratchpad-preview ${
-            isArchive ? "cursor-default" : "cursor-text hover:border-blue-300"
+            readOnly ? "cursor-default" : "cursor-text hover:border-blue-300"
           }`}
         >
           {content ? (
@@ -372,7 +374,7 @@ function Scratchpad({ dayName, weekOffset, isArchive, onOpenNote, insertRef }: S
           )}
           {/* Hidden textarea for focus management (uncontrolled like the
               real one — its value is never shown) */}
-          <textarea ref={textareaRef} defaultValue={content} onChange={handleChange} readOnly={isArchive}
+          <textarea ref={textareaRef} defaultValue={content} onChange={handleChange} readOnly={readOnly}
             className="absolute opacity-0 pointer-events-none w-0 h-0" tabIndex={-1} />
         </div>
       )}
@@ -576,11 +578,11 @@ function APHarvest({ dayName, weekOffset, manualFile }: {
 interface NotesPanelProps {
   dayName: string;
   weekOffset: number;
-  isArchive?: boolean;
+  readOnly?: boolean;
   onOpenNote?: (path: string, name: string) => void;
 }
 
-export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote }: NotesPanelProps) {
+export default function NotesPanel({ dayName, weekOffset, readOnly, onOpenNote }: NotesPanelProps) {
   const insertRef = useRef<((text: string) => void) | null>(null);
   const dayLabel = dayName.charAt(0).toUpperCase() + dayName.slice(1);
   // ⚡ on a reference file: scan that file for APs (ts forces a rescan of the same file)
@@ -621,13 +623,13 @@ export default function NotesPanel({ dayName, weekOffset, isArchive, onOpenNote 
       <Scratchpad
         dayName={dayName}
         weekOffset={weekOffset}
-        isArchive={isArchive}
+        readOnly={readOnly}
         onOpenNote={onOpenNote}
         insertRef={insertRef}
       />
 
       {/* Action points found in today's linked call notes (or a ⚡-scanned file) */}
-      {!isArchive && <APHarvest dayName={dayName} weekOffset={weekOffset} manualFile={manualScan} />}
+      {!readOnly && <APHarvest dayName={dayName} weekOffset={weekOffset} manualFile={manualScan} />}
     </div>
   );
 }
