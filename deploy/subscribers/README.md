@@ -11,6 +11,14 @@ published, so not even localhost on the mini can open their app.
 - The `tailscale` sidecar joins the **subscriber's** tailnet via a one-time
   login link — you forward the link, they sign in with their own account
   (Google/Apple/Microsoft). No keys or passwords change hands.
+  Tell them to use a **personal** account: a work domain is treated as
+  commercial use and lands them on a 14-day trial instead of the free
+  Personal plan, and their instance looks broken when it lapses.
+- **They can only run one VPN at a time.** Phones allow a single active VPN
+  tunnel, so a corporate VPN or WireGuard switched on alongside disconnects
+  Tailscale and their instance stops loading. Profiles set to connect on
+  demand do this by themselves, so it presents as intermittent. This is the
+  first thing to ask about when a subscriber reports the app is down.
 - The app seeds a starter vault on first run — an instance is usable with
   zero configuration and no account inside Nowspace itself.
 - `--obsidian` adds Obsidian streamed to the browser (same vault), warm in

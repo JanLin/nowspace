@@ -232,6 +232,31 @@ Install the Tailscale app, sign in to the same tailnet, toggle on, open
 the URL from `tailscale serve status`, and use "Add to Home Screen" — the
 PWA manifest makes it launch full-screen like an app.
 
+**Only one VPN can be active on a phone.** iOS and Android allow a single
+packet-tunnel provider, so switching on another VPN — WireGuard, or a work
+VPN — disconnects Tailscale without announcing it. The tell is two symptoms
+that look unrelated: Tailscale reports `out of sync: unable to connect to
+the Tailscale coordination server`, and Nowspace never reaches port 8000.
+Both are the same eviction — with no coordination server MagicDNS stops
+resolving and `tailscale serve` cannot mint its certificate, so the `ts.net`
+URL serves nothing. Check this before debugging the backend: if
+`curl http://127.0.0.1:8000/health` answers on the mini, the backend is fine
+and the fault is in the tunnel.
+
+Watch for VPN profiles set to connect on demand — they reclaim the tunnel by
+themselves, which turns this into an intermittent fault rather than an
+obvious one. If you want the rest of your home network from the phone too,
+advertise it from the mini rather than running a second VPN (substitute your
+own LAN subnet):
+
+```sh
+tailscale up --advertise-routes=192.168.1.0/24
+```
+
+Approve the route under Machines → the mini → Subnet routes in the admin
+console, then enable it in the phone's Tailscale settings. One tunnel does
+both jobs.
+
 ### Updates are automatic
 
 `deploy/update-nowspace.sh` runs hourly via launchd; when `origin/main`
