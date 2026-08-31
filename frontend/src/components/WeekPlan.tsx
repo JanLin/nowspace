@@ -20,6 +20,11 @@ import {
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection, dueHorizon,
 } from "../contexts";
 
+/** Whether the habit strip is unfolded. Per device, like the text size —
+ *  it is about this screen, not something the vault should carry to every
+ *  other installation. */
+const HABITS_OPEN_KEY = "nowspace-habits-open";
+
 const PRIORITY_BADGE: Record<string, string> = {
   A: "bg-red-100 text-red-700",
   B: "bg-amber-100 text-amber-700",
@@ -957,7 +962,19 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Mobile: toolbar clusters collapse to chips; one open at a time
   const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | null>(null);
   const toggleCluster = (k: "tag" | "view" | "filter") => setOpenCluster((prev) => (prev === k ? null : k));
-  const [habitsOpen, setHabitsOpen] = useState(false);
+  // Habits start folded to a single line at every width. The strip is a
+  // standing reminder, not the day's work, and on a wide screen it was
+  // pushing the first task down the page exactly as it did on a phone —
+  // where it has been foldable all along. Opening it is remembered per
+  // device, like the text size: it is about this screen, not the vault.
+  const [habitsOpen, setHabitsOpen] = useState(() => {
+    try { return localStorage.getItem(HABITS_OPEN_KEY) === "1"; } catch { return false; }
+  });
+  const toggleHabits = () => setHabitsOpen((o) => {
+    const next = !o;
+    try { localStorage.setItem(HABITS_OPEN_KEY, next ? "1" : "0"); } catch { /* private mode */ }
+    return next;
+  });
   // Diary: opened explicitly per day, closes on any navigation
   const [diaryOpen, setDiaryOpen] = useState(false);
   const [diaryFolder, setDiaryFolder] = useState("");
@@ -3604,22 +3621,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         }}>
         {/* Habit chips — current week only, shrink as the week goes well */}
         {weekOffset === 0 && habits.length > 0 && !ultraFocusActive && (
-          <>
-            <button
-              onClick={() => setHabitsOpen((o) => !o)}
-              className="sm:hidden flex items-center gap-1.5 text-[11px] px-1.5 py-1 rounded-lg"
-              style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
-            >
-              🌱 Habits
-              <span style={{ color: "var(--text-tertiary)" }}>
-                {habits.filter((h) => (h.period === "day" ? h.today_count > 0 : h.week_count >= h.target)).length}/{habits.length} on track
-              </span>
-              <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{habitsOpen ? "▾" : "▸"}</span>
-            </button>
-            <div className={`${habitsOpen ? "block" : "hidden"} sm:block`}>
-              <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} />
-            </div>
-          </>
+          renderHabits()
         )}
         {/* Day info bar */}
         <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -3909,15 +3911,39 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     );
   };
 
+  /** The habits line: always the fold, the strip only when opened.
+   *
+   *  One renderer for the day view and the grids, so folding them away in
+   *  one does not leave them showing in the other. */
+  const renderHabits = (compact = false) => (
+    <>
+      <button
+        onClick={toggleHabits}
+        className="flex items-center gap-1.5 text-[11px] px-1.5 py-1 rounded-lg"
+        style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+        title={habitsOpen ? "Fold the habits away" : "Show each habit"}
+      >
+        🌱 Habits
+        <span style={{ color: "var(--text-tertiary)" }}>
+          {habits.filter((h) => (h.period === "day" ? h.today_count > 0 : h.week_count >= h.target)).length}/{habits.length} on track
+        </span>
+        <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{habitsOpen ? "▾" : "▸"}</span>
+      </button>
+      {habitsOpen && (
+        <div className="mt-1">
+          <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} compact={compact} />
+        </div>
+      )}
+    </>
+  );
+
   // --- Grid view renderer (5day, 7day, weekend) ---
   const renderGridView = () => {
     if (!data) return null;
     return (
       <>
         {weekOffset === 0 && habits.length > 0 && (
-          <div className="mb-2">
-            <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} compact />
-          </div>
+          <div className="mb-2">{renderHabits(true)}</div>
         )}
         {/* On phones the 5/7-day grids scroll horizontally with readable columns
             instead of crushing; 2-3 columns still fit natively. */}
