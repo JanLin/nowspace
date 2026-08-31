@@ -162,6 +162,9 @@ cp .env.example .env
 # Edit .env — set VAULT_PATH
 docker compose up -d</code></pre>
       <p style="color:var(--text-soft)">Then open <code>http://localhost:8000</code>. Full details, including an always-on-Mac plus phone setup over Tailscale, are in the <a href="https://github.com/JanLin/nowspace#readme" rel="noopener" data-goatcounter-click="gh-getting-started-readme">README</a>.</p>
+      <div class="callout">
+        <strong>One VPN at a time.</strong> Phones allow only one active VPN tunnel, so switching on another VPN — WireGuard, or a work VPN — quietly disconnects Tailscale, and Nowspace stops loading. Profiles set to connect on demand reconnect themselves, which makes it look intermittent rather than obvious. If you also want the rest of your home network, advertise it as a subnet route from the Mac instead of running a second VPN beside Tailscale.
+      </div>
     </div>
   </section>
 
