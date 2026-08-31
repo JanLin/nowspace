@@ -20,6 +20,11 @@ import {
   taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection, dueHorizon,
 } from "../contexts";
 
+/** Whether the habit strip is unfolded. Per device, like the text size —
+ *  it is about this screen, not something the vault should carry to every
+ *  other installation. */
+const HABITS_OPEN_KEY = "nowspace-habits-open";
+
 const PRIORITY_BADGE: Record<string, string> = {
   A: "bg-red-100 text-red-700",
   B: "bg-amber-100 text-amber-700",
@@ -631,7 +636,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       setDirty(true);
       // Immediate save for undo (don't wait for debounce)
       try {
-        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current);
+        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current, isArchive);
         if (res.mtime) lastKnownMtime.current = res.mtime;
       } catch (e) {
         if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
@@ -663,7 +668,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (entry.type === "tasks" || entry.type === "both") {
       setDirty(true);
       try {
-        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current);
+        const res = await api.saveWeekPlan(entry.days, dataOffsetRef.current, lastKnownMtime.current, isArchive);
         if (res.mtime) lastKnownMtime.current = res.mtime;
       } catch (e) {
         if (e instanceof Error && e.message.includes("changed on disk")) setExternalChange(true);
@@ -721,6 +726,13 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // mid-navigation save/compare can hit the wrong week's file.
   const dataOffsetRef = useRef(0);
   const fetchSeq = useRef(0);
+  // The calendar day the displayed week was loaded on. The week file's mtime
+  // cannot show the calendar moving on, so an app left open across midnight
+  // goes on believing last week is this week — and the week it then offers
+  // to look BACK at is the one Plan Week.md is still holding, which is why
+  // the archive reported it missing. Nothing rolls the week over but a read
+  // of it, so the read has to happen.
+  const loadedOn = useRef(new Date().toDateString());
 
   // Record mtime after every save or fetch
   const recordMtime = async (ofs: number = dataOffsetRef.current) => {
@@ -771,6 +783,21 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   useEffect(() => {
     const check = async () => {
       if (document.hidden || !data) return;
+      // A day has passed since this week was loaded: the highlighted day is
+      // wrong, and if a week boundary went with it the whole view is a week
+      // behind. Re-read the current week — that read is also what archives
+      // the finished one. Only for the live week: an archived week is a
+      // fixed thing and the calendar has no bearing on it.
+      if (dataOffsetRef.current === 0 && new Date().toDateString() !== loadedOn.current) {
+        const el = document.activeElement as HTMLElement | null;
+        const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+        if (dirty || addingAt || typing) setExternalChange(true);
+        else {
+          fetchWeek(0);
+          window.dispatchEvent(new CustomEvent("week-external-reload"));
+        }
+        return;
+      }
       try {
         const r = await api.getWeekModified(dataOffsetRef.current);
         if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
@@ -935,7 +962,19 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Mobile: toolbar clusters collapse to chips; one open at a time
   const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | null>(null);
   const toggleCluster = (k: "tag" | "view" | "filter") => setOpenCluster((prev) => (prev === k ? null : k));
-  const [habitsOpen, setHabitsOpen] = useState(false);
+  // Habits start folded to a single line at every width. The strip is a
+  // standing reminder, not the day's work, and on a wide screen it was
+  // pushing the first task down the page exactly as it did on a phone —
+  // where it has been foldable all along. Opening it is remembered per
+  // device, like the text size: it is about this screen, not the vault.
+  const [habitsOpen, setHabitsOpen] = useState(() => {
+    try { return localStorage.getItem(HABITS_OPEN_KEY) === "1"; } catch { return false; }
+  });
+  const toggleHabits = () => setHabitsOpen((o) => {
+    const next = !o;
+    try { localStorage.setItem(HABITS_OPEN_KEY, next ? "1" : "0"); } catch { /* private mode */ }
+    return next;
+  });
   // Diary: opened explicitly per day, closes on any navigation
   const [diaryOpen, setDiaryOpen] = useState(false);
   const [diaryFolder, setDiaryFolder] = useState("");
@@ -975,7 +1014,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const pullFromCarry = async (carryIdx: number, dayIdx: number) => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     const task = carryTasks[carryIdx];
     if (!task) return;
     try {
@@ -999,7 +1038,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const pullCarryGroup = async (groupName: string, dayIdx: number) => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     const dayName = data.days[dayIdx]?.day || "monday";
     const groupTasks = carryTasks.filter((t) => parseGroup(t.text).group === groupName);
     if (groupTasks.length === 0) return;
@@ -1350,6 +1389,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       if (seq !== fetchSeq.current) return; // superseded by a newer navigation
       setData(result);
       dataOffsetRef.current = ofs;
+      loadedOn.current = new Date().toDateString();
       recordMtime(ofs);
     } catch (e) {
       if (seq !== fetchSeq.current) return;
@@ -1407,7 +1447,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    if (dirty && data && !isArchive) {
+    if (dirty && data && !readOnly) {
       await saveWeek();
     }
   };
@@ -1521,13 +1561,24 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (d) setCarryDaySel(d);
   }, [carryTargetIdx, data]);
 
+  // A past week is read-only until the owner says otherwise. The archive is
+  // not sacred — it is their own notes, and taking something out of a
+  // finished week or adding a link into it is ordinary work. What it should
+  // not be is something you do by accident, so the unlock is one deliberate
+  // press and it does not survive leaving the week.
   const isArchive = weekOffset < 0;
+  const [archiveUnlocked, setArchiveUnlocked] = useState(false);
+  useEffect(() => { setArchiveUnlocked(false); }, [weekOffset]);
+  // What every editing path actually asks. `isArchive` stays the plain fact
+  // of which week this is, for the things that are about the week rather
+  // than about editing it.
+  const readOnly = isArchive && !archiveUnlocked;
 
   const saveWeek = async () => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     setSaving(true);
     try {
-      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, lastKnownMtime.current);
+      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, lastKnownMtime.current, isArchive);
       setSaved(true);
       setDirty(false);
       setExternalChange(false);
@@ -1553,10 +1604,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // null skips the expected_mtime guard; the returned mtime becomes the
   // new baseline so the change poll quiets down.
   const forceSaveWeek = async () => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     setSaving(true);
     try {
-      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, null);
+      const res = await api.saveWeekPlan(data.days, dataOffsetRef.current, null, isArchive);
       setSaved(true);
       setDirty(false);
       setExternalChange(false);
@@ -1577,7 +1628,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    if (dirty && !autoSavePaused && !saving && data && !isArchive && !externalChange) {
+    if (dirty && !autoSavePaused && !saving && data && !readOnly && !externalChange) {
       autoSaveTimerRef.current = setTimeout(() => {
         saveWeek();
       }, 2000);
@@ -1999,7 +2050,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const sendToBucket = async (dayIdx: number, taskIdx: number, horizon: string = "") => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     pushUndo("tasks");
     try {
       const result = await api.moveToBucket(taskIdx, dayIdx, weekOffset, horizon);
@@ -2020,7 +2071,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const sendGroupToBucket = async (dayIdx: number, groupName: string) => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     const day = data.days[dayIdx];
     if (!day) return;
     // Collect indices of tasks in this group (reverse order to avoid index shifting)
@@ -2047,7 +2098,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   };
 
   const pullFromBucket = async (bucketIdx: number, dayIdx: number, targetGroup?: string | null) => {
-    if (!data || isArchive) return;
+    if (!data || readOnly) return;
     try {
       // Flush pending edits + cancel the autosave first so a stale whole-file save
       // can't revert this partial backend write (same class of bug as carry-forward).
@@ -3570,22 +3621,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         }}>
         {/* Habit chips — current week only, shrink as the week goes well */}
         {weekOffset === 0 && habits.length > 0 && !ultraFocusActive && (
-          <>
-            <button
-              onClick={() => setHabitsOpen((o) => !o)}
-              className="sm:hidden flex items-center gap-1.5 text-[11px] px-1.5 py-1 rounded-lg"
-              style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
-            >
-              🌱 Habits
-              <span style={{ color: "var(--text-tertiary)" }}>
-                {habits.filter((h) => (h.period === "day" ? h.today_count > 0 : h.week_count >= h.target)).length}/{habits.length} on track
-              </span>
-              <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{habitsOpen ? "▾" : "▸"}</span>
-            </button>
-            <div className={`${habitsOpen ? "block" : "hidden"} sm:block`}>
-              <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} />
-            </div>
-          </>
+          renderHabits()
         )}
         {/* Day info bar */}
         <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -3860,7 +3896,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             <NotesPanel
               dayName={day.day}
               weekOffset={weekOffset}
-              isArchive={isArchive}
+              readOnly={readOnly}
               onOpenNote={onOpenNote}
             />
           )}
@@ -3875,15 +3911,39 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     );
   };
 
+  /** The habits line: always the fold, the strip only when opened.
+   *
+   *  One renderer for the day view and the grids, so folding them away in
+   *  one does not leave them showing in the other. */
+  const renderHabits = (compact = false) => (
+    <>
+      <button
+        onClick={toggleHabits}
+        className="flex items-center gap-1.5 text-[11px] px-1.5 py-1 rounded-lg"
+        style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+        title={habitsOpen ? "Fold the habits away" : "Show each habit"}
+      >
+        🌱 Habits
+        <span style={{ color: "var(--text-tertiary)" }}>
+          {habits.filter((h) => (h.period === "day" ? h.today_count > 0 : h.week_count >= h.target)).length}/{habits.length} on track
+        </span>
+        <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{habitsOpen ? "▾" : "▸"}</span>
+      </button>
+      {habitsOpen && (
+        <div className="mt-1">
+          <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} compact={compact} />
+        </div>
+      )}
+    </>
+  );
+
   // --- Grid view renderer (5day, 7day, weekend) ---
   const renderGridView = () => {
     if (!data) return null;
     return (
       <>
         {weekOffset === 0 && habits.length > 0 && (
-          <div className="mb-2">
-            <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} compact />
-          </div>
+          <div className="mb-2">{renderHabits(true)}</div>
         )}
         {/* On phones the 5/7-day grids scroll horizontally with readable columns
             instead of crushing; 2-3 columns still fit natively. */}
@@ -4103,8 +4163,30 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
              away and comes back when you're done. */
           <div data-plan-toolbar className={`relative ${pinned ? "sticky -top-2 sm:-top-4 z-30 pb-2 -mx-2 px-2 sm:-mx-4 sm:px-4 border-b" : ""}`} style={pinned ? { backgroundColor: "var(--bg)", borderColor: "var(--border)" } : undefined}>
           {isArchive && (
-            <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium text-center">
-              📁 Archive — read only
+            <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium flex items-center justify-center gap-2">
+              {archiveUnlocked ? (
+                <>
+                  <span>📝 Archive — editing</span>
+                  <button
+                    onClick={async () => { await flushIfDirty(); setArchiveUnlocked(false); }}
+                    className="underline underline-offset-2 opacity-70 hover:opacity-100 transition-opacity"
+                    title="Save anything outstanding and put this week back to read only"
+                  >
+                    done
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span>📁 Archive — read only</span>
+                  <button
+                    onClick={() => setArchiveUnlocked(true)}
+                    className="underline underline-offset-2 opacity-60 hover:opacity-100 transition-opacity"
+                    title="Edit this finished week — take something out of it, or add a link. Read only again when you leave."
+                  >
+                    edit
+                  </button>
+                </>
+              )}
             </div>
           )}
           <div className="flex items-center justify-between text-sm">
@@ -4372,7 +4454,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       {data && (
         <>
           {/* Goals Banner */}
-          {!isArchive && (
+          {!readOnly && (
             <div className="rounded-lg border transition-all" style={{ backgroundColor: "var(--amber-bg)", borderColor: "var(--amber-border)" }}>
               {/* Header row — always visible */}
               <button
@@ -4850,7 +4932,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         {/* flex-wrap: on phones the running-timer pill drops to its own row
             instead of pushing the stop button off the right edge */}
         <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-x-2 gap-y-1">
-          {!isArchive && (
+          {!readOnly && (
             <button
               onClick={() => {
                 if (autoSavePaused) { saveWeek(); setAutoSavePaused(false); }
@@ -4868,7 +4950,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               {saved ? "✓ Saved" : saving ? "Saving…" : autoSavePaused ? "⏸ Paused" : dirty ? "Saving…" : "Auto-save"}
             </button>
           )}
-          {!isArchive && (
+          {!readOnly && (
             <div className="flex items-center gap-0.5">
               <button onClick={performUndo} disabled={undoStack.current.length === 0}
                 className="px-1 py-0.5 rounded text-xs text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-20 transition-colors"

@@ -319,10 +319,13 @@ export const api = {
   getWeekModified: (offset: number = 0) =>
     request<{ mtime: number | null }>(`/plan/week-modified?offset=${offset}`),
 
-  saveWeekPlan: (days: DayTasks[], offset: number = 0, expectedMtime?: number | null) =>
+  // allowArchive: only ever true when the owner has unlocked a past week.
+  // The flag travels with the write because this route replaces every day
+  // section of the file — see SaveWeekRequest.allow_archive.
+  saveWeekPlan: (days: DayTasks[], offset: number = 0, expectedMtime?: number | null, allowArchive = false) =>
     request<{ status: string; mtime?: number }>("/plan/save-week", {
       method: "POST",
-      body: JSON.stringify({ days, offset, expected_mtime: expectedMtime ?? null }),
+      body: JSON.stringify({ days, offset, expected_mtime: expectedMtime ?? null, allow_archive: allowArchive }),
     }),
 
   createNextWeek: () =>
@@ -467,16 +470,16 @@ export const api = {
     return request<DayNotesResponse>(`/plan/notes?${params}`);
   },
 
-  appendNote: (day: string, entry: string, group: string = "", timestamp: boolean = true, offset: number = 0) =>
+  appendNote: (day: string, entry: string, group: string = "", timestamp: boolean = true, offset: number = 0, allowArchive = false) =>
     request<{ status: string; day: string }>("/plan/notes/append", {
       method: "POST",
-      body: JSON.stringify({ day, entry, group, timestamp, offset }),
+      body: JSON.stringify({ day, entry, group, timestamp, offset, allow_archive: allowArchive }),
     }),
 
-  putNotes: (day: string, content: string, offset: number = 0) =>
+  putNotes: (day: string, content: string, offset: number = 0, allowArchive = false) =>
     request<{ status: string; day: string }>("/plan/notes", {
       method: "PUT",
-      body: JSON.stringify({ day, content, offset }),
+      body: JSON.stringify({ day, content, offset, allow_archive: allowArchive }),
     }),
 
   // Vault note read/write (for in-app editor)

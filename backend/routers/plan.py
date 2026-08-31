@@ -718,9 +718,9 @@ async def get_week_modified(offset: int = 0):
 async def get_week_plan(offset: int = 0):
     """Return all days' tasks from a week plan.
 
-    offset=0  → current week (Plan Week.md)
-    offset=-1 → previous week (from 4-Archive/a0-Inbox)
-    offset=1  → next week (from 0-Inbox, max 1 week forward)
+    offset=0  → current week (Plan Week.md, in the configured plan folder)
+    offset=-1 → previous week (from the configured archive folder)
+    offset=1  → next week (from the plan folder, max 1 week forward)
     """
     if offset > 1:
         raise HTTPException(status_code=400, detail="Cannot look more than 1 week ahead")
@@ -731,22 +731,38 @@ async def get_week_plan(offset: int = 0):
         # Recurrence bookkeeping rides the same lazy seam (idempotent)
         from backend.recurrence import run_recurrence_pass
         run_recurrence_pass()
-        # Current week — Plan Week.md in vault_path (0-Inbox)
+        # Current week — Plan Week.md in the plan folder
         plan_file = config.vault_path / config.plan_week_file
         if not plan_file.exists():
             raise HTTPException(status_code=404, detail="Plan Week.md not found in vault")
     elif offset > 0:
-        # Future week — look in 0-Inbox
+        # Future week — look in the plan folder
         year, week = _week_info_for_offset(offset)
         plan_file = _next_week_file(year, week)
         if not plan_file.exists():
             raise HTTPException(status_code=404, detail=f"Next week file not found. Use create-next-week first.")
     else:
-        # Past week — look in archive (handles both wk08 and wk8 naming)
+        # Past week — look in archive (handles both wk08 and wk8 naming).
+        #
+        # Transition first. A client left open across the rollover still
+        # believes last week is this week, so the week it asks to look BACK
+        # at is the one Plan Week.md is still holding — and it is missing
+        # from the archive for the honest reason that it has not been
+        # archived yet. The seam is idempotent and already runs on a read;
+        # running it here too means a look back heals the rollover instead
+        # of reporting it as a missing file.
+        _auto_transition_if_needed()
         year, week = _week_info_for_offset(offset)
         found = _find_archived_week(year, week)
         if not found:
-            raise HTTPException(status_code=404, detail=f"Archived week {year}-wk{week:02d} not found in 4-Archive/a0-Inbox")
+            # Name the folder that was actually searched. The message used to
+            # hardcode 4-Archive/a0-Inbox, which since 0.7.0 is not where the
+            # archive is for anyone who moved the plan folder — it sent you
+            # looking in a directory the app had not opened.
+            raise HTTPException(
+                status_code=404,
+                detail=f"Archived week {year}-wk{week:02d} not found in {config.archive_folder}",
+            )
         plan_file = found
 
     content = plan_file.read_text(encoding="utf-8")
@@ -767,8 +783,26 @@ async def save_week_plan(req: SaveWeekRequest):
     _require_vault_not_newer()
     offset = getattr(req, "offset", 0) or 0
     if offset < 0:
-        raise HTTPException(status_code=400, detail="Cannot save to archived weeks")
-    if offset == 0:
+        # A past week is editable, but only on purpose. The archive is not
+        # sacred — it is the owner's own notes, and taking something out of a
+        # finished week or adding a link into it is ordinary work. What it is
+        # not is something a client should be able to do while believing it is
+        # somewhere else, because this route replaces every day section of the
+        # file it is given.
+        if not getattr(req, "allow_archive", False):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot save to archived weeks without the archive edit override",
+            )
+        year, week = _week_info_for_offset(offset)
+        found = _find_archived_week(year, week)
+        if not found:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Archived week {year}-wk{week:02d} not found in {config.archive_folder}",
+            )
+        plan_file = found
+    elif offset == 0:
         plan_file = config.vault_path / config.plan_week_file
     else:
         year, week = _week_info_for_offset(offset)
@@ -1044,7 +1078,7 @@ async def bucket_item(req: BucketItemRequest):
 
 @router.post("/create-next-week")
 async def create_next_week():
-    """Create a blank Plan Week file for next week in 0-Inbox.
+    """Create a blank Plan Week file for next week in the plan folder.
 
     Returns the week label and confirms creation.
     """
@@ -1054,7 +1088,7 @@ async def create_next_week():
     if next_file.exists():
         return {"status": "exists", "week_label": f"Week {year}-wk{week:02d}", "file": str(next_file)}
 
-    # Ensure 0-Inbox directory exists
+    # Ensure the plan folder exists
     next_file.parent.mkdir(parents=True, exist_ok=True)
     content = _create_week_template(year, week)
     _vault_io.write_text_guarded(next_file, content)
@@ -1066,8 +1100,8 @@ async def create_next_week():
 async def transition_week():
     """Archive current Plan Week.md and promote next week's file.
 
-    1. Move Plan Week.md → 4-Archive/a0-Inbox/Plan Week - {year}-wk{week}.md
-    2. If next week file exists in 0-Inbox, rename to Plan Week.md
+    1. Move Plan Week.md → <archive folder>/Plan Week - {year}-wk{week}.md
+    2. If next week file exists in the plan folder, rename to Plan Week.md
     """
     current_file = config.vault_path / config.plan_week_file
     if not current_file.exists():
@@ -1974,6 +2008,16 @@ async def move_bucket_task(req: BucketMoveRequest):
     bucket = _bucket_path()
     if req.week_offset == 0:
         plan_file = config.vault_path / config.plan_week_file
+    elif req.week_offset < 0:
+        # Taking something out of a finished week and into the bucket is the
+        # whole point of being able to edit one. This route touches a single
+        # task, so unlike save-week it needs no intent flag — a client that
+        # cannot see an archived week cannot name one.
+        year, week = _week_info_for_offset(req.week_offset)
+        found = _find_archived_week(year, week)
+        if not found:
+            raise HTTPException(status_code=404, detail="Week plan file not found")
+        plan_file = found
     else:
         year, week = _week_info_for_offset(req.week_offset)
         plan_file = _next_week_file(year, week)
@@ -2248,12 +2292,15 @@ class AppendNoteRequest(BaseModel):
     group: str = ""  # optional group name (e.g., "iGrant")
     timestamp: bool = True  # auto-add timestamp?
     offset: int = 0  # week offset
+    #: The owner has unlocked a past week — see SaveWeekRequest.allow_archive.
+    allow_archive: bool = False
 
 
 class PutNotesRequest(BaseModel):
     day: str  # "monday", "tuesday", etc.
     content: str  # full notes content for this day
     offset: int = 0  # week offset
+    allow_archive: bool = False
 
 
 def _get_plan_file(offset: int) -> Path:
@@ -2306,8 +2353,11 @@ async def append_plan_note(req: AppendNoteRequest):
     Creates the #### Notes and ##### <Day> headings if they don't exist.
     Auto-timestamps the entry if requested.
     """
-    if req.offset < 0:
-        raise HTTPException(status_code=400, detail="Cannot append notes to archived weeks")
+    if req.offset < 0 and not req.allow_archive:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot append notes to archived weeks without the archive edit override",
+        )
 
     plan_file = _get_plan_file(req.offset)
     if not plan_file.exists():
@@ -2403,8 +2453,11 @@ async def append_plan_note(req: AppendNoteRequest):
 @router.put("/notes")
 async def put_plan_notes(req: PutNotesRequest):
     """Replace the full notes content for a specific day in Plan Week.md."""
-    if req.offset < 0:
-        raise HTTPException(status_code=400, detail="Cannot modify notes in archived weeks")
+    if req.offset < 0 and not req.allow_archive:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot modify notes in archived weeks without the archive edit override",
+        )
 
     plan_file = _get_plan_file(req.offset)
     if not plan_file.exists():

@@ -117,6 +117,12 @@ class SaveWeekRequest(BaseModel):
     # newer (edited in Obsidian or synced in from another device), the save
     # is refused with 409 instead of clobbering. None = no check.
     expected_mtime: Optional[float] = None
+    # Writing a past week is possible, never accidental. save-week replaces
+    # every day section of the file, so a client that merely believes it is
+    # on the current week must not be able to land one on an archived one:
+    # the intent travels with the request. An older client cannot set it, and
+    # that is the point.
+    allow_archive: bool = False
 
 
 class BucketTask(BaseModel):
