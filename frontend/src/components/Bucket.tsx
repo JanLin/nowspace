@@ -411,7 +411,20 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       if (document.hidden || !data) return;
       try {
         const r = await api.getBucketModified();
-        if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
+        if (!r.mtime) return;
+        // An unknown baseline is not "unchanged". recordMtime swallows its
+        // error, and this tab never unmounts — App hides it with a class —
+        // so a single failed mtime read used to leave this null and the
+        // comparison below false for the life of the page: an edit made in
+        // Obsidian never arrived, and only a reload brought it in. Take the
+        // reading as the baseline (which stops this repeating) and re-read
+        // once, because what is on screen was fetched before it.
+        if (!lastKnownMtime.current) {
+          lastKnownMtime.current = r.mtime;
+          fetchBucket();
+          return;
+        }
+        if (r.mtime > lastKnownMtime.current) {
           // Clean tab reloads silently; unsaved edits or active typing keep the banner
           const el = document.activeElement as HTMLElement | null;
           const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -434,7 +447,16 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
 
   const fetchBucket = async () => {
     setLoading(true); setError(""); setExternalChange(false);
-    try { setData(await api.getBucket()); setDirty(false); recordMtime(); }
+    try {
+      const fresh = await api.getBucket();
+      setData(fresh);
+      setDirty(false);
+      // The response already carries the mtime it was read at. Taking it
+      // from there rather than asking again removes the second request that
+      // could fail on its own and leave the baseline unknown.
+      if (fresh.mtime) lastKnownMtime.current = fresh.mtime;
+      else recordMtime();
+    }
     catch (e) { setError(e instanceof Error ? e.message : "Failed to load bucket"); }
     finally { setLoading(false); }
   };

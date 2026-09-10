@@ -800,6 +800,14 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       }
       try {
         const r = await api.getWeekModified(dataOffsetRef.current);
+        // Same rule as the bucket: an unknown baseline means recordMtime
+        // failed, and treating that as "unchanged" left the view frozen
+        // until a reload. Adopt the reading, then re-read once.
+        if (r.mtime && !lastKnownMtime.current) {
+          lastKnownMtime.current = r.mtime;
+          fetchWeek(dataOffsetRef.current);
+          return;
+        }
         if (r.mtime && lastKnownMtime.current && r.mtime > lastKnownMtime.current) {
           // A reload mid-keystroke resets the input under the user's fingers
           // (eaten backspaces, garbled text on mobile IMEs) — if any text
