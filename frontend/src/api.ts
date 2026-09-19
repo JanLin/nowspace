@@ -227,6 +227,9 @@ export interface BucketResponse {
   mtime?: number | null;
 }
 
+/** A finished pause: paused on `start`, started again on `end` (ISO dates). */
+export interface HabitPause { start: string; end: string }
+
 export interface Habit {
   name: string;
   domain: string; // body | mind | soul | sleep | custom
@@ -236,10 +239,17 @@ export interface Habit {
   morning: boolean;
   duration: number; // minutes per occurrence; 0 = untimed
   note: string; // wikilink target of the how-to note ("" = none)
+  paused: boolean; // off the strip and out of the count; history kept
+  paused_since: string; // ISO date the open pause began; "" = not paused or undated
+  pauses: HabitPause[]; // finished pauses, oldest first
   week_count: number;
   days_done: number;
   today_count: number;
   history: boolean[]; // oldest→newest, week-target met
+  history_paused: boolean[]; // same weeks: paused and not met — shown as paused, not missed
+  history_counts: number[]; // same weeks: completions (weekly) or days done (daily), unclamped
+  history_labels: string[]; // same weeks: "2026-wk37"
+  week_goal: number; // what a week must reach to be met: the target, or 5 days for a daily habit
   established: boolean;
 }
 
@@ -614,10 +624,17 @@ export const api = {
   initHabits: () =>
     request<{ status: string }>("/plan/habits/init", { method: "POST" }),
 
-  saveHabits: (habits: { name: string; domain: string; variants: string[]; target: number; period: string; morning: boolean; duration: number; note: string }[]) =>
+  saveHabits: (habits: { name: string; domain: string; variants: string[]; target: number; period: string; morning: boolean; duration: number; note: string; paused: boolean; paused_since: string; pauses: HabitPause[] }[]) =>
     request<{ status: string; count: number }>("/plan/habits/save", {
       method: "POST",
       body: JSON.stringify({ habits }),
+    }),
+
+  // Toggles one habit's line only — the editor's save rewrites the file
+  pauseHabit: (name: string, paused: boolean) =>
+    request<{ status: string }>("/plan/habits/pause", {
+      method: "POST",
+      body: JSON.stringify({ name, paused }),
     }),
 
   // Recurrence templates

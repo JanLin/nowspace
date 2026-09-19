@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { Habit } from "../api";
+import type { Habit, HabitPause } from "../api";
 import { HabitNoteLink, habitDomainStyle } from "./HabitStrip";
 import NoteFilePicker from "./NoteFilePicker";
 
@@ -8,7 +8,9 @@ import NoteFilePicker from "./NoteFilePicker";
    Logging happens via the habit strip in the week view; this tab shows
    this week's progress, an 8-week history, and "established" badges,
    plus a simple editor for the definitions (stored in Plan Week Habits.md).
-   Tone rules: celebrate weeks met, never count weeks missed. */
+   Tone rules: celebrate weeks met, never count weeks missed. A week past its
+   target shows every completion. A paused habit keeps its row and history,
+   quietly, until you resume it — pausing is a choice of focus, not a lapse. */
 
 const DOMAIN_ORDER = ["body", "mind", "soul", "sleep"];
 const DOMAIN_TITLES: Record<string, string> = {
@@ -24,6 +26,67 @@ type HabitRow = {
   morning: boolean;
   duration: number; // minutes per occurrence; 0 = untimed
   note: string; // wikilink target of the how-to note; "" = none
+  paused: boolean;
+  // Carried through untouched so a save never loses them; the backend
+  // dates a pause (or a start-again) ticked here the same as the button
+  paused_since: string;
+  pauses: HabitPause[];
+};
+
+/** The row's progress graph: one bar per week, oldest → newest, ending with
+    this week so far (outlined — it isn't over). The dashed line is where a
+    week counts as met, and bars pass it freely: 6 of a 5x/week stands
+    taller. A met week is full colour, any other a quiet tint — never red.
+    A paused week is a dot, because it was a choice; an empty week is simply
+    a gap. */
+function HabitGraph({ h, color }: { h: Habit; color: string }) {
+  const BAR = 5, GAP = 2, H = 18;
+  const goal = Math.max(1, h.week_goal || h.target);
+  const thisWeek = h.period === "day" ? h.days_done : h.week_count;
+  const weeks = [
+    ...h.history_counts.map((count, i) => ({
+      count, met: !!h.history[i], paused: !!h.history_paused?.[i],
+      label: h.history_labels?.[i] ? `wk ${Number(h.history_labels[i].split("wk")[1])}` : "", current: false,
+    })),
+    { count: thisWeek, met: thisWeek >= goal, paused: h.paused, label: "this week so far", current: true },
+  ];
+  const top = Math.max(goal, ...weeks.map((w) => w.count));
+  const y = (v: number) => H - (v / top) * (H - 1);
+  const width = weeks.length * (BAR + GAP) - GAP;
+  const unit = h.period === "day" ? "days" : "times";
+  return (
+    <svg width={width} height={H} className="inline-block align-middle shrink-0" role="img"
+      aria-label={`${weeks.length} weeks, one bar each; the dashed line is the goal of ${goal}`}>
+      <line x1={0} x2={width} y1={y(goal)} y2={y(goal)} strokeWidth={1} strokeDasharray="2 2"
+        style={{ stroke: "var(--text-tertiary)" }} />
+      {weeks.map((w, i) => {
+        const x = i * (BAR + GAP);
+        const tip = w.paused ? `${w.label}: paused` : `${w.label}: ${w.count} ${unit} (goal ${goal})`;
+        if (w.paused) {
+          return (
+            <circle key={i} cx={x + BAR / 2} cy={H - 1.5} r={1.2} style={{ fill: "var(--text-tertiary)" }}>
+              <title>{tip}</title>
+            </circle>
+          );
+        }
+        if (w.count === 0) return null; // an empty week is a gap
+        const barTop = y(w.count);
+        return (
+          <rect key={i} x={x} y={barTop} width={BAR} height={H - barTop} rx={1}
+            fill={color} fillOpacity={w.met ? (w.current ? 0.7 : 1) : 0.3}
+            stroke={w.current ? color : undefined} strokeWidth={w.current ? 0.75 : undefined}>
+            <title>{tip}</title>
+          </rect>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** "2026-09-19" → "19 Sep", read as a local date (not UTC midnight). */
+const shortDate = (iso: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 };
 
 export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, name: string) => void }) {
@@ -36,6 +99,7 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState<HabitRow[]>([]);
   const [savingRows, setSavingRows] = useState(false);
+  const [pausing, setPausing] = useState<string | null>(null);
   // Vault note picker for the how-to note (same panel tasks use)
   const [notePicker, setNotePicker] = useState<{ idx: number; pos: { top: number; left: number } } | null>(null);
 
@@ -67,7 +131,8 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
     setRows(habits.map((h) => ({
       name: h.name, domain: h.domain, variants: h.variants.join(", "),
       target: h.period === "day" ? 1 : h.target, period: h.period, morning: h.morning,
-      duration: h.duration || 0, note: h.note || "",
+      duration: h.duration || 0, note: h.note || "", paused: !!h.paused,
+      paused_since: h.paused_since || "", pauses: h.pauses || [],
     })));
     setEditing(true);
   };
@@ -85,6 +150,9 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
         morning: r.morning,
         duration: Math.max(0, r.duration || 0),
         note: r.note.replace(/^\[\[|\]\]$/g, "").trim(),
+        paused: r.paused,
+        paused_since: r.paused_since,
+        pauses: r.pauses,
       })));
       setEditing(false);
       load();
@@ -93,6 +161,18 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
       setError(e instanceof Error ? e.message : "Failed to save habits");
     }
     setSavingRows(false);
+  };
+
+  const togglePause = async (h: Habit) => {
+    setPausing(h.name);
+    try {
+      await api.pauseHabit(h.name, !h.paused);
+      load();
+      window.dispatchEvent(new CustomEvent("habits-changed")); // refresh the strip
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to pause habit");
+    }
+    setPausing(null);
   };
 
   if (found === null) return <p className="text-center py-8 text-sm" style={{ color: "var(--text-tertiary)" }}>Loading…</p>;
@@ -199,6 +279,11 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
                       <input type="checkbox" checked={r.morning} onChange={(e) => update({ morning: e.target.checked })} />
                       morning
                     </label>
+                    <label className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-secondary)" }}
+                      title="Off the Plan tab and out of the week's count; history kept">
+                      <input type="checkbox" checked={r.paused} onChange={(e) => update({ paused: e.target.checked })} />
+                      paused
+                    </label>
                     {/* A duration is a number you know, so it's typed. What
                         it must not do is the thing the old field did: being
                         controlled with a fallback, it rewrote the digit the
@@ -239,7 +324,7 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
                 );
               })}
               <button
-                onClick={() => setRows((prev) => [...prev, { name: "", domain: d, variants: "", target: 1, period: "week", morning: false, duration: 0, note: "" }])}
+                onClick={() => setRows((prev) => [...prev, { name: "", domain: d, variants: "", target: 1, period: "week", morning: false, duration: 0, note: "", paused: false, paused_since: "", pauses: [] }])}
                 className="text-[10px] px-2 py-1 rounded"
                 style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
                 + Add {DOMAIN_TITLES[d] || d} habit
@@ -266,6 +351,7 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
   /* ── Read view ─────────────────────────────────────────── */
   const byDomain = new Map<string, Habit[]>();
   habits.forEach((h) => byDomain.set(h.domain, [...(byDomain.get(h.domain) || []), h]));
+  byDomain.forEach((list) => list.sort((a, b) => Number(a.paused) - Number(b.paused)));
   const domains = [
     ...DOMAIN_ORDER.filter((d) => byDomain.has(d)),
     ...[...byDomain.keys()].filter((d) => !DOMAIN_ORDER.includes(d)).sort(),
@@ -273,7 +359,7 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
 
   const weekDots = (h: Habit) => {
     const total = h.period === "day" ? 7 : h.target;
-    const done = h.period === "day" ? h.days_done : Math.min(h.week_count, total);
+    const done = h.period === "day" ? h.days_done : h.week_count;
     return "●".repeat(done) + "○".repeat(Math.max(0, total - done));
   };
 
@@ -305,14 +391,23 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
             </h2>
             <div className="space-y-1.5">
               {(byDomain.get(d) || []).map((h) => (
-                <div key={h.name} className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
-                  style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)", boxShadow: `inset 2px 0 0 ${color}` }}>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                <div key={h.name} className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 rounded-lg ${h.paused ? "opacity-60" : ""}`}
+                  style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)", boxShadow: `inset 2px 0 0 ${h.paused ? "var(--border)" : color}` }}>
+                  {/* min width: on a phone the progress column wraps below
+                      rather than squeezing the name to a word per line */}
+                  <div className="flex-1 min-w-[8rem]">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="text-sm font-medium" style={{ color: "var(--text)" }}>{h.name}</span>
                       {h.established && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
                           established ✓
+                        </span>
+                      )}
+                      {h.paused && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                          style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                          title={h.paused_since ? `Paused since ${shortDate(h.paused_since)}` : undefined}>
+                          paused
                         </span>
                       )}
                       {h.morning && <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>morning</span>}
@@ -325,20 +420,40 @@ export default function Habits({ onOpenNote }: { onOpenNote?: (path: string, nam
                       </div>
                     )}
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-xs font-mono tracking-wider" style={{ color }}>
-                      {weekDots(h)}
-                      <span className="ml-1.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                        {h.period === "day" ? `${h.days_done}/7 days` : `${h.week_count}/${h.target} this week`}
-                      </span>
+                  {/* Progress and the pause button travel together: on a phone
+                      they wrap below the name as one right-aligned group */}
+                  <div className="flex items-center gap-3 ml-auto shrink-0">
+                    <div className="text-right">
+                      {!h.paused && (
+                        <div className="text-xs font-mono tracking-wider" style={{ color }}>
+                          {weekDots(h)}
+                          <span className="ml-1.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                            {h.period === "day" ? `${h.days_done}/7 days` : `${h.week_count}/${h.target} this week`}
+                          </span>
+                        </div>
+                      )}
+                      {h.history.length > 0 && (() => {
+                        const pausedWk = (i: number) => !!h.history_paused?.[i];
+                        const met = h.history.filter(Boolean).length;
+                        const active = h.history.filter((_, i) => !pausedWk(i)).length;
+                        const paused = h.history.length - active;
+                        return (
+                          <div className="flex items-center justify-end gap-1.5 text-[10px] font-mono mt-0.5"
+                            style={{ color: "var(--text-tertiary)" }}>
+                            <HabitGraph h={h} color={color} />
+                            <span title={`${met} of the ${active} weeks you were doing it${paused ? ` · ${paused} paused` : ""}`}>
+                              {met} of {active} wks{paused ? `, ${paused} paused` : ""}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
-                    {h.history.length > 0 && (
-                      <div className="text-[10px] font-mono mt-0.5" title={`${h.history.filter(Boolean).length} of the last ${h.history.length} weeks`}
-                        style={{ color: "var(--text-tertiary)" }}>
-                        {h.history.map((m, i) => <span key={i} style={m ? { color } : undefined}>{m ? "▓" : "░"}</span>)}
-                        <span className="ml-1.5">{h.history.filter(Boolean).length} of last {h.history.length} wks</span>
-                      </div>
-                    )}
+                    <button onClick={() => togglePause(h)} disabled={pausing === h.name}
+                      className="shrink-0 text-[10px] px-2 py-1 rounded disabled:opacity-50"
+                      style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                      title={h.paused ? "Back on the Plan tab and into the week's count" : "Take it off the Plan tab for now — history is kept"}>
+                      {h.paused ? "▶ resume" : "⏸ pause"}
+                    </button>
                   </div>
                 </div>
               ))}
