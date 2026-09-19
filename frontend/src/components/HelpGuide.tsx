@@ -167,6 +167,9 @@ const SECTIONS: { id?: string; title: string; img?: string; imgAlt?: string; img
     title: "Habits — gentle rhythms",
     body: [
       "Recurring habits for body, mind and soul, ticked through the week. A small strip on the Plan tab keeps them visible without turning them into chores.",
+      "Each habit's row on the Habits tab carries a small graph of the last twelve weeks and this one: a bar per week, the dashed line where a week counts as met. Hover a bar for its number.",
+      "A target is a floor, not a ceiling. Once a weekly habit has met it, its chip folds to a small ✓ that's still one tap away — a sixth run on a 5x/week habit counts, and shows as 6/5.",
+      "To shift your focus, pause a habit from the Habits tab. It leaves the Plan tab and the week's count, keeps its history, and comes back when you start it again. Both days are noted on the habit's line in Plan Week Habits.md — \", paused 2026-09-01..2026-09-14\" — so paused weeks show as a quiet · in the history rather than as missed ones, and an established habit stays established. A pause is a choice, not a lapse — nothing counts it against you.",
       "A habit can link the note that explains how — the steps of the form, the routine, the checklist. Pick it with the 📄 button in the Habits editor (the same vault panel tasks use), or write \", [[Note name]]\" on the habit's line in Plan Week Habits.md. The 📄 lives inside the habit's chip, wherever the habit does. You never need a placeholder task just to keep instructions findable.",
     ],
   },

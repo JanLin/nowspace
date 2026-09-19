@@ -5,10 +5,12 @@ import { normTime, shiftTime, nowHHMM } from "../timefmt";
 export interface HabitTime { start: string; minutes: number }
 
 /* Gentle habit chips shown above the day/grid views.
-   Rules: no unchecked tasks, no red, no overdue state. A chip only exists
-   while there is something left to do this week — the strip shrinks as the
-   week goes well. Established habits stay as a tiny ✓ chip so logging never
-   needs a tab switch. */
+   Rules: no unchecked tasks, no red, no overdue state. The strip shrinks as
+   the week goes well: a weekly habit that has met its target folds to a tiny
+   ✓ chip instead of vanishing, so a sixth run on a 5x/week habit is still one
+   tap — and the count shows 6/5, never clamped. A daily habit done today
+   leaves the strip; established ones keep the tiny chip. Paused habits are
+   not here at all. */
 
 export const HABIT_DOMAIN: Record<string, { icon: string; color: string }> = {
   body: { icon: "💪", color: "#f97316" },
@@ -94,9 +96,10 @@ export default function HabitStrip({
   const remaining = (h: Habit) =>
     h.period === "day" ? h.today_count === 0 : h.week_count < h.target;
 
-  // Established habits always keep a tiny chip; others only while below target.
+  // Weekly and established habits always keep a chip (tiny once met);
+  // a daily one only until it's done today.
   const visible = habits
-    .filter((h) => h.established || remaining(h))
+    .filter((h) => !h.paused && (h.established || h.period === "week" || remaining(h)))
     .sort((a, b) => (b.morning ? 1 : 0) - (a.morning ? 1 : 0));
 
   if (visible.length === 0) return null;
@@ -115,7 +118,7 @@ export default function HabitStrip({
         const { icon, color } = habitDomainStyle(h.domain);
         const doneToday = h.today_count > 0;
         const atTarget = !remaining(h);
-        const tiny = h.established && atTarget;
+        const tiny = atTarget;
         return (
           <div key={h.name} className="relative flex items-center">
             <button
@@ -137,7 +140,7 @@ export default function HabitStrip({
               <span>{tiny ? "✓" : icon}</span>
               {!tiny && <span className="font-medium">{h.name}</span>}
               {tiny && <span className="font-medium">{h.name}</span>}
-              {!tiny && h.period === "week" && (
+              {h.period === "week" && (
                 <span className="opacity-70">{h.week_count}/{h.target}</span>
               )}
               {h.note && onOpenNote && !tiny && (

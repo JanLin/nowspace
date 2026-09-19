@@ -418,7 +418,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Habits: gentle chips above the day/grid (current week only)
   const [habits, setHabits] = useState<Habit[]>([]);
   const refreshHabits = () => {
-    api.getHabits().then((r) => setHabits(r.found ? r.habits : [])).catch(() => {});
+    // Paused habits leave the Plan tab entirely: no chip, not in "on track"
+    api.getHabits().then((r) => setHabits(r.found ? r.habits.filter((h) => !h.paused) : [])).catch(() => {});
   };
 
   // Time tracking: one running entry, surfaced as a status-bar chip
