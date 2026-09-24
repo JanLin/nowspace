@@ -441,6 +441,34 @@ export default function TimeTab({ active = true }: { active?: boolean }) {
     if (raw.trim()) patchEntry(e, { text: raw.trim() });
   };
 
+  /** Push a start time back, never past midnight.
+   *
+   *  addMinutesTo wraps, which is right for adding a duration and wrong
+   *  here: nudging 00:10 back by half an hour would land at 23:40 the
+   *  evening before, quietly making an entry that ends before it starts. */
+  const shiftBack = (start: string, mins: number): string => {
+    const [h, m] = start.split(":").map(Number);
+    return addMinutesTo("00:00", Math.max(0, h * 60 + m - mins));
+  };
+
+  /** "I started late" — move an entry's start earlier, leaving its end.
+   *
+   *  The end is deliberately untouched: the reason to reach for this is
+   *  that the timer began after the work did, so the work ran longer than
+   *  the entry says. The duration follows on its own, which is the part
+   *  worth not retyping. A running entry has no end to leave, and goes
+   *  through the same adjust the entry row uses. */
+  const nudgeStart = async (e: TimeEntry, mins: number) => {
+    const start = shiftBack(e.start, mins);
+    if (start === e.start) return;
+    if (e.end === null) {
+      try { await api.adjustTime({ start }); load(); announce(); }
+      catch (err) { setError(err instanceof Error ? err.message : "Failed to adjust"); }
+      return;
+    }
+    patchEntry(e, { start });
+  };
+
   /** The sub-projects a company already has, from the log itself.
    *
    *  There is no list of sub-projects anywhere — a sub-project exists
@@ -602,6 +630,21 @@ export default function TimeTab({ active = true }: { active?: boolean }) {
             title={running ? "Started earlier? Type the real start time and press Enter" : "Leave empty to start now"}
             className="w-24 px-1.5 py-1 rounded text-xs font-mono"
             style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+          {/* The same −5/−15/−30 the Plan tab's running pill has, where the
+              start time already is. Started tracking ten minutes after you
+              started working? Press once. */}
+          {running && (
+            <span className="flex items-center gap-0.5 shrink-0">
+              {[5, 15, 30].map((d) => (
+                <button key={d} onClick={() => nudgeStart(running, d)}
+                  title={`Started ${d} minutes earlier`}
+                  className="px-1 py-1 rounded text-[10px] font-mono hover:opacity-100 opacity-70"
+                  style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>
+                  −{d}
+                </button>
+              ))}
+            </span>
+          )}
           <input ref={entryEnd} placeholder="end" autoComplete="off" disabled={!!running}
             className="w-16 px-1.5 py-1 rounded text-xs font-mono disabled:opacity-40"
             style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
@@ -731,6 +774,18 @@ export default function TimeTab({ active = true }: { active?: boolean }) {
                       className="flex-1 truncate" style={{ color: "var(--text)" }}
                       inputClassName="flex-1 min-w-0 w-full px-1.5 py-0.5 rounded text-xs"
                       onSave={(v) => saveText(e, v)} />
+                    {/* Same invisible-control-over-a-glyph as the date and
+                        sub-project pickers beside it, so the row keeps one
+                        way of doing things. */}
+                    <span className="relative w-4 h-4 shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                      title={`Started earlier than ${e.start}? Push the start back — the end stays where it is`}>
+                      <span style={{ color: "var(--text-secondary)" }}>⏪</span>
+                      <select value="" onChange={(ev) => nudgeStart(e, Number(ev.target.value))}
+                        className="absolute inset-0 w-4 h-4 opacity-0 cursor-pointer">
+                        <option value="">start earlier by…</option>
+                        {[5, 15, 30, 60].map((d) => <option key={d} value={d}>−{d} min</option>)}
+                      </select>
+                    </span>
                     {company && (subs.length > 0 || sub) && (
                       <span className="relative w-4 h-4 shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100"
                         title={sub ? `${company}/${sub} — file under another sub-project, or none` : `File under one of ${company}'s sub-projects`}>
