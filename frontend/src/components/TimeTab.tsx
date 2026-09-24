@@ -174,7 +174,7 @@ function Donut({ slices, onHover, onSelect }: {
   );
 }
 
-export default function TimeTab() {
+export default function TimeTab({ active = true }: { active?: boolean }) {
   const [mode, setMode] = useState<"week" | "month" | "custom">("month");
   const [openCluster, setOpenCluster] = useState<"tag" | "view" | "filter" | null>(null);
   const toggleCluster = (k: "tag" | "view" | "filter") => setOpenCluster((prev) => (prev === k ? null : k));
@@ -252,6 +252,31 @@ export default function TimeTab() {
   };
 
   useEffect(() => { load(); }, [range.from, range.to]);
+
+  // Opening the tab comes back to today.
+  //
+  // This tab never unmounts — App hides it with a class — so the date field
+  // and the period kept whatever they were last set to. Come back two days
+  // after logging something by hand and the field still offered that day,
+  // which is a quiet way to file an entry on the wrong date.
+  //
+  // A running timer is the exception, and the reason the whole thing is
+  // conditional: the row is the live editor then, showing the timer's own
+  // date, and opening the tab to glance at it must do nothing at all.
+  //
+  // `running` is read through a ref so this fires on opening the tab and
+  // nothing else — a timer starting or stopping is not someone arriving.
+  // A custom range is left alone: it is a range the owner chose, and
+  // moving it would be overruling that rather than catching up.
+  const runningRef = useRef<TimeEntry | null>(null);
+  runningRef.current = running;
+  useEffect(() => {
+    if (!active || runningRef.current) return;
+    const today = toISODate(new Date());
+    if (entryDate.current) entryDate.current.value = today;
+    setMonth(nowMonth());
+    setWeekAnchor(today);
+  }, [active]);
   useEffect(() => {
     const sync = () => setCtxSelState(loadCtxSelection());
     const reload = () => load();
@@ -414,6 +439,37 @@ export default function TimeTab() {
 
   const saveText = (e: TimeEntry, raw: string) => {
     if (raw.trim()) patchEntry(e, { text: raw.trim() });
+  };
+
+  /** The sub-projects a company already has, from the log itself.
+   *
+   *  There is no list of sub-projects anywhere — a sub-project exists
+   *  because an entry says `Company/Sub:`, and that is the whole of it. So
+   *  the picker offers what the period has actually seen. Drawn from every
+   *  loaded entry rather than the filtered view, because narrowing what you
+   *  are looking at should not narrow where you can file something. */
+  const subsByCompany = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    entries.forEach((e) => {
+      const { company, sub } = parseEntry(e.text);
+      if (!company || !sub) return;
+      const key = company.toLowerCase();
+      if (!m.has(key)) m.set(key, new Set());
+      m.get(key)!.add(sub);
+    });
+    return m;
+  }, [entries]);
+
+  /** File an entry under one of its company's sub-projects, or none.
+   *
+   *  The same single-field edit the description already allows, done from a
+   *  picker so the common case — one you meant to file and did not — is a
+   *  press rather than retyping the line. A sub-project that does not exist
+   *  yet is still made the way it always was: type it in the description. */
+  const moveEntrySub = (e: TimeEntry, newSub: string) => {
+    const { company, sub, label } = parseEntry(e.text);
+    if (!company || newSub === sub) return;
+    patchEntry(e, { text: `${company}${newSub ? `/${newSub}` : ""}: ${label}` });
   };
 
   // Moving to another date = delete here + re-add there (handles months)
@@ -649,8 +705,13 @@ export default function TimeTab() {
             <div className="space-y-0.5">
               {es.map((e) => {
                 const key = `${e.date}|${e.start}|${e.text}`;
-                const { company } = parseEntry(e.text);
+                const { company, sub } = parseEntry(e.text);
                 const area = resolveContext(`${company}: x`, ctxMap, ctxTags);
+                // Nothing to offer on a line with no company (there is no
+                // `/Sub` without one) or a company that has never had a
+                // sub-project — except when this entry is the one that has
+                // it, where the picker is how you take it off again.
+                const subs = [...(subsByCompany.get(company.toLowerCase()) || [])].sort();
                 return (
                   <div key={key} className="group flex items-center gap-2 px-2 py-1 rounded text-xs hover:bg-gray-50"
                     style={{ boxShadow: `inset 2px 0 0 ${ctxEdgeColor(area)}` }}>
@@ -670,6 +731,17 @@ export default function TimeTab() {
                       className="flex-1 truncate" style={{ color: "var(--text)" }}
                       inputClassName="flex-1 min-w-0 w-full px-1.5 py-0.5 rounded text-xs"
                       onSave={(v) => saveText(e, v)} />
+                    {company && (subs.length > 0 || sub) && (
+                      <span className="relative w-4 h-4 shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                        title={sub ? `${company}/${sub} — file under another sub-project, or none` : `File under one of ${company}'s sub-projects`}>
+                        <span style={{ color: "var(--text-secondary)" }}>🏷</span>
+                        <select value={sub} onChange={(ev) => moveEntrySub(e, ev.target.value)}
+                          className="absolute inset-0 w-4 h-4 opacity-0 cursor-pointer">
+                          <option value="">(no sub-project)</option>
+                          {subs.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </span>
+                    )}
                     <span className="relative w-4 h-4 shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100" title="Move to another date">
                       <span style={{ color: "var(--text-secondary)" }}>📅</span>
                       <input type="date" defaultValue={e.date}
