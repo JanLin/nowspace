@@ -567,7 +567,9 @@ export default function App() {
             <Habits onOpenNote={showNote} />
           </div>
           <div className={view === "time" ? "max-w-3xl mx-auto" : "hidden"}>
-            <TimeTab />
+            {/* Hidden, not unmounted — so the tab has to be told when it is
+                being looked at, or it cannot know a day has passed. */}
+            <TimeTab active={view === "time"} />
           </div>
           <div className={view === "goals" ? "max-w-3xl mx-auto" : "hidden"}>
             <Goals />
