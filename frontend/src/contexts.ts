@@ -74,6 +74,31 @@ export function stripGroupCtxTag(text: string): string {
   return text.replace(GROUP_CTX_TAG_RE, "$1$3");
 }
 
+/** Sub-group extraction, applied to what the group split left behind.
+ *
+ *  "/Inbounds: book the pickup" → { sub: "Inbounds", label: "book the pickup" }
+ *
+ *  The marker is a LEADING slash on the label, which is why this can be added
+ *  without touching how groups are parsed: the group is still everything
+ *  before the first colon, so a group whose own name contains a slash
+ *  ("Mail/Archive:") keeps meaning exactly what it always did. In the file the
+ *  task sits under its group's heading and carries the prefix itself —
+ *
+ *      * Rotary:
+ *          - [ ] /Inbounds: book the airport pickup
+ *
+ *  — which already round-trips through the reader and the writer untouched.
+ *  An instance that does not know about sub-groups shows the prefix as part
+ *  of the task's words: visible, never lost.
+ *
+ *  A sub only means something inside a group. On an ungrouped task the same
+ *  text parses as a group *named* "/Inbounds", so callers offer the sub step
+ *  only once a group is set. */
+export function parseSub(label: string): { sub: string; label: string } {
+  const m = label.match(/^\s*\/([^:/]{1,29}?)\s*:\s*(.+)$/);
+  return m ? { sub: m[1].trim(), label: m[2].trim() } : { sub: "", label };
+}
+
 /** Group-prefix extraction (mirrors the parseGroup rule used by the views) */
 function groupPrefix(rawText: string): string {
   const text = stripGroupCtxTag(rawText);
