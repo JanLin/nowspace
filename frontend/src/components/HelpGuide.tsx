@@ -17,7 +17,7 @@ const TASK_ICONS: Item[] = [
   { icon: "🎺", text: "Focus: bolds the task, and offers two ways to settle into it. Ultra focus curtains every other task off the day — no clock, lift it when you're done. Or give it a pomodoro, 15 or 30 minutes, and curtain the rest from the timer if you want both." },
   { icon: "🐘", text: "Break the task into steps, or expand existing ones. An amber count means the task is an epic — ticking a step then records it as its own completed task for today." },
   { icon: "🔗", text: "Tap to open the task's linked note. Hold it (or right-click) to manage the links instead — open, remove one that no longer applies, or point it at a different note. A small number shows how many notes are linked; with more than one, a tap opens the list." },
-  { icon: "📂", text: "Move the task to another group." },
+  { icon: "🏷", text: "Move the task to another group — the same gesture as the time tracker's sub-project picker, and for the same reason: filing something under a name you chose." },
   { icon: "✕", text: "Delete the task." },
 ];
 

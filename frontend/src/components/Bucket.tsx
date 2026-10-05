@@ -273,7 +273,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
     return () => document.removeEventListener("mousedown", close);
   }, [actionMenu]);
   const [groupPicker, setGroupPicker] = useState<number | null>(null);
-  // 📂 opened by mistake had no way out but picking a group: no click-outside,
+  // 🏷 opened by mistake had no way out but picking a group: no click-outside,
   // no Escape. Both close it now, the same way the other two pickers close.
   useEffect(() => {
     if (groupPicker === null) return;
@@ -2176,11 +2176,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                         </span>
                       )}
 
-                      {/* 📂 Move to group */}
+                      {/* 🏷 Move to group */}
                       <div className="relative group-pop">
                         <button onClick={(e) => { e.stopPropagation(); setGroupPicker(groupPicker === originalIdx ? null : originalIdx); }}
                           className="text-xs opacity-0 group-hover:opacity-30 hover:!opacity-100 transition-opacity"
-                          title="Move to group">📂</button>
+                          title="Move to group">🏷</button>
                         {groupPicker === originalIdx && (
                           <div className="absolute top-6 right-0 z-30 rounded-lg shadow-xl border p-2 min-w-[140px] max-h-48 overflow-y-auto" style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}>
                             <div className="text-[10px] font-medium mb-1 px-1" style={{ color: 'var(--text-tertiary)' }}>Move to:</div>
