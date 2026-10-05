@@ -17,7 +17,7 @@ import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, CTX_TOKEN_RE, DEFAULT_CTX_TAGS,
   ctxTokenOf, ctxEdgeColor, ctxChipClass, allContextNames,
   stripCtxTokens, stripGroupCtxTag, stripBucketMeta, isPinnedText, isEpicText, resolveContext, ctxFeatureEnabled,
-  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection, dueHorizon,
+  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection, dueHorizon, parseSub,
 } from "../contexts";
 
 /** Whether the habit strip is unfolded. Per device, like the text size —
@@ -1366,7 +1366,65 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     }).catch(() => {});
   }, [weekOffset]);
 
+  /** The sub-group, in front of the task's words.
+   *
+   *  The slash is kept rather than dropped: it is what says "sub-group"
+   *  rather than "first word", and it keeps the notation in view, so typing
+   *  `/Inbounds: ` in front of a task stays an obvious alternative to the
+   *  picker. The edit input still shows the raw label, prefix and all — the
+   *  chip is a reading aid, never the source of truth. */
+  const renderSubChip = (label: string) => {
+    const { sub } = parseSub(label);
+    if (!sub) return null;
+    return (
+      <span className="mr-1 px-1 rounded text-[10px] align-baseline"
+        style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+        title={`Sub-group — written as "/${sub}: " in front of the task`}>
+        /{sub}
+      </span>
+    );
+  };
+
   const allGroups = useMemo(() => (data ? collectGroups(data.days) : []), [data]);
+  // Which of the picker's two lists is being typed into. Groups outside this
+  // week are not in the list at all, so typing is the only way to reach one —
+  // and a group's first sub-group has to be typed by definition.
+  const [pickerTyping, setPickerTyping] = useState<"group" | "sub" | null>(null);
+
+  /** The sub-groups a group already has, read off the week itself. Nothing
+   *  declares a sub-group; the first task to carry the prefix creates it. */
+  const subsOfGroup = (groupName: string): string[] => {
+    const out = new Set<string>();
+    (data?.days || []).forEach((d) => d.tasks.forEach((t) => {
+      const { group, label } = parseGroup(t.text);
+      if (group !== groupName) return;
+      const { sub } = parseSub(label);
+      if (sub) out.add(sub);
+    }));
+    return [...out].sort();
+  };
+
+  /** Put a task in one of its group's sub-groups, or take it out of one.
+   *  The group prefix is untouched — only the label's own prefix changes. */
+  const moveToSub = (dayIdx: number, taskIdx: number, newSub: string | null) => {
+    if (!data) return;
+    const days = data.days.map((d, di) => {
+      if (di !== dayIdx) return d;
+      const tasks = [...d.tasks];
+      const task = { ...tasks[taskIdx] };
+      const { group, label } = parseGroup(task.text);
+      if (!group) return d;              // a sub only means something in a group
+      const bare = parseSub(label).label;
+      const next = newSub ? `/${newSub}: ${bare}` : bare;
+      task.text = `${group}: ${next}`;
+      task.clean_text = "";
+      tasks[taskIdx] = task;
+      return { ...d, tasks };
+    });
+    applyTaskChange(days);
+    setGroupPicker(null);
+    setPickerTyping(null);
+  };
 
   const toggleCollapsed = (groupName: string) => {
     setCollapsedGroups((prev) => {
@@ -3133,7 +3191,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           style={!task.done ? { color: "var(--text)" } : undefined}
         >
           {task.waiting && <span className="mr-0.5 cursor-pointer" title="Remove wait" onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}>⏳</span>}
-          {renderLinkedText(displayText)}
+          {renderSubChip(displayText)}
+          {renderLinkedText(parseSub(displayText).label)}
           {task.links?.length > 0 && linkFactIcon(dayIdx, taskIdx, group || parseGroup(task.text).group, task.links, "text-[10px]")}
         </span>
       )}
@@ -3223,7 +3282,8 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
             style={{ color: task.done ? "var(--text-tertiary)" : "var(--text)" }}
           >
             {task.waiting && <span className="mr-1 cursor-pointer" title="Remove wait" onClick={(e) => { e.stopPropagation(); toggleWaiting(dayIdx, taskIdx); }}>⏳</span>}
-            {renderLinkedText(displayText)}
+            {renderSubChip(displayText)}
+            {renderLinkedText(parseSub(displayText).label)}
             {/* What the task IS, carried with its text: steps, links, focus,
                 pin. Full strength, never a hover ghost — these are facts, and
                 a row too narrow for the action strip still shows them. */}
@@ -3397,6 +3457,76 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                     {g}
                   </button>
                 ))}
+                {/* The list only knows this week's groups, so one you used a
+                    month ago cannot be picked — it has to be typed. */}
+                {pickerTyping === "group" ? (
+                  <input autoFocus placeholder="new group" autoComplete="off"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter") {
+                        const v = (e.target as HTMLInputElement).value.trim();
+                        setPickerTyping(null);
+                        if (v) moveToGroup(dayIdx, taskIdx, v);
+                      }
+                      if (e.key === "Escape") setPickerTyping(null);
+                    }}
+                    onBlur={() => setPickerTyping(null)}
+                    className="w-full mt-1 px-2 py-1 text-xs rounded border"
+                    style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
+                ) : (
+                  <button onClick={(e) => { e.stopPropagation(); setPickerTyping("group"); }}
+                    className="w-full text-left px-2 py-1 text-xs rounded hover:bg-blue-50 text-gray-500">
+                    ＋ new group…
+                  </button>
+                )}
+                {/* The second step. Only once there is a group to put it in:
+                    on an ungrouped task "/Inbounds: x" would read as a group
+                    named "/Inbounds", which is not what anyone means. */}
+                {(() => {
+                  const { group, label } = parseGroup(task.text);
+                  if (!group) return null;
+                  const sub = parseSub(label).sub;
+                  const subs = subsOfGroup(group);
+                  return (
+                    <>
+                      <div className="text-[10px] text-gray-400 font-medium mt-2 mb-1 px-1 border-t pt-1" style={{ borderColor: "var(--border)" }}>
+                        Sub-group in {group}:
+                      </div>
+                      <button onClick={(e) => { e.stopPropagation(); moveToSub(dayIdx, taskIdx, null); }}
+                        className={`w-full text-left px-2 py-1 text-xs rounded hover:bg-gray-100 ${sub ? "text-gray-600" : "font-bold text-blue-600"}`}>
+                        — None
+                      </button>
+                      {subs.map((s) => (
+                        <button key={s} onClick={(e) => { e.stopPropagation(); moveToSub(dayIdx, taskIdx, s); }}
+                          className={`w-full text-left px-2 py-1 text-xs rounded hover:bg-blue-50 hover:text-blue-700 ${sub === s ? "font-bold text-blue-600" : "text-gray-700"}`}>
+                          /{s}
+                        </button>
+                      ))}
+                      {pickerTyping === "sub" ? (
+                        <input autoFocus placeholder={`new sub-group in ${group}`} autoComplete="off"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter") {
+                              const v = (e.target as HTMLInputElement).value.trim().replace(/^\/+/, "");
+                              setPickerTyping(null);
+                              if (v) moveToSub(dayIdx, taskIdx, v);
+                            }
+                            if (e.key === "Escape") setPickerTyping(null);
+                          }}
+                          onBlur={() => setPickerTyping(null)}
+                          className="w-full mt-1 px-2 py-1 text-xs rounded border"
+                          style={{ backgroundColor: "var(--bg)", color: "var(--text)", borderColor: "var(--border)" }} />
+                      ) : (
+                        <button onClick={(e) => { e.stopPropagation(); setPickerTyping("sub"); }}
+                          className="w-full text-left px-2 py-1 text-xs rounded hover:bg-blue-50 text-gray-500">
+                          ＋ new sub-group…
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
