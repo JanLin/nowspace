@@ -15,6 +15,10 @@ import { Cluster } from "../clusters";
    (shared context selection + a company filter). Sums are computed here
    from the raw log — the backend only stores entries. */
 
+/** The picker's one option that is not a sub-project. A value no
+ *  sub-project can have, since parseEntry stops a name at "/" and ":". */
+const NEW_SUB = "/new";
+
 /** "Arratech/CRA: task" → { company, sub, label } */
 function parseEntry(text: string): { company: string; sub: string; label: string } {
   const m = text.match(/^([^:/]{2,29})(?:\/([^:]{1,29}))?\s*:\s*(.+)$/);
@@ -200,6 +204,10 @@ export default function TimeTab({ active = true }: { active?: boolean }) {
     });
   };
   const [companyFilter, setCompanyFilter] = useState<string>("");
+  // The row currently naming a new sub-project, by its key. A picker can
+  // only offer what exists; a company's first sub-project has to be typed,
+  // and this is where.
+  const [namingSubFor, setNamingSubFor] = useState<string | null>(null);
 
 
 
@@ -731,17 +739,41 @@ export default function TimeTab({ active = true }: { active?: boolean }) {
                       className="flex-1 truncate" style={{ color: "var(--text)" }}
                       inputClassName="flex-1 min-w-0 w-full px-1.5 py-0.5 rounded text-xs"
                       onSave={(v) => saveText(e, v)} />
-                    {company && (subs.length > 0 || sub) && (
+                    {/* Offered on anything with a company, including a
+                        company that has no sub-projects yet — that was the
+                        case where the icon simply was not there, and a
+                        company's first sub-project is exactly the one you
+                        most need to make. */}
+                    {company && (namingSubFor === key ? (
+                      <input autoFocus placeholder={`new ${company} sub-project`}
+                        autoComplete="off" autoCorrect="off" spellCheck={false}
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter") {
+                            const v = (ev.target as HTMLInputElement).value.trim();
+                            setNamingSubFor(null);
+                            if (v) moveEntrySub(e, v);
+                          }
+                          if (ev.key === "Escape") setNamingSubFor(null);
+                        }}
+                        onBlur={() => setNamingSubFor(null)}
+                        className="w-36 px-1 py-0.5 rounded text-xs shrink-0"
+                        style={{ backgroundColor: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)" }} />
+                    ) : (
                       <span className="relative w-4 h-4 shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100"
-                        title={sub ? `${company}/${sub} — file under another sub-project, or none` : `File under one of ${company}'s sub-projects`}>
+                        title={sub ? `${company}/${sub} — file under another sub-project, make a new one, or none` : `File under one of ${company}'s sub-projects, or make the first`}>
                         <span style={{ color: "var(--text-secondary)" }}>🏷</span>
-                        <select value={sub} onChange={(ev) => moveEntrySub(e, ev.target.value)}
+                        <select value={sub}
+                          onChange={(ev) => {
+                            if (ev.target.value === NEW_SUB) { setNamingSubFor(key); return; }
+                            moveEntrySub(e, ev.target.value);
+                          }}
                           className="absolute inset-0 w-4 h-4 opacity-0 cursor-pointer">
                           <option value="">(no sub-project)</option>
                           {subs.map((s) => <option key={s} value={s}>{s}</option>)}
+                          <option value={NEW_SUB}>＋ new sub-project…</option>
                         </select>
                       </span>
-                    )}
+                    ))}
                     <span className="relative w-4 h-4 shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100" title="Move to another date">
                       <span style={{ color: "var(--text-secondary)" }}>📅</span>
                       <input type="date" defaultValue={e.date}
