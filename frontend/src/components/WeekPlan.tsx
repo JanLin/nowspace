@@ -376,7 +376,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     const close = (e: MouseEvent) => {
       if (!(e.target as Element | null)?.closest?.(".plan-pop")) closeAll();
     };
-    // Escape closes them too. Opening one of these by mistake — the 📂 group
+    // Escape closes them too. Opening one of these by mistake — the 🏷 group
     // list especially — left no way out but picking something.
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeAll(); };
     document.addEventListener("mousedown", close);
@@ -3375,7 +3375,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
               className="shrink-0 text-gray-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs"
               title="Move to group"
             >
-              📂
+              🏷
             </button>
             {groupPicker?.dayIdx === dayIdx && groupPicker?.taskIdx === taskIdx && (
               <div className="absolute bottom-6 right-0 z-30 rounded-lg shadow-xl border p-2 min-w-[140px] max-h-48 overflow-y-auto" style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}>
