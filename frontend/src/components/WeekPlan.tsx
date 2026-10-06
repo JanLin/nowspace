@@ -431,7 +431,25 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const refreshTime = () => {
     api.getTimeLog().then((r) => setRunningTime(r.running)).catch(() => {});
   };
-  const trackedTextOf = (task: Task): string => stripBucketMeta(stripCtxTokens(task.text));
+  /** A task, as the time log should record it.
+   *
+   *  The two tabs name the same idea with different punctuation, because
+   *  each grew to fit its own storage. A task carries its sub-group inside
+   *  its label — "Arratech: /9001: call Issa" — so that the group heading in
+   *  the week file stays untouched. A time entry has no heading to work
+   *  with, so it carries both in the prefix: "Arratech/9001: call Issa".
+   *
+   *  Passed through verbatim the task form reads as no sub-project at all —
+   *  "Arratech" with a label that happens to start with a slash — so the
+   *  hours never reach the sub-project they were worked on. Translating here
+   *  keeps each tab's own grammar intact: this is the one place a task
+   *  becomes a time entry. */
+  const trackedTextOf = (task: Task): string => {
+    const raw = stripBucketMeta(stripCtxTokens(task.text));
+    const { group, label } = parseGroup(raw);
+    const { sub, label: bare } = parseSub(label);
+    return group && sub ? `${group}/${sub}: ${bare}` : raw;
+  };
   const startTracking = async (task: Task) => {
     try {
       const r = await api.startTime(trackedTextOf(task));
