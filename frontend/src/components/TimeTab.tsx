@@ -5,7 +5,7 @@ import type { TimeEntry } from "../api";
 import {
   type CtxName, type CtxMap, type CtxTags, type CtxSelection, DEFAULT_CTX_TAGS,
   ctxChipClass, ctxEdgeColor, allContextNames, resolveContext, ctxFeatureEnabled,
-  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection,
+  taskVisibleInCtxSelection, loadCtxSelection, saveCtxSelection, parseSub,
 } from "../contexts";
 import { normTime } from "../timefmt";
 import { Cluster } from "../clusters";
@@ -22,8 +22,20 @@ const NEW_SUB = "/new";
 /** "Arratech/CRA: task" → { company, sub, label } */
 function parseEntry(text: string): { company: string; sub: string; label: string } {
   const m = text.match(/^([^:/]{2,29})(?:\/([^:]{1,29}))?\s*:\s*(.+)$/);
-  if (m) return { company: m[1].trim(), sub: (m[2] || "").trim(), label: m[3].trim() };
-  return { company: "", sub: "", label: text };
+  if (!m) return { company: "", sub: "", label: text };
+  const company = m[1].trim();
+  const sub = (m[2] || "").trim();
+  const label = m[3].trim();
+  // The Plan tab writes a sub-group the other way round — "Arratech: /9001:" —
+  // because a task keeps its sub inside its label so the week file's group
+  // heading stays untouched. Starting a timer translates it, but entries
+  // recorded before that did not, and an hour already logged should not have
+  // to be retyped to be counted. Read both; write only the one above.
+  if (!sub) {
+    const s = parseSub(label);
+    if (s.sub) return { company, sub: s.sub, label: s.label };
+  }
+  return { company, sub, label };
 }
 
 function fmtH(mins: number, quarter: boolean): string {
