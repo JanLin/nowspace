@@ -149,7 +149,10 @@ function InlineEdit({ value, display, title, className, inputClassName, style, o
 const DONUT_COLORS = Array.from({ length: 8 }, (_, i) => `var(--viz-${i + 1})`);
 
 function Donut({ slices, onHover, onSelect }: {
-  slices: { label: string; minutes: number; color: string }[];
+  //: `parent` marks a slice that is part of an expanded one. Hovering or
+  //: tapping it means its parent — so an expanded company's own arcs keep
+  //: the company's breakdown open, and tapping one folds it back.
+  slices: { label: string; minutes: number; color: string; parent?: string }[];
   onHover?: (label: string | null) => void;
   onSelect?: (label: string) => void;
 }) {
@@ -162,8 +165,8 @@ function Donut({ slices, onHover, onSelect }: {
         <title>{slices[0].label}</title>
         <circle cx={c} cy={c} r={(r + ir) / 2} fill="none" stroke={slices[0].color} strokeWidth={r - ir}
           style={onSelect ? { cursor: "pointer" } : undefined}
-          onMouseEnter={() => onHover?.(slices[0].label)} onMouseLeave={() => onHover?.(null)}
-          onClick={() => onSelect?.(slices[0].label)} />
+          onMouseEnter={() => onHover?.(slices[0].parent ?? slices[0].label)} onMouseLeave={() => onHover?.(null)}
+          onClick={() => onSelect?.(slices[0].parent ?? slices[0].label)} />
       </svg>
     );
   }
@@ -180,8 +183,8 @@ function Donut({ slices, onHover, onSelect }: {
             d={`M ${pt(a0, r)} A ${r} ${r} 0 ${large} 1 ${pt(a1, r)} L ${pt(a1, ir)} A ${ir} ${ir} 0 ${large} 0 ${pt(a0, ir)} Z`}
             fill={s.color} stroke="var(--bg-secondary)" strokeWidth="2"
             style={onSelect ? { cursor: "pointer" } : undefined}
-            onMouseEnter={() => onHover?.(s.label)} onMouseLeave={() => onHover?.(null)}
-            onClick={() => onSelect?.(s.label)}>
+            onMouseEnter={() => onHover?.(s.parent ?? s.label)} onMouseLeave={() => onHover?.(null)}
+            onClick={() => onSelect?.(s.parent ?? s.label)}>
             <title>{`${s.label} — ${fmtH(s.minutes, false)}h (${Math.round((s.minutes / total) * 100)}%)`}</title>
           </path>
         );
@@ -568,22 +571,43 @@ export default function TimeTab({ active = true }: { active?: boolean }) {
   // Donut data: top 7 + Other, colors follow the app's area colors when
   // grouping by area, the themed viz palette when grouping by company
   const [pieBy, setPieBy] = useState<"company" | "area">("company");
+  const [hoverSlice, setHoverSlice] = useState<string | null>(null);
+  // Tapped slice: pins its breakdown open AND filters the entries — the
+  // touch-first gesture; hover stays as a free preview on desktop
+  const [expandedSlice, setExpandedSlice] = useState<string | null>(null);
   const pie = useMemo(() => {
     const src = pieBy === "company" ? sums.byCompany : sums.byArea;
     const sorted = [...src.entries()].filter(([, m]) => m > 0).sort((a, b) => b[1] - a[1]);
     const top = sorted.slice(0, 7);
     const rest = sorted.slice(7).reduce((n, [, m]) => n + m, 0);
     const rows: [string, number][] = rest > 0 ? [...top, ["Other", rest]] : top;
-    return rows.map(([label, minutes], i) => ({
+    const base = rows.map(([label, minutes], i) => ({
       label, minutes,
       color: pieBy === "area" ? ctxEdgeColor(label) : DONUT_COLORS[i % DONUT_COLORS.length],
+      parent: undefined as string | undefined,
     }));
-  }, [sums, pieBy]);
+    // The expanded company's own arc divides into its sub-projects, in
+    // place, in shades of the one colour — which is what "tap a slice to
+    // expand its sub-projects" has always said and the ring never did. The
+    // sub-minutes sum to the company's, so every other arc stays put.
+    if (pieBy !== "company" || !expandedSlice || expandedSlice === "Other") return base;
+    const subs = sums.bySub.get(expandedSlice);
+    if (!subs || subs.size < 2) return base;   // one sub is the same arc
+    const at = base.findIndex((s) => s.label === expandedSlice);
+    if (at < 0) return base;
+    const parts = [...subs.entries()].filter(([, m]) => m > 0).sort((a, b) => b[1] - a[1]);
+    const shade = (i: number) =>
+      `color-mix(in srgb, ${base[at].color} ${Math.max(35, 100 - i * 22)}%, var(--bg-secondary))`;
+    return [
+      ...base.slice(0, at),
+      ...parts.map(([sub, minutes], i) => ({
+        label: sub === "(general)" ? `${expandedSlice} (general)` : `${expandedSlice}/${sub}`,
+        minutes, color: shade(i), parent: expandedSlice as string | undefined,
+      })),
+      ...base.slice(at + 1),
+    ];
+  }, [sums, pieBy, expandedSlice]);
   const pieTotal = pie.reduce((n, s) => n + s.minutes, 0);
-  const [hoverSlice, setHoverSlice] = useState<string | null>(null);
-  // Tapped slice: pins its breakdown open AND filters the entries — the
-  // touch-first gesture; hover stays as a free preview on desktop
-  const [expandedSlice, setExpandedSlice] = useState<string | null>(null);
   // Pinned = stuck to the bottom of the screen while entries scroll above
   const [pinDistribution, setPinDistribution] = useState(true);
   useEffect(() => { setHoverSlice(null); setExpandedSlice(null); }, [pieBy, range.from, range.to]);
