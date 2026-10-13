@@ -1279,6 +1279,17 @@ class ResolveCarryRequest(BaseModel):
 
 
 def _source_week_file(source_offset: int) -> Optional[Path]:
+    """The week file a carry-forward item was listed from.
+
+    Deliberately the same resolution GET /carry-forward uses, so resolving an
+    item writes to the file it was read from. It used to call a
+    `_find_archived_week_or_earlier` that was never written — every tick or
+    delete on a carried item raised NameError and surfaced as "Internal
+    error". There is no walk back to an earlier week here because the list
+    does not do one either: offset -1 means last week's archive, and if that
+    week was never archived the list is empty and there is nothing to
+    resolve.
+    """
     if source_offset == 0:
         f = config.vault_path / config.plan_week_file
         return f if f.exists() else None
@@ -1286,7 +1297,7 @@ def _source_week_file(source_offset: int) -> Optional[Path]:
     if source_offset > 0:
         f = _next_week_file(year, week)
         return f if f.exists() else None
-    return _find_archived_week_or_earlier(year, week)
+    return _find_archived_week(year, week)
 
 
 @router.post("/carry-forward/resolve")
