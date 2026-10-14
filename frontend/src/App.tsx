@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Nav from "./components/Nav";
 import WeekPlan from "./components/WeekPlan";
 import Bucket from "./components/Bucket";
@@ -26,13 +26,48 @@ import { useUiScaleShortcuts } from "./uiScale";
 type View = string;   // "week" | "bucket" | "slate" | "notes" | "habits" | "time" | "goals" | "settings" | <surface id>
 
 export default function App() {
-  const [view, setView] = useState<View>("week");
+  // The view opens from the URL hash when it names one — a reload (or a
+  // history entry, below) lands on the tab it was made on. Unknown names
+  // fall back to the week rather than an empty view.
+  const knownView = (h: string): boolean =>
+    ["week", "bucket", "slate", "notes", "habits", "time", "goals", "settings"].includes(h) ||
+    surfaces().some((s) => s.id === h);
+  const [view, setViewRaw] = useState<View>(() => {
+    const h = window.location.hash.slice(1);
+    return h && knownView(h) ? h : "week";
+  });
+  // Every tab switch is a history entry: a link that jumps tabs — a reveal
+  // from a panel, a note opened from a task — can be unwound with the
+  // browser's back button instead of remembering where it came from.
+  // popstate restores without pushing; that is the browser walking entries
+  // it already made.
+  const viewRef = useRef<View>(view);
+  viewRef.current = view;
+  const setView = useCallback((v: View) => {
+    if (v !== viewRef.current) {
+      try { window.history.pushState({ view: v }, "", "#" + v); }
+      catch { /* a webview without history — the switch still happens */ }
+    }
+    setViewRaw(v);
+  }, []);
+  useEffect(() => {
+    // Stamp the entry we started on, so the first back has a state to land on.
+    try { window.history.replaceState({ view: viewRef.current }, "", "#" + viewRef.current); }
+    catch { /* ditto */ }
+    const onPop = (e: PopStateEvent) => {
+      const v = (e.state as { view?: View } | null)?.view ?? window.location.hash.slice(1);
+      setViewRaw(v && knownView(v) ? v : "week");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // The navigation seam: an extension may ask to show a view, and the ask
   // is exactly a setView — nothing read, written or refreshed on the way.
   useEffect(() => {
     _registerSurfaceOpener(setView);
     return () => _registerSurfaceOpener(null);
-  }, []);
+  }, [setView]);
   // The Slate is the funnel's ambient surface — binding questions and
   // rehearsal. With Basic there is nothing for it to show.
   const { funnel: funnelOn } = useAppMode();
