@@ -521,8 +521,22 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
       // shaping lives in the always-visible strip; the rest is the default view
       setStageFilter(st === "dormant" || st === "discarded" ? st : "");
       if (boardView) toggleBoardView();
-      if (d.group) expandGroup(d.group);
-      const locate = () => document.querySelector(`[data-task-anchor="${CSS.escape(`bucket:${d.key}`)}"]`);
+      // A reveal by external ref (`~x<hex>` on the line — how an extension's
+      // row id lands on a bucket line) carries no key: the sender cannot
+      // compute the cleaned anchor. Resolve it here against the raw text — on
+      // every attempt, because the escalation refetches.
+      const resolve = (): { key: string; group: string } | null => {
+        if (d.ref == null) return { key: d.key, group: d.group || "" };
+        const rx = new RegExp(`~x${d.ref}\\b`, "i");
+        const t = tasksRef.current.find((t) => rx.test(t.text));
+        return t ? { key: bucketAnchorKey(t.text), group: parseGroup(t.text).group } : null;
+      };
+      const r0 = resolve();
+      if (r0?.group) expandGroup(r0.group);
+      const locate = () => {
+        const r = resolve();
+        return r ? document.querySelector(`[data-task-anchor="${CSS.escape(`bucket:${r.key}`)}"]`) : null;
+      };
       const flash = (el: HTMLElement) => {
         // Not smooth: a smooth scroll is dropped outright by some engines,
         // and a reveal that silently doesn't scroll is the whole complaint.
