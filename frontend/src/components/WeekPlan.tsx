@@ -3588,11 +3588,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
                   a day column in the 3-day grid is 379px on the widest
                   screen there is, and the Day view caps its list at
                   max-w-lg however big the display. */}
-              <div className="hidden @[28rem]:flex items-center gap-2 shrink-0">{actions}</div>
-              <div className="@[28rem]:hidden relative plan-pop shrink-0">
+              <div className="hidden @[28rem]:flex pointer-coarse:!hidden items-center gap-2 shrink-0">{actions}</div>
+              <div className="@[28rem]:hidden pointer-coarse:!block relative plan-pop shrink-0">
                 <button
                   onClick={(e) => { e.stopPropagation(); setActionMenu(menuOpen ? null : { dayIdx, taskIdx }); }}
-                  className={`px-1 leading-none rounded transition-opacity ${menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-40 hover:!opacity-100"}`}
+                  className="px-1 leading-none rounded"
                   style={{ color: "var(--text-secondary)" }}
                   title="What you can do with this task"
                 >
@@ -3674,7 +3674,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           e.stopPropagation();
           setGroupDayMenu(groupDayMenu?.dayIdx === dayIdx && groupDayMenu?.group === groupName ? null : { dayIdx, group: groupName });
         }}
-        className="opacity-0 group-hover/hdr:opacity-100 text-[11px] px-1 rounded transition-opacity"
+        className="text-[11px] px-1 rounded"
         style={{ color: "var(--text-secondary)" }}
         title={`Move ${groupName} to another day`}
       >
@@ -3705,7 +3705,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         e.stopPropagation();
         setAddingAt({ dayIdx: selectedDayIdx, afterIdx: lastIdxInGroup, group: groupName });
       }}
-      className="opacity-0 group-hover/hdr:opacity-100 text-[11px] px-1 rounded transition-opacity"
+      className="text-[11px] px-1 rounded"
       style={{ color: "var(--text-secondary)" }}
       title={`Add task to ${groupName}`}
     >

@@ -2021,7 +2021,7 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                     const last = section.items[section.items.length - 1];
                     setAddingAt({ afterIdx: last ? last.originalIdx : tasks.length - 1, group: section.name || undefined });
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-[11px] px-1 rounded transition-opacity"
+                  className="text-[11px] px-1 rounded"
                   style={{ color: 'var(--text-secondary)' }}
                   title={`Add task to ${displayName}`}
                 >
@@ -2224,11 +2224,11 @@ export default function Bucket({ onOpenNote }: { onOpenNote: (path: string, name
                             {/* Inline once the row can carry them; the
                                 Bucket's list is narrow even on a wide
                                 screen, so this is measured on the row. */}
-                            <div className="hidden @[28rem]:flex items-center gap-1.5 shrink-0">{actions}</div>
-                            <div className="@[28rem]:hidden relative plan-pop shrink-0">
+                            <div className="hidden @[28rem]:flex pointer-coarse:!hidden items-center gap-1.5 shrink-0">{actions}</div>
+                            <div className="@[28rem]:hidden pointer-coarse:!block relative plan-pop shrink-0">
                               <button
                                 onClick={(e) => { e.stopPropagation(); setActionMenu(menuOpen ? null : originalIdx); }}
-                                className={`px-1 leading-none rounded transition-opacity ${menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-40 hover:!opacity-100"}`}
+                                className="px-1 leading-none rounded"
                                 style={{ color: "var(--text-secondary)" }}
                                 title="What you can do with this task"
                               >
