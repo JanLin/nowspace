@@ -325,6 +325,10 @@ function EditInput({
 
 export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, name: string) => void }) {
   const [data, setData] = useState<WeekPlanResponse | null>(null);
+  // Latest week for listeners registered once (the reveal below): the
+  // reveal effect has no deps, so `data` in its closure is the mount's.
+  const weekDataRef = useRef<WeekPlanResponse | null>(null);
+  weekDataRef.current = data;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   // A link added while the notes panel is closed lands somewhere you can't
@@ -1290,13 +1294,31 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     const reveal = (e: Event) => {
       const d = (e as CustomEvent).detail;
       if (!d || d.source !== "week") return;
-      setSelectedDayIdx(d.dayIdx);
+      // A reveal by external ref (`~x<hex>` on the line — how an extension's
+      // row id lands on a week line) carries no dayIdx and no key: the
+      // sender cannot compute the cleaned anchor. Resolve it here against the
+      // raw text — and on every attempt, because the escalation refetches.
+      const resolve = (): { dayIdx: number; key: string } | null => {
+        if (d.ref == null) return { dayIdx: d.dayIdx, key: d.key };
+        const rx = new RegExp(`~x${d.ref}\\b`, "i");
+        const days = weekDataRef.current?.days ?? [];
+        for (let di = 0; di < days.length; di++)
+          for (const t of days[di].tasks)
+            if (rx.test(t.text))
+              return { dayIdx: di, key: stripBucketMeta(stripCtxTokens(t.text)) };
+        return null;
+      };
       // wait for the day to render, then scroll + flash; if the row isn't
       // there (stale local data — the search fetched fresher state than the
       // view holds), refetch once and retry
-      const locate = () =>
-        document.querySelector(`[data-task-anchor="${CSS.escape(`week:${d.dayIdx}:${d.key}`)}"]`)
-          || document.querySelector(`[data-task-anchor$="${CSS.escape(d.key)}"]`);
+      let shownDay = -1;
+      const locate = () => {
+        const r = resolve();
+        if (!r) return null;
+        if (r.dayIdx !== shownDay) { setSelectedDayIdx(r.dayIdx); shownDay = r.dayIdx; }
+        return document.querySelector(`[data-task-anchor="${CSS.escape(`week:${r.dayIdx}:${r.key}`)}"]`)
+          || document.querySelector(`[data-task-anchor$="${CSS.escape(r.key)}"]`);
+      };
       const flash = (el: HTMLElement) => {
         // Not smooth — some engines drop a smooth scroll entirely, and a
         // reveal that doesn't scroll is a pick that did nothing.
