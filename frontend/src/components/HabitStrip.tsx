@@ -12,7 +12,9 @@ export interface HabitTime { start: string; minutes: number }
    leaves the strip; established ones keep the tiny chip. Paused habits are
    not here at all. */
 
-/** The one green on the strip: a week's target reached. */
+/** The one green on the strip: a week's target reached. It only ever
+ *  fills a chip — the border and the text stay the habit's own domain
+ *  colour, which is what tells one group of habits from another. */
 const MET_GREEN = "#10b981";
 
 export const HABIT_DOMAIN: Record<string, { icon: string; color: string }> = {
@@ -156,14 +158,18 @@ export default function HabitStrip({
                 compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
               } ${doneThisDay || h.period === "week" ? "" : "hover:opacity-80"}`}
               style={{
-                borderColor: met ? MET_GREEN : color,
+                // The domain's colour is how the strip is read — body from
+                // mind from soul at a glance — so the border and the text
+                // keep it whatever else is true of the chip.
+                borderColor: color,
                 // Full strength whether or not the day is done: a faded chip
                 // was unreadable at a glance, and "not done today" is exactly
                 // the thing the strip exists to show.
-                color: met ? MET_GREEN : color,
-                // The week's target reached is the one celebration here —
-                // never red, never a warning for the days without it.
-                backgroundColor: met ? `color-mix(in srgb, ${MET_GREEN} 16%, var(--bg))` : "var(--bg)",
+                color,
+                // The week's target reached is the one celebration here, and
+                // it fills the chip rather than recolouring it — never red,
+                // never a warning for the days without it.
+                backgroundColor: met ? `color-mix(in srgb, ${MET_GREEN} 20%, var(--bg))` : "var(--bg)",
               }}
             >
               <span>{doneThisDay ? "✓" : icon}</span>
