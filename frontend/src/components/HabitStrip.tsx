@@ -12,6 +12,11 @@ export interface HabitTime { start: string; minutes: number }
    leaves the strip; established ones keep the tiny chip. Paused habits are
    not here at all. */
 
+/** The one green on the strip: a week's target reached. It only ever
+ *  fills a chip — the border and the text stay the habit's own domain
+ *  colour, which is what tells one group of habits from another. */
+const MET_GREEN = "#10b981";
+
 export const HABIT_DOMAIN: Record<string, { icon: string; color: string }> = {
   body: { icon: "💪", color: "#f97316" },
   mind: { icon: "🧠", color: "#0ea5e9" },
@@ -53,12 +58,21 @@ export function HabitNoteLink({ note, onOpenNote }: {
 
 export default function HabitStrip({
   habits,
+  dayIdx,
   onLog,
+  onUnlog,
   onOpenNote,
   compact = false,
 }: {
   habits: Habit[];
+  //: Which day the strip is about — the one open in the day view. Every
+  //: tick, every colour and every undo here belongs to this day.
+  dayIdx: number;
   onLog: (habit: Habit, variant?: string, time?: HabitTime) => void;
+  //: Takes back today's last log. Tapping the chip must stay "I did it
+  //: again", so undo is its own small control rather than a second meaning
+  //: for the same press.
+  onUnlog?: (habit: Habit) => void;
   onOpenNote?: (path: string, name: string) => void;
   compact?: boolean;
 }) {
@@ -93,18 +107,28 @@ export default function HabitStrip({
     setTimeFor(null);
   };
 
-  const remaining = (h: Habit) =>
-    h.period === "day" ? h.today_count === 0 : h.week_count < h.target;
-
-  // Weekly and established habits always keep a chip (tiny once met);
-  // a daily one only until it's done today.
+  /** How many times this habit was done on the day being looked at. */
+  const onDay = (h: Habit) => h.week_days?.[dayIdx] ?? 0;
+  /** The week's target is reached — the thing worth celebrating, and the
+   *  only green on the strip. */
+  const weekMet = (h: Habit) =>
+    h.period === "day" ? h.days_done >= (h.week_goal || 5) : h.week_count >= h.target;
+  // Every habit that isn't paused keeps its chip. It used to vanish once
+  // done, which only made sense while the strip was about today and there
+  // was nothing left to do with it; now that a chip means "this day", one
+  // that disappears would hide the day's answer rather than give it.
   const visible = habits
-    .filter((h) => !h.paused && (h.established || h.period === "week" || remaining(h)))
+    .filter((h) => !h.paused)
     .sort((a, b) => (b.morning ? 1 : 0) - (a.morning ? 1 : 0));
 
   if (visible.length === 0) return null;
 
   const handleTap = (h: Habit) => {
+    // A daily habit already done on this day takes no more taps — one a day
+    // is its whole meaning, and tapping twice was how it got double-counted.
+    // The undo beside it is the way back. A weekly habit keeps counting:
+    // a second session on one day really is two towards 3x/week.
+    if (h.period === "day" && onDay(h) > 0) return;
     if (h.variants.length > 0) {
       setPickerFor(pickerFor === h.name ? null : h.name);
     } else {
@@ -116,35 +140,63 @@ export default function HabitStrip({
     <div className={`flex flex-wrap items-center gap-1.5 ${compact ? "" : "px-1"}`}>
       {visible.map((h) => {
         const { icon, color } = habitDomainStyle(h.domain);
-        const doneToday = h.today_count > 0;
-        const atTarget = !remaining(h);
-        const tiny = atTarget;
+        const dayCount = onDay(h);
+        const doneThisDay = dayCount > 0;
+        const met = weekMet(h);
         return (
           <div key={h.name} className="relative flex items-center">
             <button
               onClick={() => handleTap(h)}
               title={
-                h.period === "day"
-                  ? `${h.name} — daily${doneToday ? " · done today ✓" : ""}`
-                  : `${h.name} — ${h.week_count}/${h.target} this week${h.morning ? " · morning" : ""}`
+                (h.period === "day"
+                  ? `${h.name} — daily`
+                  : `${h.name} — ${h.week_count}/${h.target} this week${h.morning ? " · morning" : ""}`)
+                + (doneThisDay ? ` · done this day ✓${dayCount > 1 ? ` (${dayCount}×)` : ""}` : " · not done this day")
+                + (met ? " · week's target reached" : "")
               }
               className={`flex items-center gap-1 rounded-full border transition-colors ${
-                compact || tiny ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
-              } ${doneToday || atTarget ? "opacity-50" : "hover:opacity-80"}`}
+                compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
+              } ${doneThisDay || h.period === "week" ? "" : "hover:opacity-80"}`}
               style={{
+                // The domain's colour is how the strip is read — body from
+                // mind from soul at a glance — so the border and the text
+                // keep it whatever else is true of the chip.
                 borderColor: color,
+                // Full strength whether or not the day is done: a faded chip
+                // was unreadable at a glance, and "not done today" is exactly
+                // the thing the strip exists to show.
                 color,
-                backgroundColor: "var(--bg)",
+                // The week's target reached is the one celebration here, and
+                // it fills the chip rather than recolouring it — never red,
+                // never a warning for the days without it.
+                backgroundColor: met ? `color-mix(in srgb, ${MET_GREEN} 20%, var(--bg))` : "var(--bg)",
               }}
             >
-              <span>{tiny ? "✓" : icon}</span>
-              {!tiny && <span className="font-medium">{h.name}</span>}
-              {tiny && <span className="font-medium">{h.name}</span>}
+              <span>{doneThisDay ? "✓" : icon}</span>
+              <span className="font-medium">{h.name}</span>
               {h.period === "week" && (
                 <span className="opacity-70">{h.week_count}/{h.target}</span>
               )}
-              {h.note && onOpenNote && !tiny && (
+              {h.note && onOpenNote && (
                 <HabitNoteLink note={h.note} onOpenNote={onOpenNote} />
+              )}
+              {/* Only this day's tick can be taken back, and only from the
+                  day it was made on. The same ↩ the toolbar undoes with, at
+                  full strength — a faint one was the hardest thing on the
+                  strip to see, and it is the control you reach for in a
+                  hurry. */}
+              {onUnlog && doneThisDay && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); onUnlog(h); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLElement).click(); }}
+                  className="ml-0.5 px-1 rounded text-[11px] font-bold cursor-pointer hover:opacity-80"
+                  style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-secondary)" }}
+                  title={`Not actually done — take this day's ${h.name} back`}
+                >
+                  ↩
+                </span>
               )}
             </button>
             {pickerFor === h.name && (

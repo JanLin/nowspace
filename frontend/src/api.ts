@@ -248,6 +248,8 @@ export interface Habit {
   history: boolean[]; // oldest→newest, week-target met
   history_paused: boolean[]; // same weeks: paused and not met — shown as paused, not missed
   history_counts: number[]; // same weeks: completions (weekly) or days done (daily), unclamped
+  history_days: number[][]; // same weeks, kept per day: 7 counts each, Monday first
+  week_days: number[];      // this week so far, same shape
   history_labels: string[]; // same weeks: "2026-wk37"
   week_goal: number; // what a week must reach to be met: the target, or 5 days for a daily habit
   established: boolean;

@@ -39,22 +39,74 @@ type HabitRow = {
     taller. A met week is full colour, any other a quiet tint — never red.
     A paused week is a dot, because it was a choice; an empty week is simply
     a gap. */
+const DAY_INITIALS = ["M", "T", "W", "T", "F", "S", "S"];
+
+/** Which days of one week the habit happened on.
+ *
+ *  Sits over the graph, because that is what was pressed, and goes away on
+ *  the next touch anywhere — it is a glance, not a panel to manage. */
+function WeekDays({ label, days, color, onClose }: {
+  label: string; days: number[]; color: string; onClose: () => void;
+}) {
+  useEffect(() => {
+    // Any touch anywhere closes it. Registered on the next tick so the press
+    // that opened it is not the one that shuts it again.
+    const close = () => onClose();
+    const id = setTimeout(() => {
+      document.addEventListener("click", close, true);
+      document.addEventListener("touchstart", close, true);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("click", close, true);
+      document.removeEventListener("touchstart", close, true);
+    };
+  }, [onClose]);
+  return (
+    <div className="absolute left-0 bottom-full mb-1 z-30 rounded-lg shadow-lg border px-1.5 py-1"
+      style={{ backgroundColor: "var(--card)", borderColor: "var(--card-border)" }}>
+      <div className="text-[9px] mb-0.5 whitespace-nowrap" style={{ color: "var(--text-tertiary)" }}>{label}</div>
+      <div className="flex gap-0.5">
+        {days.map((n, i) => (
+          <span key={i}
+            title={`${DAY_INITIALS[i]} — ${n === 0 ? "nothing" : `${n}×`}`}
+            className="w-3.5 h-3.5 rounded grid place-items-center text-[8px] font-bold"
+            style={n > 0
+              ? { backgroundColor: color, color: "var(--bg)" }
+              : { backgroundColor: "var(--bg-tertiary)", color: "var(--text-tertiary)" }}>
+            {DAY_INITIALS[i]}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function HabitGraph({ h, color }: { h: Habit; color: string }) {
   const BAR = 5, GAP = 2, H = 18;
   const goal = Math.max(1, h.week_goal || h.target);
   const thisWeek = h.period === "day" ? h.days_done : h.week_count;
+  const [openWeek, setOpenWeek] = useState<number | null>(null);
   const weeks = [
     ...h.history_counts.map((count, i) => ({
       count, met: !!h.history[i], paused: !!h.history_paused?.[i],
       label: h.history_labels?.[i] ? `wk ${Number(h.history_labels[i].split("wk")[1])}` : "", current: false,
+      days: h.history_days?.[i] ?? [],
     })),
-    { count: thisWeek, met: thisWeek >= goal, paused: h.paused, label: "this week so far", current: true },
+    { count: thisWeek, met: thisWeek >= goal, paused: h.paused, label: "this week so far", current: true,
+      days: h.week_days ?? [] },
   ];
   const top = Math.max(goal, ...weeks.map((w) => w.count));
   const y = (v: number) => H - (v / top) * (H - 1);
   const width = weeks.length * (BAR + GAP) - GAP;
   const unit = h.period === "day" ? "days" : "times";
+  const shown = openWeek !== null ? weeks[openWeek] : null;
   return (
+    <span className="relative inline-block align-middle shrink-0">
+    {shown && shown.days.length === 7 && (
+      <WeekDays label={`${shown.label} — ${shown.count} ${unit}`} days={shown.days} color={color}
+        onClose={() => setOpenWeek(null)} />
+    )}
     <svg width={width} height={H} className="inline-block align-middle shrink-0" role="img"
       aria-label={`${weeks.length} weeks, one bar each; the dashed line is the goal of ${goal}`}>
       <line x1={0} x2={width} y1={y(goal)} y2={y(goal)} strokeWidth={1} strokeDasharray="2 2"
@@ -74,12 +126,15 @@ function HabitGraph({ h, color }: { h: Habit; color: string }) {
         return (
           <rect key={i} x={x} y={barTop} width={BAR} height={H - barTop} rx={1}
             fill={color} fillOpacity={w.met ? (w.current ? 0.7 : 1) : 0.3}
-            stroke={w.current ? color : undefined} strokeWidth={w.current ? 0.75 : undefined}>
+            stroke={w.current ? color : undefined} strokeWidth={w.current ? 0.75 : undefined}
+            style={{ cursor: "pointer" }}
+            onClick={(e) => { e.stopPropagation(); setOpenWeek(openWeek === i ? null : i); }}>
             <title>{tip}</title>
           </rect>
         );
       })}
     </svg>
+    </span>
   );
 }
 

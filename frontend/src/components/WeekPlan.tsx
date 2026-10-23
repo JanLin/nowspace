@@ -1651,6 +1651,10 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
 
   // Check if currently viewing today
   const isOnToday = weekOffset === 0 && selectedDayIdx === todayIdx;
+  /** The day the habit strip is about. The day view has a day open; the
+   *  grids show the whole week at once and have none, so they stay on
+   *  today. */
+  const habitDayIdx = viewMode === "day" ? selectedDayIdx : todayIdx;
 
   // Where carry-forward actions land: the day being viewed in day view,
   // today in week views.
@@ -1924,21 +1928,39 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // Selection belongs to the day you're looking at
   useEffect(() => { setSelectedTask(null); }, [selectedDayIdx, viewMode, weekOffset]);
 
-  // Log a habit completion: a checked Habit: task lands in today. The strip
-  // only renders on the current week, so todayIdx is always the right target.
+  // Log a habit completion: a checked Habit: task lands on the day being
+  // looked at, not on today.
+  //
+  // The strip used to read and write today whatever day was open, so the
+  // chip showed Friday's state while you were planning Wednesday, and a tap
+  // meant for Wednesday landed on Friday — which is also how the same habit
+  // got ticked twice in one day. A tick belongs to the day it was made on.
+  // The strip only ever shows the current week, so the furthest this
+  // reaches is a day in the week you are already in.
   const logHabit = (habit: Habit, variant?: string, time?: HabitTime) => {
     if (!data || weekOffset !== 0) return;
+    const dayIdx = habitDayIdx;
     const label = variant || habit.name;
     const newTask: Task = {
       links: [], clean_text: "",
       text: `Habit: ${label}`, done: true, source_file: "Plan Week.md", context: "", tags: [],
       priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
     };
-    const days = data.days.map((d, di) => (di === todayIdx ? { ...d, tasks: [...d.tasks, newTask] } : d));
+    const days = data.days.map((d, di) => (di === dayIdx ? { ...d, tasks: [...d.tasks, newTask] } : d));
     applyTaskChange(days);
-    setHabits((prev) => prev.map((h) => h.name === habit.name
-      ? { ...h, week_count: h.week_count + 1, days_done: h.today_count === 0 ? h.days_done + 1 : h.days_done, today_count: h.today_count + 1 }
-      : h));
+    setHabits((prev) => prev.map((h) => {
+      if (h.name !== habit.name) return h;
+      const wd = [...(h.week_days || [0, 0, 0, 0, 0, 0, 0])];
+      const was = wd[dayIdx] || 0;
+      wd[dayIdx] = was + 1;
+      return {
+        ...h,
+        week_days: wd,
+        week_count: h.week_count + 1,
+        days_done: was === 0 ? h.days_done + 1 : h.days_done,
+        today_count: dayIdx === todayIdx ? h.today_count + 1 : h.today_count,
+      };
+    }));
     // Timed habits also write a time-log entry, so intent (duration in the
     // habit) can be compared against reality (the month log)
     if (time) {
@@ -1949,6 +1971,44 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         text: label,
       }).then(() => window.dispatchEvent(new CustomEvent("time-changed"))).catch(() => {});
     }
+  };
+
+  /** Take back a habit logged on the day being looked at.
+   *
+   *  A log is a checked "Habit: <label>" task on that day, so taking it back
+   *  is removing that task; there is nothing else to undo. Only ever that
+   *  day's log — Wednesday's tick is Wednesday's to remove, and a chip open
+   *  on Thursday must not reach back and take it. A variant counts as its
+   *  habit, since that is what was tapped. */
+  const unlogHabit = (habit: Habit) => {
+    if (!data || weekOffset !== 0) return;
+    const dayIdx = habitDayIdx;
+    const labels = new Set([habit.name, ...habit.variants].map((s) => s.trim().toLowerCase()));
+    const day = data.days[dayIdx];
+    if (!day) return;
+    let at = -1;
+    day.tasks.forEach((t, i) => {
+      const m = t.text.match(/^\s*Habit:\s*(.+?)\s*$/i);
+      if (m && labels.has(m[1].toLowerCase())) at = i;
+    });
+    if (at < 0) return;
+    const days = data.days.map((d, di) =>
+      di === dayIdx ? { ...d, tasks: d.tasks.filter((_, i) => i !== at) } : d);
+    applyTaskChange(days);
+    setHabits((prev) => prev.map((h) => {
+      if (h.name !== habit.name) return h;
+      const wd = [...(h.week_days || [0, 0, 0, 0, 0, 0, 0])];
+      const was = wd[dayIdx] || 0;
+      wd[dayIdx] = Math.max(0, was - 1);
+      return {
+        ...h,
+        week_days: wd,
+        week_count: Math.max(0, h.week_count - 1),
+        // The day stops counting only when its last log goes.
+        days_done: was <= 1 ? Math.max(0, h.days_done - 1) : h.days_done,
+        today_count: dayIdx === todayIdx ? Math.max(0, h.today_count - 1) : h.today_count,
+      };
+    }));
   };
 
   // Drop the @pin marker from a task text — pins never survive a carry;
@@ -4104,13 +4164,13 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       >
         🌱 Habits
         <span style={{ color: "var(--text-tertiary)" }}>
-          {habits.filter((h) => (h.period === "day" ? h.today_count > 0 : h.week_count >= h.target)).length}/{habits.length} on track
+          {habits.filter((h) => (h.period === "day" ? (h.week_days?.[habitDayIdx] ?? 0) > 0 : h.week_count >= h.target)).length}/{habits.length} on track
         </span>
         <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{habitsOpen ? "▾" : "▸"}</span>
       </button>
       {habitsOpen && (
         <div className="mt-1">
-          <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} compact={compact} />
+          <HabitStrip habits={habits} dayIdx={habitDayIdx} onLog={logHabit} onUnlog={unlogHabit} onOpenNote={onOpenNote} compact={compact} />
         </div>
       )}
     </>
