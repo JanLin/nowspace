@@ -54,11 +54,16 @@ export function HabitNoteLink({ note, onOpenNote }: {
 export default function HabitStrip({
   habits,
   onLog,
+  onUnlog,
   onOpenNote,
   compact = false,
 }: {
   habits: Habit[];
   onLog: (habit: Habit, variant?: string, time?: HabitTime) => void;
+  //: Takes back today's last log. Tapping the chip must stay "I did it
+  //: again", so undo is its own small control rather than a second meaning
+  //: for the same press.
+  onUnlog?: (habit: Habit) => void;
   onOpenNote?: (path: string, name: string) => void;
   compact?: boolean;
 }) {
@@ -96,10 +101,12 @@ export default function HabitStrip({
   const remaining = (h: Habit) =>
     h.period === "day" ? h.today_count === 0 : h.week_count < h.target;
 
-  // Weekly and established habits always keep a chip (tiny once met);
-  // a daily one only until it's done today.
+  // Weekly and established habits always keep a chip (tiny once met); a
+  // daily one until it's done today — and then, if it WAS done today, it
+  // stays anyway, because a chip that vanishes on the tap leaves an
+  // accidental one with nothing to undo it from.
   const visible = habits
-    .filter((h) => !h.paused && (h.established || h.period === "week" || remaining(h)))
+    .filter((h) => !h.paused && (h.established || h.period === "week" || remaining(h) || h.today_count > 0))
     .sort((a, b) => (b.morning ? 1 : 0) - (a.morning ? 1 : 0));
 
   if (visible.length === 0) return null;
@@ -145,6 +152,18 @@ export default function HabitStrip({
               )}
               {h.note && onOpenNote && !tiny && (
                 <HabitNoteLink note={h.note} onOpenNote={onOpenNote} />
+              )}
+              {onUnlog && h.today_count > 0 && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); onUnlog(h); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLElement).click(); }}
+                  className="px-0.5 text-[10px] opacity-60 hover:opacity-100 cursor-pointer"
+                  title={`Not actually done — take back today's ${h.name}`}
+                >
+                  ↶
+                </span>
               )}
             </button>
             {pickerFor === h.name && (

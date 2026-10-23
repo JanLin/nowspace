@@ -1951,6 +1951,37 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     }
   };
 
+  /** Take back a habit logged today — the accidental tap.
+   *
+   *  A log is a checked "Habit: <label>" task on today, so taking it back is
+   *  removing that task; there is nothing else to undo. The last matching one
+   *  goes, which is what a sixth tap on a 5x/week habit means you wanted. A
+   *  variant counts as its habit, since that is what was tapped. */
+  const unlogHabit = (habit: Habit) => {
+    if (!data || weekOffset !== 0) return;
+    const labels = new Set([habit.name, ...habit.variants].map((s) => s.trim().toLowerCase()));
+    const today = data.days[todayIdx];
+    if (!today) return;
+    let at = -1;
+    today.tasks.forEach((t, i) => {
+      const m = t.text.match(/^\s*Habit:\s*(.+?)\s*$/i);
+      if (m && labels.has(m[1].toLowerCase())) at = i;
+    });
+    if (at < 0) return;
+    const days = data.days.map((d, di) =>
+      di === todayIdx ? { ...d, tasks: d.tasks.filter((_, i) => i !== at) } : d);
+    applyTaskChange(days);
+    setHabits((prev) => prev.map((h) => h.name === habit.name
+      ? {
+          ...h,
+          week_count: Math.max(0, h.week_count - 1),
+          today_count: Math.max(0, h.today_count - 1),
+          // The day stops counting only when its last log goes.
+          days_done: h.today_count <= 1 ? Math.max(0, h.days_done - 1) : h.days_done,
+        }
+      : h));
+  };
+
   // Drop the @pin marker from a task text — pins never survive a carry;
   // surfacing an errand during work hours is a per-day decision.
   const unpinText = (t: Task): Task =>
@@ -4110,7 +4141,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       </button>
       {habitsOpen && (
         <div className="mt-1">
-          <HabitStrip habits={habits} onLog={logHabit} onOpenNote={onOpenNote} compact={compact} />
+          <HabitStrip habits={habits} onLog={logHabit} onUnlog={unlogHabit} onOpenNote={onOpenNote} compact={compact} />
         </div>
       )}
     </>
