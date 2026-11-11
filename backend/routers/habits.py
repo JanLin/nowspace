@@ -265,6 +265,10 @@ async def get_habits():
     history_met: dict[str, list[bool]] = {h["name"]: [] for h in habits}
     history_paused: dict[str, list[bool]] = {h["name"]: [] for h in habits}
     history_counts: dict[str, list[int]] = {h["name"]: [] for h in habits}
+    #: The same weeks, kept per day instead of collapsed to one number —
+    #: which day a habit happened on is already known here, it was simply
+    #: being summed away. Seven entries per week, Monday first.
+    history_days: dict[str, list[list[int]]] = {h["name"]: [] for h in habits}
     history_labels: list[str] = []
     for year, week, p in archived:
         history_labels.append(f"{year}-wk{week:02d}")
@@ -277,6 +281,7 @@ async def get_habits():
             met = _week_met(counts[h["name"]], h)
             history_met[h["name"]].append(met)
             history_counts[h["name"]].append(_week_value(counts[h["name"]], h))
+            history_days[h["name"]].append(list(counts[h["name"]]))
             # A week met anyway is met — celebrate it, pause or not
             history_paused[h["name"]].append(bool(monday) and not met and _paused_during(h, monday))
     # newest-first → oldest-first for display
@@ -284,6 +289,7 @@ async def get_habits():
         history_met[name] = list(reversed(history_met[name]))
         history_paused[name] = list(reversed(history_paused[name]))
         history_counts[name] = list(reversed(history_counts[name]))
+        history_days[name] = list(reversed(history_days[name]))
     history_labels.reverse()
 
     out = []
@@ -300,6 +306,8 @@ async def get_habits():
             "history": hist,
             "history_paused": hist_paused,
             "history_counts": history_counts[h["name"]],
+            "history_days": history_days[h["name"]],  # 7 per week, Mon first
+            "week_days": list(per_day),               # this week so far, Mon first
             "history_labels": history_labels,  # "2026-wk37" per history entry
             "week_goal": _week_goal(h),
             "established": established,

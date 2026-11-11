@@ -44,3 +44,26 @@ def test_history_reaches_back_twelve_weeks(client, vault):
     h = client.get("/plan/habits").json()["habits"][0]
     assert h["history_labels"][0] == "2026-wk23" and h["history_labels"][-1] == "2026-wk34"
     assert len(h["history_counts"]) == len(h["history"]) == len(h["history_paused"]) == 12
+
+
+def test_history_keeps_which_days_not_just_how_many(client, vault):
+    """The graph's week breakdown reads these: which days a habit happened
+    on was already known here and was being summed away."""
+    (vault / "0-Inbox" / "Plan Week Habits.md").write_text(
+        "## Body\n- exercise (run | bike): 2x/week\n", encoding="utf-8"
+    )
+    # Mon and Thu in one week, Tue twice in the next
+    _archive_week(30, {"Mon 20": ["run"], "Thu 23": ["bike"]})
+    _archive_week(31, {"Tue 28": ["run", "bike"]})
+
+    h = {x["name"]: x for x in client.get("/plan/habits").json()["habits"]}["exercise"]
+
+    assert h["history_labels"] == ["2026-wk30", "2026-wk31"]
+    assert h["history_days"] == [
+        [1, 0, 0, 1, 0, 0, 0],   # Mon and Thu
+        [0, 2, 0, 0, 0, 0, 0],   # Tue, twice
+    ]
+    # and each week's per-day counts still add up to the number on its bar
+    for days, count in zip(h["history_days"], h["history_counts"]):
+        assert sum(days) == count
+    assert len(h["week_days"]) == 7

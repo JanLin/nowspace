@@ -12,7 +12,7 @@ Tuned for Jan's Obsidian format:
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from backend.models import Subtask, Task, TaskLink
@@ -722,6 +722,42 @@ for _full, _abbrevs in {
 
 WEEK_LABEL_RE = re.compile(r"^Week\s+(\S+)", re.IGNORECASE)
 
+def _synth_day_heading(day: str, heading_map: dict[str, str], week_label: str) -> str:
+    """A heading for a day the file never wrote, in the file's own shape.
+
+    save-week rebuilds every day section, so a day with no heading in the
+    file gets this one written out the moment anything on that week is
+    saved — back-filling a habit on a day you forgot, for instance. A bare
+    "##### Thursday" next to the file's own "##### Thu 5" is the file
+    losing its shape, so copy the shape off the headings that are there:
+    same hash depth, same abbreviation, and dated if the others are dated.
+    """
+    hashes, abbrev, dated = "#####", True, False
+    for existing in heading_map.values():
+        m = re.match(r"^(#+)\s*([A-Za-z]+)\s*(\d{1,2})?\s*$", existing.strip())
+        if not m:
+            continue
+        hashes = m.group(1)
+        abbrev = len(m.group(2)) <= 4
+        dated = m.group(3) is not None
+        break
+
+    name = day.capitalize()[:3] if abbrev else day.capitalize()
+    if dated:
+        wk = re.search(r"wk0*(\d+)", week_label, re.IGNORECASE)
+        yr = re.search(r"(\d{4})", week_label)
+        if wk:
+            try:
+                monday = date.fromisocalendar(
+                    int(yr.group(1)) if yr else date.today().year, int(wk.group(1)), 1
+                )
+                return f"{hashes} {name} {(monday + timedelta(days=WEEK_DAYS.index(day))).day}"
+            except ValueError:
+                pass
+    return f"{hashes} {name}"
+
+
+
 
 def parse_week_plan(content: str, source_file: str = "") -> dict:
     """Parse Plan Week.md and return all days' tasks grouped by day.
@@ -957,7 +993,7 @@ def parse_week_plan(content: str, source_file: str = "") -> dict:
     for d in WEEK_DAYS:
         days.append(DayTasks(
             day=d,
-            heading=heading_map.get(d, f"##### {d.capitalize()}"),
+            heading=heading_map.get(d) or _synth_day_heading(d, heading_map, week_label),
             tasks=day_map[d],
         ))
 
