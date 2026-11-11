@@ -22,7 +22,9 @@ function WikiLinkHandler({ onOpenNote }: { onOpenNote?: (path: string, name: str
       e.preventDefault();
       e.stopPropagation();
       const href = link.getAttribute("href") || "";
-      const name = decodeURIComponent(href.replace("#wiki:", ""));
+      // "[[Customer X#2026-11-11 14:05]]" points at an entry inside the
+      // note; the file to open is still the part before the #.
+      const name = decodeURIComponent(href.replace("#wiki:", "")).split("#")[0].trim();
       if (!name) return;
       const open = (path: string, nm: string) => {
         if (onOpenNote) onOpenNote(path, nm);
@@ -51,9 +53,12 @@ interface ScratchpadProps {
   readOnly?: boolean;
   onOpenNote?: (path: string, name: string) => void;
   insertRef: React.MutableRefObject<((text: string) => void) | null>;
+  //: Move the text under selection into a vault note. Given the note, it
+  //: files the text there and leaves a link in its place.
+  moveRef: React.MutableRefObject<((path: string, name: string) => Promise<void>) | null>;
 }
 
-function Scratchpad({ dayName, weekOffset, readOnly, onOpenNote, insertRef }: ScratchpadProps) {
+function Scratchpad({ dayName, weekOffset, readOnly, onOpenNote, insertRef, moveRef }: ScratchpadProps) {
   const [content, setContent] = useState("");
   const [lastSaved, setLastSaved] = useState("");
   const [saving, setSaving] = useState(false);
@@ -62,6 +67,13 @@ function Scratchpad({ dayName, weekOffset, readOnly, onOpenNote, insertRef }: Sc
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cursorPosRef = useRef<number>(0);
+  /** The last range the user had selected, kept across the blur.
+   *
+   *  Reaching for the vault sidebar takes the focus away and swaps the
+   *  textarea for the preview, so by the time anything out there is
+   *  pressed the selection is gone from the DOM. The intent isn't — it is
+   *  the whole reason the sidebar was opened — so it is remembered here. */
+  const selRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
 
   const fetchNotes = useCallback(async () => {
     setLoading(true);
@@ -192,6 +204,61 @@ function Scratchpad({ dayName, weekOffset, readOnly, onOpenNote, insertRef }: Sc
     requestAnimationFrame(() => { if (panel) panel.scrollTop = scroll; });
   };
 
+  /** Remember what is selected, and say so.
+   *
+   *  The sidebar only offers to file text away when there is text to file,
+   *  so it has to be told. An event rather than a callback: the sidebar is
+   *  a sheet in another component's layout, and the day's notes already
+   *  talk to it this way. */
+  const noteSelection = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const { selectionStart: start, selectionEnd: end } = ta;
+    if (end > start) selRef.current = { start, end };
+    window.dispatchEvent(new CustomEvent("scratchpad-selection", {
+      detail: { chars: end - start, text: ta.value.slice(start, end) },
+    }));
+  };
+
+  /** File the selected text into a vault note and leave a link behind.
+   *
+   *  The notepad is where things get written down in a hurry; it is not
+   *  where they live. Moving a piece of it into the note it belongs to
+   *  should cost one press, and leave the day's notes still saying that
+   *  the call happened and where to read it. */
+  moveRef.current = async (path: string, name: string) => {
+    // `content`, not the textarea: once the sidebar takes the focus the
+    // panel has swapped to its preview, and the ref then points at the
+    // hidden mirror textarea whose value was set when it mounted. The
+    // state is the one copy that is always current.
+    const ta = textareaRef.current;
+    const source = content;
+    const { start, end } = selRef.current;
+    const text = source.slice(start, end).trim();
+    if (!text) throw new Error("nothing selected");
+
+    const now = new Date();
+    const stamp = `${now.toISOString().slice(0, 10)} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    await api.logToNote(path, text, stamp);
+
+    // Only once the note has it: a failed write must not take the text out
+    // of the one place it still exists.
+    //
+    // A plain link, not one anchored at the entry's heading: newest first
+    // means what was just filed is the first thing in the note, so the
+    // anchor would point at the top of the page it already opens on — and
+    // "[[Customer X#2026-11-11 14:05|Customer X]]" is a lot of punctuation
+    // to leave sitting in a notepad.
+    const link = `[[${name.replace(/\.md$/, "")}]]`;
+    const next = source.slice(0, start) + link + source.slice(end);
+    if (ta) ta.value = next;
+    setContent(next);
+    selRef.current = { start: start + link.length, end: start + link.length };
+    window.dispatchEvent(new CustomEvent("scratchpad-selection", { detail: { chars: 0, text: "" } }));
+    clearTimeout(debounceRef.current);
+    await save(next);
+  };
+
   // Expose insertAtCursor
   insertRef.current = (text: string) => {
     const ta = textareaRef.current;
@@ -293,6 +360,9 @@ function Scratchpad({ dayName, weekOffset, readOnly, onOpenNote, insertRef }: Sc
           autoCorrect="off"
           spellCheck={false}
           onChange={handleChange}
+          onSelect={noteSelection}
+          onMouseUp={noteSelection}
+          onKeyUp={noteSelection}
           onFocus={() => { setFocused(true); keepCaretVisible(); }}
           onBlur={handleBlur}
           readOnly={readOnly}
@@ -584,6 +654,7 @@ interface NotesPanelProps {
 
 export default function NotesPanel({ dayName, weekOffset, readOnly, onOpenNote }: NotesPanelProps) {
   const insertRef = useRef<((text: string) => void) | null>(null);
+  const moveRef = useRef<((path: string, name: string) => Promise<void>) | null>(null);
   const dayLabel = dayName.charAt(0).toUpperCase() + dayName.slice(1);
   // ⚡ on a reference file: scan that file for APs (ts forces a rescan of the same file)
   const [manualScan, setManualScan] = useState<{ path: string; name: string; ts: number } | null>(null);
@@ -604,11 +675,23 @@ export default function NotesPanel({ dayName, weekOffset, readOnly, onOpenNote }
       const d = (e as CustomEvent).detail as { name: string };
       if (d?.name) handleInsertLink(d.name);
     };
+    // Filing the selection away into a note, from the sidebar row that
+    // names the note. The sidebar knows which note; only this panel knows
+    // what is selected and how to put the link back in its place.
+    const onMove = (e: Event) => {
+      const d = (e as CustomEvent).detail as { path: string; name: string };
+      if (!d?.path || !moveRef.current) return;
+      moveRef.current(d.path, d.name)
+        .then(() => window.dispatchEvent(new CustomEvent("vault-moved", { detail: d })))
+        .catch(() => window.dispatchEvent(new CustomEvent("vault-move-failed", { detail: d })));
+    };
     window.addEventListener("vault-scan-aps", onScan);
     window.addEventListener("vault-insert-link", onInsert);
+    window.addEventListener("vault-move-selection", onMove);
     return () => {
       window.removeEventListener("vault-scan-aps", onScan);
       window.removeEventListener("vault-insert-link", onInsert);
+      window.removeEventListener("vault-move-selection", onMove);
     };
   }, []);
 
@@ -626,6 +709,7 @@ export default function NotesPanel({ dayName, weekOffset, readOnly, onOpenNote }
         readOnly={readOnly}
         onOpenNote={onOpenNote}
         insertRef={insertRef}
+        moveRef={moveRef}
       />
 
       {/* Action points found in today's linked call notes (or a ⚡-scanned file) */}

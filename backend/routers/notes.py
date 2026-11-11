@@ -1,5 +1,6 @@
 """Notes endpoints: read/write/append vault markdown files."""
 
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +22,12 @@ class WriteRequest(BaseModel):
 class AppendRequest(BaseModel):
     path: str  # relative path from vault root
     content: str
+
+
+class LogRequest(BaseModel):
+    path: str  # relative path from vault root
+    text: str  # what was written in the day's scratchpad
+    stamp: str  # the dated heading this entry gets, e.g. "2026-11-11 14:05"
 
 
 class CreateRequest(BaseModel):
@@ -103,6 +110,60 @@ async def append_note(req: AppendRequest):
 
     modified = datetime.fromtimestamp(full.stat().st_mtime).isoformat()
     return {"success": True, "modified": modified, "path": req.path}
+
+
+#: A dated entry heading, ours or one written by hand: "#### 2026-11-11",
+#: "## 2026-11-11 14:05". Finding the first one is how an entry knows where
+#: the log starts — and therefore what sits above it and must not move.
+DATED_HEADING_RE = re.compile(r"^#{1,6}\s+\d{4}-\d{2}-\d{2}\b")
+
+
+def _insert_log_entry(existing: str, entry: str) -> str:
+    """Put a new dated entry at the top of the note's log.
+
+    Newest first, which is what a customer note wants: the call you just
+    had is the one you read. But "top of the file" is the wrong rule — a
+    note may open with an action-point list or a running tally that belongs
+    above every entry, and pushing it down one call at a time would bury it.
+
+    So the top of the *log*, not the top of the file: above the first dated
+    entry if the note has one, and otherwise at the end, below whatever is
+    already there. A note being logged into for the first time keeps its
+    opening block, and every entry after that stacks above the first one.
+    """
+    lines = existing.split("\n")
+    for i, line in enumerate(lines):
+        if DATED_HEADING_RE.match(line.strip()):
+            head = "\n".join(lines[:i]).rstrip("\n")
+            tail = "\n".join(lines[i:])
+            return (head + "\n\n" if head else "") + entry.rstrip("\n") + "\n\n" + tail
+    body = existing.rstrip("\n")
+    return (body + "\n\n" if body else "") + entry.rstrip("\n") + "\n"
+
+
+@router.post("/log")
+async def log_to_note(req: LogRequest):
+    """File a piece of the day's scratchpad into a vault note as a dated entry.
+
+    The text came out of a notepad mid-call, so it is written back verbatim
+    under its own heading — nothing reformatted, nothing dropped.
+    """
+    full = _resolve_path(req.path)
+    full.parent.mkdir(parents=True, exist_ok=True)
+
+    existing = vault_io.read_text(full, default="")
+    before = full.stat().st_mtime if full.exists() else None
+
+    entry = f"#### {req.stamp}\n\n{req.text.strip()}"
+    vault_io.write_text_guarded(full, _insert_log_entry(existing, entry), before, what="Note")
+
+    refresh_index()
+    return {
+        "success": True,
+        "path": req.path,
+        "stamp": req.stamp,
+        "modified": datetime.fromtimestamp(full.stat().st_mtime).isoformat(),
+    }
 
 
 @router.post("/create")
