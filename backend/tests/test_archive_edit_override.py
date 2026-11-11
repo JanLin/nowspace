@@ -106,3 +106,37 @@ def test_the_current_week_is_untouched_by_any_of_this(moved_plan, client):
     r = client.post("/plan/save-week", json={"days": DAYS, "offset": 0})
     assert r.status_code == 200, r.json()
     assert "kept" in (moved_plan / "0-Plan" / "Plan Week.md").read_text()
+
+
+def test_a_day_the_file_never_wrote_keeps_the_file_s_own_heading_shape(moved_plan, client):
+    """Back-filling a forgotten day is the whole point of the override, and
+    save-week rebuilds every day section — so the days that were never in
+    the file get headings written for the first time. They must match the
+    ones the file already has: "##### Thu 5" beside "##### Mon 2", not a
+    bare "##### Thursday" that leaves the week looking half-edited.
+    """
+    iso = (date.today() - timedelta(weeks=1)).isocalendar()
+    year, week = iso[0], iso[1]
+    monday = date.fromisocalendar(year, week, 1)
+    arch = moved_plan / "4-Archive/a0-Plan"
+    arch.mkdir(parents=True, exist_ok=True)
+    f = arch / f"Plan Week - {year}-wk{week:02d}.md"
+    f.write_text(
+        f"## Goals\n- \n\nWeek {year}-wk{week:02d}\n\n"
+        f"##### Mon {monday.day}\n##### Tue {(monday + timedelta(days=1)).day}\n\n#### Notes\n",
+        encoding="utf-8",
+    )
+
+    # what the client has on screen, headings and all
+    read = client.get("/plan/week?offset=-1").json()
+    days = [{"day": d["day"], "heading": d["heading"], "tasks": []} for d in read["days"]]
+    days[6]["tasks"] = [{"text": "Habit: walk", "done": True, "priority": "C"}]
+
+    r = client.post("/plan/save-week", json={"days": days, "offset": -1, "allow_archive": True})
+    assert r.status_code == 200, r.json()
+
+    written = f.read_text()
+    for i, short in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
+        assert f"##### {short} {(monday + timedelta(days=i)).day}" in written, written
+    assert "Thursday" not in written
+    assert "walk" in written.split("##### Sun")[1]

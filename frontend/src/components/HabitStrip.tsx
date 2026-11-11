@@ -61,6 +61,7 @@ export function HabitNoteLink({ note, onOpenNote }: {
 export default function HabitStrip({
   habits,
   dayIdx,
+  noDay = false,
   onPickDay,
   todayIdx,
   onLog,
@@ -72,6 +73,10 @@ export default function HabitStrip({
   //: Which day the strip is about — the one open in the day view. Every
   //: tick, every colour and every undo here belongs to this day.
   dayIdx: number;
+  //: No day is open at all — a past week seen as a grid, where "today"
+  //: is in some other week. The chips still show what that week holds;
+  //: they just have no day to tick, and say so.
+  noDay?: boolean;
   //: Jump to a day, when there is a day view to jump within. Given only
   //: then: in the grids there is no open day for it to mean anything.
   onPickDay?: (idx: number) => void;
@@ -133,6 +138,10 @@ export default function HabitStrip({
   if (visible.length === 0) return null;
 
   const handleTap = (h: Habit) => {
+    // Nothing to tick without a day to tick it on. Open the day instead —
+    // writing to whatever day today happens to be in another week is how a
+    // tick lands somewhere nobody chose.
+    if (noDay) return;
     // A daily habit already done on this day takes no more taps — one a day
     // is its whole meaning, and tapping twice was how it got double-counted.
     // The undo beside it is the way back. A weekly habit keeps counting:
@@ -160,12 +169,13 @@ export default function HabitStrip({
                 (h.period === "day"
                   ? `${h.name} — daily`
                   : `${h.name} — ${h.week_count}/${h.target} this week${h.morning ? " · morning" : ""}`)
-                + (doneThisDay ? ` · done this day ✓${dayCount > 1 ? ` (${dayCount}×)` : ""}` : " · not done this day")
+                + (noDay ? " · open a day to tick it"
+                   : doneThisDay ? ` · done this day ✓${dayCount > 1 ? ` (${dayCount}×)` : ""}` : " · not done this day")
                 + (met ? " · week's target reached" : "")
               }
               className={`flex items-center gap-1 rounded-full border transition-colors ${
                 compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
-              } ${doneThisDay || h.period === "week" ? "" : "hover:opacity-80"}`}
+              } ${noDay ? "cursor-default" : doneThisDay || h.period === "week" ? "" : "hover:opacity-80"}`}
               style={{
                 // The domain's colour is how the strip is read — body from
                 // mind from soul at a glance — so the border and the text
@@ -221,7 +231,7 @@ export default function HabitStrip({
                   full strength — a faint one was the hardest thing on the
                   strip to see, and it is the control you reach for in a
                   hurry. */}
-              {onUnlog && doneThisDay && (
+              {onUnlog && doneThisDay && !noDay && (
                 <span
                   role="button"
                   tabIndex={0}

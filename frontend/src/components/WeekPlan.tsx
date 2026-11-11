@@ -1653,8 +1653,43 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   const isOnToday = weekOffset === 0 && selectedDayIdx === todayIdx;
   /** The day the habit strip is about. The day view has a day open; the
    *  grids show the whole week at once and have none, so they stay on
-   *  today. */
-  const habitDayIdx = viewMode === "day" ? selectedDayIdx : todayIdx;
+   *  today — but a past week has no today to stand on, and a tick there
+   *  would land on a day nobody chose. In that one case the strip reads
+   *  the week (-1, no day) and the day view is where it is edited. */
+  const habitDayIdx = viewMode === "day" ? selectedDayIdx : (weekOffset === 0 ? todayIdx : -1);
+  /** On track for the fold line: by the day when there is one, by the
+   *  week when there is not. */
+  const habitOnTrack = (h: Habit) =>
+    h.period !== "day" ? h.week_count >= h.target
+      : habitDayIdx >= 0 ? (h.week_days?.[habitDayIdx] ?? 0) > 0
+      : h.days_done >= (h.week_goal || 5);
+
+  /** "Week 2026-wk41" → "2026-wk41", which is how the history labels it. */
+  const viewedWeekLabel = (data?.week_label || "").replace(/^week\s+/i, "").trim();
+  /** Where this week sits in a habit's history, or -1 for the live week. */
+  const historyIdxOf = (h: Habit) => (h.history_labels || []).indexOf(viewedWeekLabel);
+
+  /** Each habit as the week on screen saw it.
+   *
+   *  The strip reads week_days, week_count and days_done; on a past week
+   *  those still describe the live one, so they are swapped for that week's
+   *  own row out of the history the graph already uses. Everything
+   *  downstream — chips, dots, the met-week green, the fold's count — is
+   *  then about the week you are looking at without knowing anything new. */
+  const habitsForView = useMemo(() => {
+    if (weekOffset === 0) return habits;
+    return habits.map((h) => {
+      const i = historyIdxOf(h);
+      const days = (i >= 0 ? h.history_days?.[i] : null) || [0, 0, 0, 0, 0, 0, 0];
+      return {
+        ...h,
+        week_days: days,
+        week_count: days.reduce((n, c) => n + c, 0),
+        days_done: days.filter((c) => c > 0).length,
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [habits, weekOffset, viewedWeekLabel]);
 
   // Where carry-forward actions land: the day being viewed in day view,
   // today in week views.
@@ -1937,8 +1972,43 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
   // got ticked twice in one day. A tick belongs to the day it was made on.
   // The strip only ever shows the current week, so the furthest this
   // reaches is a day in the week you are already in.
+  /** Move one day's count for a habit, in whichever week is on screen.
+   *
+   *  The live week keeps its counts in week_days; a past week keeps them in
+   *  the history row for that week. Writing to the wrong one would make the
+   *  strip disagree with the file until the next reload — and on a past week
+   *  it would quietly misreport the current week instead. */
+  const bumpHabit = (h: Habit, dayIdx: number, delta: 1 | -1): Habit => {
+    const i = weekOffset === 0 ? -1 : historyIdxOf(h);
+    const src = (i >= 0 ? h.history_days?.[i] : h.week_days) || [0, 0, 0, 0, 0, 0, 0];
+    const was = src[dayIdx] || 0;
+    if (delta < 0 && was === 0) return h;
+    const days = [...src];
+    days[dayIdx] = Math.max(0, was + delta);
+    if (i >= 0) {
+      const hist = [...(h.history_days || [])];
+      hist[i] = days;
+      const counts = [...(h.history_counts || [])];
+      if (counts[i] !== undefined) counts[i] = Math.max(0, counts[i] + delta);
+      return { ...h, history_days: hist, history_counts: counts };
+    }
+    return {
+      ...h,
+      week_days: days,
+      week_count: Math.max(0, h.week_count + delta),
+      // A day stops counting only when its last log goes.
+      days_done: delta > 0
+        ? (was === 0 ? h.days_done + 1 : h.days_done)
+        : (was <= 1 ? Math.max(0, h.days_done - 1) : h.days_done),
+      today_count: dayIdx === todayIdx ? Math.max(0, h.today_count + delta) : h.today_count,
+    };
+  };
+
   const logHabit = (habit: Habit, variant?: string, time?: HabitTime) => {
-    if (!data || weekOffset !== 0) return;
+    // A past week is writable once it has been unlocked — the same override
+    // that lets an archived task be edited. Forgetting to tick on Sunday and
+    // noticing on Monday is the ordinary case, not an edge one.
+    if (!data || (weekOffset !== 0 && readOnly)) return;
     const dayIdx = habitDayIdx;
     const label = variant || habit.name;
     const newTask: Task = {
@@ -1946,21 +2016,12 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       text: `Habit: ${label}`, done: true, source_file: "Plan Week.md", context: "", tags: [],
       priority: "C", pillars: [], subtasks: [], focused: false, waiting: false,
     };
+    // A day the file never wrote gets its heading written on save — the
+    // backend shapes that heading off the ones the file does have, so
+    // back-filling a forgotten day keeps the file's own style.
     const days = data.days.map((d, di) => (di === dayIdx ? { ...d, tasks: [...d.tasks, newTask] } : d));
     applyTaskChange(days);
-    setHabits((prev) => prev.map((h) => {
-      if (h.name !== habit.name) return h;
-      const wd = [...(h.week_days || [0, 0, 0, 0, 0, 0, 0])];
-      const was = wd[dayIdx] || 0;
-      wd[dayIdx] = was + 1;
-      return {
-        ...h,
-        week_days: wd,
-        week_count: h.week_count + 1,
-        days_done: was === 0 ? h.days_done + 1 : h.days_done,
-        today_count: dayIdx === todayIdx ? h.today_count + 1 : h.today_count,
-      };
-    }));
+    setHabits((prev) => prev.map((h) => h.name === habit.name ? bumpHabit(h, dayIdx, +1) : h));
     // Timed habits also write a time-log entry, so intent (duration in the
     // habit) can be compared against reality (the month log)
     if (time) {
@@ -1981,7 +2042,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
    *  on Thursday must not reach back and take it. A variant counts as its
    *  habit, since that is what was tapped. */
   const unlogHabit = (habit: Habit) => {
-    if (!data || weekOffset !== 0) return;
+    if (!data || (weekOffset !== 0 && readOnly)) return;
     const dayIdx = habitDayIdx;
     const labels = new Set([habit.name, ...habit.variants].map((s) => s.trim().toLowerCase()));
     const day = data.days[dayIdx];
@@ -1995,20 +2056,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     const days = data.days.map((d, di) =>
       di === dayIdx ? { ...d, tasks: d.tasks.filter((_, i) => i !== at) } : d);
     applyTaskChange(days);
-    setHabits((prev) => prev.map((h) => {
-      if (h.name !== habit.name) return h;
-      const wd = [...(h.week_days || [0, 0, 0, 0, 0, 0, 0])];
-      const was = wd[dayIdx] || 0;
-      wd[dayIdx] = Math.max(0, was - 1);
-      return {
-        ...h,
-        week_days: wd,
-        week_count: Math.max(0, h.week_count - 1),
-        // The day stops counting only when its last log goes.
-        days_done: was <= 1 ? Math.max(0, h.days_done - 1) : h.days_done,
-        today_count: dayIdx === todayIdx ? Math.max(0, h.today_count - 1) : h.today_count,
-      };
-    }));
+    setHabits((prev) => prev.map((h) => h.name === habit.name ? bumpHabit(h, dayIdx, -1) : h));
   };
 
   // Drop the @pin marker from a task text — pins never survive a carry;
@@ -3859,7 +3907,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           if (types.includes("carry-task") || types.includes("carry-group") || types.includes("bucket-task") || types.includes("daily-carry-task") || types.includes("daily-carry-day")) handleDrop(selectedDayIdx, day.tasks.length, e);
         }}>
         {/* Habit chips — current week only, shrink as the week goes well */}
-        {weekOffset === 0 && habits.length > 0 && !ultraFocusActive && (
+        {(weekOffset === 0 || archiveUnlocked) && habits.length > 0 && !ultraFocusActive && (
           renderHabits()
         )}
         {/* Day info bar */}
@@ -4164,13 +4212,14 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       >
         🌱 Habits
         <span style={{ color: "var(--text-tertiary)" }}>
-          {habits.filter((h) => (h.period === "day" ? (h.week_days?.[habitDayIdx] ?? 0) > 0 : h.week_count >= h.target)).length}/{habits.length} on track
+          {habitsForView.filter(habitOnTrack).length}/{habitsForView.length} on track
         </span>
         <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{habitsOpen ? "▾" : "▸"}</span>
       </button>
       {habitsOpen && (
         <div className="mt-1">
-          <HabitStrip habits={habits} dayIdx={habitDayIdx} todayIdx={todayIdx}
+          <HabitStrip habits={habitsForView} dayIdx={habitDayIdx} noDay={habitDayIdx < 0}
+            todayIdx={weekOffset === 0 ? todayIdx : undefined}
             onPickDay={viewMode === "day" ? goToDay : undefined}
             onLog={logHabit} onUnlog={unlogHabit} onOpenNote={onOpenNote} compact={compact} />
         </div>
@@ -4183,7 +4232,7 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     if (!data) return null;
     return (
       <>
-        {weekOffset === 0 && habits.length > 0 && (
+        {(weekOffset === 0 || archiveUnlocked) && habits.length > 0 && (
           <div className="mb-2">{renderHabits(true)}</div>
         )}
         {/* On phones the 5/7-day grids scroll horizontally with readable columns
