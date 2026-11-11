@@ -506,6 +506,15 @@ export const api = {
       body: JSON.stringify({ path, content }),
     }),
 
+  /** File a piece of the day's scratchpad into a vault note as a dated
+   *  entry. The server puts it at the top of the note's log — above the
+   *  entries, below whatever opening block the note keeps. */
+  logToNote: (path: string, text: string, stamp: string) =>
+    request<{ success: boolean; path: string; stamp: string; modified: string }>("/api/notes/log", {
+      method: "POST",
+      body: JSON.stringify({ path, text, stamp }),
+    }),
+
   createNote: (folder: string, name: string, template: string = "") =>
     request<{ success: boolean; modified: string; path: string }>("/api/notes/create", {
       method: "POST",

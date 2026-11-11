@@ -22,7 +22,7 @@ const TASK_ICONS: Item[] = [
 ];
 
 const CORNER_ICONS: Item[] = [
-  { icon: "📁", text: "Vault browser — a side panel with your vault's folders and notes. Search by name, open any note in the built-in editor, drag one onto a task to link it, and make a new note, call note or folder in whichever folder you have open — anywhere in the vault, not just your starred ones. It sits in the Plan, Bucket and Notes tabs." },
+  { icon: "📁", text: "Vault browser — a side panel with your vault's folders and notes. Search by name, open any note in the built-in editor, drag one onto a task to link it, and make a new note, call note or folder in whichever folder you have open — anywhere in the vault, not just your starred ones. Every row carries a + that drops a [[link]] into what you're writing, and, while the day's notes hold a selection, a ✂ that moves that text into the note. It sits in the Plan, Bucket and Notes tabs." },
   { icon: "⏩", text: "Carry forward — the badge counts open tasks from earlier days. Open it to pull them into the day you're planning, mark them done after the fact, or send them to the bucket. A second ⏩ appears when last week left tasks behind." },
   { icon: "🪣", text: "Bucket panel — a slice of your bucket beside the plan (the badge is its size). Horizon chips filter it (n by default); tap a task to add it to the day, or drag it onto the plan." },
 ];
@@ -41,6 +41,7 @@ const SECTIONS: { id?: string; title: string; img?: string; imgAlt?: string; img
     body: [
       "The Plan tab shows one day (or a grid of days) with tasks grouped the way you group them. The toolbar filters by context (Tag), by group (Filter), and switches layouts (View). Tick the circle to complete a task; double-click empty space to add one; drag to reorder or move between days.",
       "Carry forward brings unfinished tasks along from earlier days whenever you're ready. Notes and a per-day diary live beside the task list.",
+      "The day's notes are a notepad — write in them during a call and sort it out afterwards. To file a piece of them where it belongs, select the lines, open the vault browser and press the ✂ on the note's row: the text becomes a dated entry at the top of that note's log, and a [[link]] is left where it was. The ✂ is only there while something is selected, and it never takes you out of the day you are in — the confirmation offers to open the note rather than opening it.",
       "Long task that turned out to be a project? Break it into steps with the 🐘 elephant, then mark it as an epic in the badge menu: from then on, ticking a step records it as its own completed task for today, and the epic completes itself when the last step is done.",
     ],
   },

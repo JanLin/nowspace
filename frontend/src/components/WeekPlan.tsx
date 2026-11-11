@@ -341,6 +341,37 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
     const t = setTimeout(() => setLinkAdded(""), 2600);
     return () => clearTimeout(t);
   }, [linkAdded]);
+  /** How much is selected in the day's notes right now.
+   *
+   *  The sidebar offers to file text away only while there is text to
+   *  file, so it has to know. The notes panel says so as the selection
+   *  changes; nothing here reads the text itself. */
+  const [notesSelection, setNotesSelection] = useState(0);
+  const [movedTo, setMovedTo] = useState<{ path: string; name: string } | null>(null);
+  useEffect(() => {
+    const onSel = (e: Event) => setNotesSelection(((e as CustomEvent).detail?.chars as number) || 0);
+    const onMoved = (e: Event) => {
+      setMovedTo((e as CustomEvent).detail as { path: string; name: string });
+      setNotesSelection(0);
+    };
+    const onFailed = (e: Event) => {
+      const d = (e as CustomEvent).detail as { name: string };
+      setError(`Couldn't move that into ${d?.name || "the note"} — it is still in the day's notes`);
+    };
+    window.addEventListener("scratchpad-selection", onSel);
+    window.addEventListener("vault-moved", onMoved);
+    window.addEventListener("vault-move-failed", onFailed);
+    return () => {
+      window.removeEventListener("scratchpad-selection", onSel);
+      window.removeEventListener("vault-moved", onMoved);
+      window.removeEventListener("vault-move-failed", onFailed);
+    };
+  }, []);
+  useEffect(() => {
+    if (!movedTo) return;
+    const t = setTimeout(() => setMovedTo(null), 6000);
+    return () => clearTimeout(t);
+  }, [movedTo]);
   const [weekOffset, setWeekOffset] = useState(0);
   const { funnel: funnelOn } = useAppMode();
   const [viewMode, setViewMode] = useState<ViewMode>("day");
@@ -5972,6 +6003,23 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
         Added <strong style={{ color: "var(--text)" }}>[[{linkAdded}]]</strong> to the day's notes
       </div>
     )}
+    {/* Moved text has left the day's notes for somewhere you are not
+        looking. Saying where — and offering to go there rather than going
+        there — is the difference between filing something and being taken
+        out of the call you are still in. */}
+    {movedTo && (
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-lg shadow-lg text-xs flex items-center gap-2"
+        style={{ backgroundColor: "var(--card)", border: "1px solid var(--card-border)", color: "var(--text-secondary)" }}>
+        <span>Moved into <strong style={{ color: "var(--text)" }}>{movedTo.name}</strong></span>
+        <button
+          onClick={() => { onOpenNote?.(movedTo.path, movedTo.name); setMovedTo(null); }}
+          className="px-1.5 py-0.5 rounded text-[11px]"
+          style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text)" }}
+        >
+          open
+        </button>
+      </div>
+    )}
     {vaultBrowserOpen && (
       <div className={sheetClass("md:w-80")} style={{ borderColor: "var(--border-strong)", backgroundColor: "var(--bg-secondary)" }}>
         <SheetGrip />
@@ -5979,6 +6027,11 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
           onClose={() => setVaultBrowserOpen(false)}
           stateRef={vaultBrowserStateRef}
           onOpenNote={onOpenNote}
+          /* Only while the day's notes have a selection, and only while the
+             panel holding them is mounted to act on it. */
+          onMoveSelection={notesSelection > 0 && showNotesPanel && !diaryOpen && !readOnly
+            ? (path, name) => window.dispatchEvent(new CustomEvent("vault-move-selection", { detail: { path, name } }))
+            : undefined}
           /* Only the day's notes panel can act on these, so ask it by event
              rather than threading callbacks through the week layout */
           onInsertLink={(name) => {

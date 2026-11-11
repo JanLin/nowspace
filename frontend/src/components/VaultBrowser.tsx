@@ -26,6 +26,11 @@ interface Props {
   onOpenNote: (path: string, name: string) => void;
   /** Insert a [[link]] to a note into whatever is being written (day view) */
   onInsertLink?: (name: string) => void;
+  /** Day view, and only while text is selected in the day's notes: file
+      that text away into this note and leave a link in its place. Absent
+      when there is no selection, so the control is never a button that
+      would do nothing. */
+  onMoveSelection?: (path: string, name: string) => void;
   /** Harvest action points out of a note — day view only, it owns the strip */
   onScanAPs?: (path: string, name: string) => void;
   /** Jump to a folder from outside. The nonce is what makes a repeat jump to
@@ -48,9 +53,34 @@ function relativeTime(isoDate: string): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+/** Put the selected notes into this note.
+ *
+ *  Beside the + rather than instead of it, because the two are different
+ *  promises: + copies a link in, this one takes text out of the day and
+ *  files it where it belongs. One of them cannot be undone by typing, so
+ *  it never shares a button with the other — and it is only ever on screen
+ *  while there is a selection to move. */
+function MoveButton({ path, name, onMove }: {
+  path: string;
+  name: string;
+  onMove?: (path: string, name: string) => void;
+}) {
+  if (!onMove) return null;
+  return (
+    <button
+      onClick={() => onMove(path, name)}
+      title={`Move the selected notes into ${name} — dated, newest first, with a link left in their place`}
+      className="text-[11px] leading-none shrink-0 px-1 rounded hover:bg-amber-50"
+      style={{ color: "var(--text-tertiary)" }}
+    >
+      {"\u2702"}
+    </button>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────────────
 
-export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLink, onScanAPs, focusFolder }: Props) {
+export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLink, onMoveSelection, onScanAPs, focusFolder }: Props) {
   // Restore state from ref or use defaults
   const saved = stateRef.current;
 
@@ -478,6 +508,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                   +
                 </button>
               )}
+              <span className="self-start mt-1"><MoveButton path={h.path} name={h.name} onMove={onMoveSelection} /></span>
               <div className="flex-1 min-w-0">
                 <button onClick={() => openNote(h.path, h.name)}
                   className="w-full text-left text-[11px] pt-1 px-1 rounded hover:bg-blue-50 transition-colors truncate"
@@ -537,6 +568,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                         +
                       </button>
                     )}
+                    <MoveButton path={path} name={name} onMove={onMoveSelection} />
                     <button
                       onClick={() => openNote(path, name)}
                       className="flex-1 text-left text-[11px] py-0.5 px-1 rounded hover:bg-blue-50 truncate transition-colors"
@@ -571,6 +603,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                       +
                     </button>
                   )}
+                  <MoveButton path={r.path} name={r.name} onMove={onMoveSelection} />
                   <button
                     onClick={() => openNote(r.path, r.name)}
                     className="flex-1 text-left text-[11px] py-0.5 px-1 rounded hover:bg-blue-50 truncate transition-colors"
@@ -632,6 +665,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                   <FolderRow
                     key={f.path}
                     onInsertLink={onInsertLink}
+                    onMoveSelection={onMoveSelection}
                     file={f}
                     refName={refName}
                     isDropTarget={dropTarget === f.path}
@@ -665,6 +699,7 @@ export default function VaultBrowser({ onClose, stateRef, onOpenNote, onInsertLi
                   onTogglePin={() => togglePin(f.path)}
                   isDragging={dragPath === f.path}
                   onInsertLink={onInsertLink && (() => onInsertLink(f.name))}
+                  onMoveSelection={onMoveSelection && (() => onMoveSelection(f.path, f.name.replace(/\.md$/, "")))}
                   onScanAPs={onScanAPs && (() => onScanAPs(f.path, f.name))}
                 />
               ))}
@@ -727,9 +762,11 @@ interface FolderRowProps {
   onOpenFile: (path: string, name: string) => void;
   isPinned: (path: string) => boolean;
   onTogglePin: (path: string) => void;
+  /** Same ✂ as every other row, for the files inside an expanded folder. */
+  onMoveSelection?: (path: string, name: string) => void;
 }
 
-function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, refNameInput, onNavigateTo, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, isPinned, onTogglePin, onInsertLink }: FolderRowProps) {
+function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, refNameInput, onNavigateTo, onToggleExpand, onStarClick, onRefNameChange, onRefNameSubmit, onRefNameCancel, onDragStart, onDragOver, onDragLeave, onDrop, onOpenFile, isPinned, onTogglePin, onInsertLink, onMoveSelection }: FolderRowProps) {
   const isEditingRef = refNameInput?.folderPath === file.path;
   const isExpanded = expandedFolders.has(file.path);
 
@@ -811,6 +848,7 @@ function FolderRow({ file, refName, isDropTarget, expandedFolders, subFilesMap, 
           onDragLeave={onDragLeave}
           onDrop={onDrop}
           onInsertLink={onInsertLink}
+          onMoveSelection={onMoveSelection}
         />
       )}
     </div>
@@ -833,9 +871,11 @@ interface SubTreeProps {
       rendered here rather than by FileRow, and were the one place it was
       still missing. */
   onInsertLink?: (name: string) => void;
+  /** Same ✂ as every other row. */
+  onMoveSelection?: (path: string, name: string) => void;
 }
 
-function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleExpand, onOpenFile, isPinned, onTogglePin, onDragOver, onDragLeave, onDrop, onInsertLink }: SubTreeProps) {
+function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleExpand, onOpenFile, isPinned, onTogglePin, onDragOver, onDragLeave, onDrop, onInsertLink, onMoveSelection }: SubTreeProps) {
   return (
     <div className="ml-3 border-l border-gray-200 pl-1">
       {files.length === 0 && (
@@ -871,6 +911,8 @@ function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleEx
               onDragOver={onDragOver}
               onDragLeave={onDragLeave}
               onDrop={onDrop}
+              onInsertLink={onInsertLink}
+              onMoveSelection={onMoveSelection}
             />
           )}
         </div>
@@ -884,6 +926,7 @@ function SubTree({ files, expandedFolders, subFilesMap, onNavigateTo, onToggleEx
               +
             </button>
           )}
+          <MoveButton path={f.path} name={f.name.replace(/\.md$/, "")} onMove={onMoveSelection} />
           <button
             onClick={() => onOpenFile(f.path, f.name)}
             className="flex-1 text-left truncate transition-colors"
@@ -917,11 +960,13 @@ interface FileRowProps {
   isDragging: boolean;
   /** Day view only: drop a [[link]] into the note being written */
   onInsertLink?: false | (() => void);
+  /** Day view, with text selected: move that text in here */
+  onMoveSelection?: false | (() => void);
   /** Day view only: harvest this note's action points into the bucket */
   onScanAPs?: false | (() => void);
 }
 
-function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, isDragging, onInsertLink, onScanAPs }: FileRowProps) {
+function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, isDragging, onInsertLink, onMoveSelection, onScanAPs }: FileRowProps) {
   return (
     <div
       className={`group/file flex items-center gap-1 py-1 px-1 rounded text-[11px] transition-colors ${
@@ -938,6 +983,14 @@ function FileRow({ file, isPinned, onOpen, onDragStart, onDelete, onTogglePin, i
         <button onClick={onInsertLink} title="Add a [[link]] to this note into the note you're writing"
           className="text-[11px] leading-none shrink-0 px-1 rounded font-bold text-gray-400 hover:text-blue-600 hover:bg-blue-50">
           +
+        </button>
+      )}
+      {onMoveSelection && (
+        <button onClick={onMoveSelection}
+          title="Move the selected notes into this note — dated, newest first, with a link left in their place"
+          className="text-[11px] leading-none shrink-0 px-1 rounded hover:bg-amber-50"
+          style={{ color: "var(--text-tertiary)" }}>
+          {"\u2702"}
         </button>
       )}
       <button
