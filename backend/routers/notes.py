@@ -112,33 +112,58 @@ async def append_note(req: AppendRequest):
     return {"success": True, "modified": modified, "path": req.path}
 
 
-#: A dated entry heading, ours or one written by hand: "#### 2026-11-11",
-#: "## 2026-11-11 14:05". Finding the first one is how an entry knows where
-#: the log starts — and therefore what sits above it and must not move.
-DATED_HEADING_RE = re.compile(r"^#{1,6}\s+\d{4}-\d{2}-\d{2}\b")
+#: A dated entry heading, ours or one written by hand: "## 2026-11-11",
+#: "#### 2026-11-11 14:05". Finding the first one is how an entry knows
+#: where the log starts — and at which heading level it is kept.
+DATED_HEADING_RE = re.compile(r"^(#{1,6})\s+\d{4}-\d{2}-\d{2}\b")
 
 
-def _insert_log_entry(existing: str, entry: str) -> str:
+def _body_start(lines: list[str]) -> int:
+    """The first line that belongs to the note rather than to its masthead.
+
+    Frontmatter and the H1 title are the note saying what it is, and an
+    entry never goes above them. The title especially: a call note is
+    often *called* a date — "# 2026-07-29 call" — and reading that as the
+    log's first entry is how an entry ended up stacked on top of the
+    title, outside the note it was filed into.
+    """
+    i = 0
+    if lines and lines[0].strip() == "---":
+        for j in range(1, len(lines)):
+            if lines[j].strip() == "---":
+                i = j + 1
+                break
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    if i < len(lines) and re.match(r"^#\s+\S", lines[i]):
+        i += 1
+    return i
+
+
+def _insert_log_entry(existing: str, text: str, stamp: str) -> str:
     """Put a new dated entry at the top of the note's log.
 
     Newest first, which is what a customer note wants: the call you just
-    had is the one you read. But "top of the file" is the wrong rule — a
-    note may open with an action-point list or a running tally that belongs
-    above every entry, and pushing it down one call at a time would bury it.
-
-    So the top of the *log*, not the top of the file: above the first dated
-    entry if the note has one, and otherwise at the end, below whatever is
-    already there. A note being logged into for the first time keeps its
-    opening block, and every entry after that stacks above the first one.
+    had is the one you read. The top of the log means directly under the
+    note's title — and when the note already keeps dated entries, directly
+    above the newest of them, at whatever heading level they use. A note
+    that opens with an action point list and then its entries therefore
+    keeps that list where it is.
     """
     lines = existing.split("\n")
-    for i, line in enumerate(lines):
-        if DATED_HEADING_RE.match(line.strip()):
-            head = "\n".join(lines[:i]).rstrip("\n")
-            tail = "\n".join(lines[i:])
-            return (head + "\n\n" if head else "") + entry.rstrip("\n") + "\n\n" + tail
-    body = existing.rstrip("\n")
-    return (body + "\n\n" if body else "") + entry.rstrip("\n") + "\n"
+    at = _body_start(lines)
+    level = "##"
+    for j in range(at, len(lines)):
+        m = DATED_HEADING_RE.match(lines[j].strip())
+        if m:
+            at, level = j, m.group(1)
+            break
+
+    entry = f"{level} {stamp}\n\n{text.strip()}"
+    head = "\n".join(lines[:at]).rstrip("\n")
+    tail = "\n".join(lines[at:]).strip("\n")
+    out = (head + "\n\n" if head else "") + entry
+    return out + ("\n\n" + tail + "\n" if tail else "\n")
 
 
 @router.post("/log")
@@ -154,8 +179,9 @@ async def log_to_note(req: LogRequest):
     existing = vault_io.read_text(full, default="")
     before = full.stat().st_mtime if full.exists() else None
 
-    entry = f"#### {req.stamp}\n\n{req.text.strip()}"
-    vault_io.write_text_guarded(full, _insert_log_entry(existing, entry), before, what="Note")
+    vault_io.write_text_guarded(
+        full, _insert_log_entry(existing, req.text, req.stamp), before, what="Note"
+    )
 
     refresh_index()
     return {

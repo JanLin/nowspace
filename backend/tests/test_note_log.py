@@ -1,10 +1,9 @@
 """Filing a piece of the day's notepad into the note it belongs to.
 
-The notepad is where things get written down mid-call; it is not where
-they live. Moving a piece of it into a customer's note has one rule worth
-testing: a note may open with something that belongs above every entry —
-an action-point list, a running tally — and newest-first must not mean
-burying it one call at a time.
+Newest first, because the call you just had is the one you read when you
+open a customer's note. The rule worth testing is where "first" is: under
+the note's title, and above the entries it already keeps — never above
+the title itself, which in a call note is often a date too.
 """
 
 import pytest
@@ -23,38 +22,70 @@ def _log(client, path, text, stamp="2026-11-11 14:05"):
     return client.post("/api/notes/log", json={"path": path, "text": text, "stamp": stamp})
 
 
-def test_the_first_entry_goes_below_what_the_note_already_says(note, client, vault):
-    """Nothing in the note is dated yet, so there is no log to be at the top
-    of — and the opening block is the one thing we know must not move."""
-    path = note("# Customer X\n\n## Open APs\n- chase the invoice\n")
+def test_a_title_that_is_itself_a_date_is_still_a_title(note, client, vault):
+    """A call note is often *called* a date. Reading "# 2026-07-29 call" as
+    the log's first entry is how an entry ended up stacked on top of the
+    title, outside the note it was filed into."""
+    path = note("# 2026-07-29 call\n\n**When:** \n**With:** \n\n## Notes\n\n\n## Action points\n\n- [ ] \n")
 
     assert _log(client, path, "rang about the renewal").status_code == 200
 
     written = (vault / path).read_text()
-    assert written.index("Open APs") < written.index("#### 2026-11-11 14:05")
-    assert "rang about the renewal" in written
+    assert written.startswith("# 2026-07-29 call")
+    assert written.index("2026-11-11 14:05") < written.index("**When:**")
+
+
+def test_the_entry_goes_under_the_title(note, client, vault):
+    path = note("# Customer X\n\nsome standing context\n")
+
+    _log(client, path, "rang about the renewal")
+
+    written = (vault / path).read_text()
+    assert written.index("# Customer X") < written.index("rang about the renewal") < written.index("standing context")
 
 
 def test_later_entries_stack_above_the_earlier_ones(note, client, vault):
-    """Newest first is the whole point: the call you just had is the one
-    you read when you open the note."""
-    path = note("# Customer X\n\n## Open APs\n- chase the invoice\n")
+    """Newest first is the whole point."""
+    path = note("# Customer X\n")
     _log(client, path, "first call", "2026-11-11 14:05")
     _log(client, path, "second call", "2026-11-12 09:00")
 
     written = (vault / path).read_text()
-    assert written.index("Open APs") < written.index("second call") < written.index("first call")
+    assert written.index("# Customer X") < written.index("second call") < written.index("first call")
 
 
-def test_a_hand_written_dated_heading_counts_as_the_log(note, client, vault):
-    """These notes were kept by hand before anything did it for them, and
-    an entry written as "## 2026-10-02" is the same kind of thing."""
-    path = note("# Customer X\n\nsome standing context\n\n## 2026-10-02\n\nold call\n")
+def test_a_block_kept_above_the_entries_stays_there(note, client, vault):
+    """An action point list or a running tally that already sits above the
+    log must not be pushed down one call at a time."""
+    path = note(
+        "# Customer X\n\n## Open APs\n- chase the invoice\n\n"
+        "#### 2026-10-28 11:15\n\nearlier call\n"
+    )
 
     _log(client, path, "new call")
 
     written = (vault / path).read_text()
-    assert written.index("standing context") < written.index("new call") < written.index("old call")
+    assert written.index("Open APs") < written.index("new call") < written.index("earlier call")
+
+
+def test_the_entry_is_written_at_the_level_the_note_already_uses(note, client, vault):
+    """These notes were kept by hand before anything did it for them, and
+    the heading depth is part of how they read."""
+    path = note("# Customer X\n\n#### 2026-10-28 11:15\n\nearlier call\n")
+
+    _log(client, path, "new call", "2026-11-11 14:05")
+
+    assert "#### 2026-11-11 14:05" in (vault / path).read_text()
+
+
+def test_frontmatter_is_not_something_to_write_above(note, client, vault):
+    path = note("---\ntags: [customer]\n---\n\n# Customer X\n")
+
+    _log(client, path, "rang about the renewal")
+
+    written = (vault / path).read_text()
+    assert written.startswith("---\ntags: [customer]\n---")
+    assert written.index("# Customer X") < written.index("rang about the renewal")
 
 
 def test_the_text_arrives_as_it_was_written(note, client, vault):
@@ -72,11 +103,3 @@ def test_a_note_that_does_not_exist_yet_is_created(vault, client):
     r = _log(client, "1-Projects/Brand New.md", "first ever")
     assert r.status_code == 200
     assert "first ever" in (vault / "1-Projects/Brand New.md").read_text()
-
-
-def test_the_entry_is_findable_by_the_link_left_behind(note, client, vault):
-    """The day's notes keep "[[Customer X#2026-11-11 14:05]]" where the text
-    used to be, so the heading has to be exactly that."""
-    path = note("# Customer X\n")
-    _log(client, path, "rang about the renewal", "2026-11-11 14:05")
-    assert "#### 2026-11-11 14:05" in (vault / path).read_text()
