@@ -4170,7 +4170,9 @@ export default function WeekPlan({ onOpenNote }: { onOpenNote: (path: string, na
       </button>
       {habitsOpen && (
         <div className="mt-1">
-          <HabitStrip habits={habits} dayIdx={habitDayIdx} onLog={logHabit} onUnlog={unlogHabit} onOpenNote={onOpenNote} compact={compact} />
+          <HabitStrip habits={habits} dayIdx={habitDayIdx} todayIdx={todayIdx}
+            onPickDay={viewMode === "day" ? goToDay : undefined}
+            onLog={logHabit} onUnlog={unlogHabit} onOpenNote={onOpenNote} compact={compact} />
         </div>
       )}
     </>

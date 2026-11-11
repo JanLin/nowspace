@@ -12,6 +12,8 @@ export interface HabitTime { start: string; minutes: number }
    leaves the strip; established ones keep the tiny chip. Paused habits are
    not here at all. */
 
+const DAY_INITIALS = ["M", "T", "W", "T", "F", "S", "S"];
+
 /** The one green on the strip: a week's target reached. It only ever
  *  fills a chip — the border and the text stay the habit's own domain
  *  colour, which is what tells one group of habits from another. */
@@ -59,6 +61,8 @@ export function HabitNoteLink({ note, onOpenNote }: {
 export default function HabitStrip({
   habits,
   dayIdx,
+  onPickDay,
+  todayIdx,
   onLog,
   onUnlog,
   onOpenNote,
@@ -68,6 +72,11 @@ export default function HabitStrip({
   //: Which day the strip is about — the one open in the day view. Every
   //: tick, every colour and every undo here belongs to this day.
   dayIdx: number;
+  //: Jump to a day, when there is a day view to jump within. Given only
+  //: then: in the grids there is no open day for it to mean anything.
+  onPickDay?: (idx: number) => void;
+  //: Today, so the week on each chip can say where you are.
+  todayIdx?: number;
   onLog: (habit: Habit, variant?: string, time?: HabitTime) => void;
   //: Takes back today's last log. Tapping the chip must stay "I did it
   //: again", so undo is its own small control rather than a second meaning
@@ -177,6 +186,33 @@ export default function HabitStrip({
               {h.period === "week" && (
                 <span className="opacity-70">{h.week_count}/{h.target}</span>
               )}
+              {/* The week, on the chip.
+                  Without it a habit done on Tuesday looks exactly like one
+                  never done at all from any other day — and since only the
+                  day a tick was made can take it back, not showing the day
+                  left nowhere to go. Pressing a dot goes to that day, which
+                  is where its undo lives. */}
+              <span className="flex items-center gap-[1px] ml-0.5">
+                {(h.week_days || [0, 0, 0, 0, 0, 0, 0]).map((n, i) => (
+                  <span
+                    key={i}
+                    role={onPickDay ? "button" : undefined}
+                    tabIndex={onPickDay ? 0 : undefined}
+                    onClick={onPickDay ? (e) => { e.stopPropagation(); onPickDay(i); } : undefined}
+                    onKeyDown={onPickDay ? (e) => { if (e.key === "Enter") (e.target as HTMLElement).click(); } : undefined}
+                    title={`${DAY_INITIALS[i]}${i === todayIdx ? " (today)" : ""} — ${n === 0 ? "not done" : `done${n > 1 ? ` ${n}×` : ""}`}${onPickDay ? " · go to this day" : ""}`}
+                    className={`w-[5px] h-[5px] rounded-full ${onPickDay ? "cursor-pointer" : ""}`}
+                    style={{
+                      backgroundColor: n > 0 ? color : "var(--border-strong)",
+                      // The day you are standing on, so the dots and the
+                      // tick state read as the same fact.
+                      outline: i === dayIdx ? `1px solid ${color}` : undefined,
+                      outlineOffset: "1px",
+                      opacity: n > 0 ? 1 : 0.45,
+                    }}
+                  />
+                ))}
+              </span>
               {h.note && onOpenNote && (
                 <HabitNoteLink note={h.note} onOpenNote={onOpenNote} />
               )}
